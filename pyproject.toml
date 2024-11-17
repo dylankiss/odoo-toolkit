@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "odoo-toolkit"
+version = "0.1.4"
+description = "This toolkit contains several useful tools for Odoo development."
+authors = ["Dylan Kiss <dyki@odoo.com>"]
+readme = "README.md"
+
+[tool.poetry.scripts]
+otk = "odoo_toolkit.main:app"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+typer = "^0.13.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+preview = true
+select = ["ALL"]
+ignore = [
+    "ANN", "B", "C901", "COM812", "D", "E501", "E741", "EM101", "ERA001", "FBT", "I001", "N", "PD", "PERF", "PIE790",
+    "PLR", "PT", "Q", "RET502", "RET503", "RSE102", "RUF001", "RUF012", "S", "SIM102", "SIM108", "SLF001", "TID252",
+    "UP031", "TRY002", "TRY003", "TRY300", "UP038", "E713", "SIM117", "PGH003", "RUF005", "RET", "DTZ", "FIX", "TD",
+    "ARG", "TRY400", "B904", "C408", "PLW2901", "PTH", "FURB103", "EM102", "INP001", "CPY001", "UP006", "UP007", "E266",
+    "PIE808", "PLC2701", "FURB101", "RUF021", "FURB118", "RUF100", "FA100", "FA102"
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
