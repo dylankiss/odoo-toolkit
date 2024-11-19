@@ -1,0 +1,79 @@
+name: odoo-dev
+
+services:
+  odoo-jammy:
+    build:
+      context: .
+      dockerfile: ./jammy.Dockerfile
+      platforms:
+        - linux/amd64
+    image: localhost/odoo-dev:jammy
+    container_name: odoo-jammy
+    hostname: odoo-jammy
+    platform: linux/amd64
+    depends_on:
+      - db
+    volumes:
+      - ${ODOO_WORKSPACE_DIR}:/code
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - ./.bash_aliases:/home/odoo/.bash_aliases
+      - ./starship.toml:/home/odoo/.config/starship.toml
+    ports:
+      - "5678:5678"
+      - "8069:8069"
+      - "8071:8071"
+      - "8072:8072"
+      - "8073:8073"
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  odoo-noble:
+    build:
+      context: .
+      dockerfile: ./noble.Dockerfile
+      platforms:
+        - linux/amd64
+    image: localhost/odoo-dev:noble
+    container_name: odoo-noble
+    hostname: odoo-noble
+    platform: linux/amd64
+    depends_on:
+      - db
+    volumes:
+      - ${ODOO_WORKSPACE_DIR}:/code
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - ./.bash_aliases:/home/odoo/.bash_aliases
+      - ./starship.toml:/home/odoo/.config/starship.toml
+    ports:
+      - "5678:5678"
+      - "8069:8069"
+      - "8071:8071"
+      - "8072:8072"
+      - "8073:8073"
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  db:
+    image: postgres:16
+    container_name: db
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+
+volumes:
+  odoo-db-data:
+    name: odoo-db-data
+  odoo-filestore:
+    name: odoo-filestore
+
+networks:
+  default:
+    name: odoo-network
