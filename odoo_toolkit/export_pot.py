@@ -10,11 +10,11 @@ from subprocess import PIPE, CalledProcessError, Popen
 from typing import Annotated
 
 from rich.panel import Panel
-from rich.progress import Progress, track
+from rich.progress import Progress
 from rich.table import Table
 from typer import Argument, Option
 
-from .common import app, log, logger
+from .common import PROGRESS_COLUMNS, app, log, logger
 
 
 @app.command()
@@ -198,12 +198,12 @@ def export_pot(
         if db_password:
             odoo_cmd.extend(["--db_password", db_password])
 
-        with Popen(odoo_cmd, stderr=PIPE) as p, Progress(console=logger, transient=True) as progress:
+        with Popen(odoo_cmd, stderr=PIPE, text=True) as p, Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress:
             # Run the Odoo server.
             log_buffer = ""
             task = None
             while p.poll() is None:
-                log_line = p.stderr.readline().decode("utf-8")
+                log_line = p.stderr.readline()
                 log_buffer += log_line
 
                 if "odoo.modules.loading: init db" in log_line:
@@ -379,53 +379,56 @@ def export_module_terms(
 
     export_table = Table(box=None, pad_edge=False)
 
-    for module in track(modules_to_export, description="Exporting terms", transient=True):
-        # Create the export wizard with the current module.
-        export_id = models.execute_kw(
-            database,
-            uid,
-            password,
-            "base.language.export",
-            "create",
-            [
-                {
-                    "lang": "__new__",
-                    "format": "po",
-                    "modules": [(6, False, [module["id"]])],
-                    "state": "choose",
-                },
-            ],
-        )
-        # Export the POT file.
-        models.execute_kw(
-            database,
-            uid,
-            password,
-            "base.language.export",
-            "act_getfile",
-            [[export_id]],
-        )
-        # Get the exported POT file.
-        pot_file = models.execute_kw(
-            database,
-            uid,
-            password,
-            "base.language.export",
-            "read",
-            [[export_id], ["data"], {"bin_size": False}],
-        )
-        pot_file_content = b64decode(pot_file[0]["data"])
-        module_name = module["name"]
-        i18n_path = modules_to_path_mapping[module_name] / module_name / "i18n"
-        if not i18n_path.exists():
-            i18n_path.mkdir()
-        pot_path = i18n_path / f"{module_name}.pot"
-        pot_path.write_bytes(pot_file_content)
+    with Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress:
+        task = progress.add_task("Exporting terms ...", total=len(modules_to_export))
+        for module in modules_to_export:
+            # Create the export wizard with the current module.
+            export_id = models.execute_kw(
+                database,
+                uid,
+                password,
+                "base.language.export",
+                "create",
+                [
+                    {
+                        "lang": "__new__",
+                        "format": "po",
+                        "modules": [(6, False, [module["id"]])],
+                        "state": "choose",
+                    },
+                ],
+            )
+            # Export the POT file.
+            models.execute_kw(
+                database,
+                uid,
+                password,
+                "base.language.export",
+                "act_getfile",
+                [[export_id]],
+            )
+            # Get the exported POT file.
+            pot_file = models.execute_kw(
+                database,
+                uid,
+                password,
+                "base.language.export",
+                "read",
+                [[export_id], ["data"], {"bin_size": False}],
+            )
+            pot_file_content = b64decode(pot_file[0]["data"])
+            module_name = module["name"]
+            i18n_path = modules_to_path_mapping[module_name] / module_name / "i18n"
+            if not i18n_path.exists():
+                i18n_path.mkdir()
+            pot_path = i18n_path / f"{module_name}.pot"
+            pot_path.write_bytes(pot_file_content)
 
-        export_table.add_row(
-            f"[bold]{module_name}",
-            f"[dim]{i18n_path}{os.sep}[/dim][bold]{module_name}.pot[/bold] :white_check_mark:",
-        )
+            progress.update(task, advance=1)
+            export_table.add_row(
+                f"[bold]{module_name}",
+                f"[dim]{i18n_path}{os.sep}[/dim][bold]{module_name}.pot[/bold] :white_check_mark:",
+            )
 
     log(export_table, "")
     log("Terms have been exported :white_check_mark:\n")

@@ -6,11 +6,11 @@ from subprocess import CalledProcessError
 from typing import Annotated
 
 from rich.panel import Panel
-from rich.progress import track
+from rich.progress import Progress
 from rich.tree import Tree
 from typer import Argument, Option
 
-from .common import app, log
+from .common import PROGRESS_COLUMNS, app, log, logger
 
 
 @app.command()
@@ -87,7 +87,7 @@ def update_po(
         for module in modules
     }
 
-    log(Panel.fit(":speech_balloon: [bold]Update Translations"))
+    log(Panel.fit(":speech_balloon: [bold]Update Translations"), "")
     modules = sorted(modules_to_update)
     success = failure = False
 
@@ -102,57 +102,51 @@ def update_po(
             log(update_tree, "")
             continue
         pot_file = i18n_path / f"{module}.pot"
-        for po_file in track(po_files, description=f"Updating [bold]{module}", transient=True):
-            try:
-                msgmerge = subprocess.run(
-                    [
-                        "msgmerge",
-                        "--no-fuzzy-matching",
-                        "-q",
-                        po_file,
-                        pot_file,
-                    ],
-                    capture_output=True,
-                    check=True,
-                )
-            except CalledProcessError as error:
-                failure = True
-                update_tree.add(
-                    Panel(
-                        error.stderr.strip(),
-                        title=f"Updating {po_file.name} failed during msgmerge!",
-                        title_align="left",
-                        style="red",
-                        border_style="bold red",
+        with Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress:
+            task = progress.add_task(f"Updating [bold]{module}", total=len(po_files))
+            for po_file in po_files:
+                try:
+                    running_cmd = "msgmerge"
+                    msgmerge = subprocess.run(
+                        [
+                            "msgmerge",
+                            "--no-fuzzy-matching",
+                            "-q",
+                            po_file,
+                            pot_file,
+                        ],
+                        capture_output=True,
+                        check=True,
                     )
-                )
-                continue
-            try:
-                subprocess.run(
-                    [
-                        "msgattrib",
-                        "--no-fuzzy",
-                        "--no-obsolete",
-                        "-o",
-                        po_file,
-                    ],
-                    input=msgmerge.stdout,
-                    check=True,
-                )
-                success = True
-                update_tree.add(f"[dim]{po_file.parent}{os.sep}[/dim][bold]{po_file.name}[/bold] :white_check_mark:")
-            except CalledProcessError as error:
-                failure = True
-                update_tree.add(
-                    Panel(
-                        error.stderr.strip(),
-                        title=f"Updating {po_file.name} failed during msgattrib!",
-                        title_align="left",
-                        style="red",
-                        border_style="bold red",
+                    running_cmd = "msgattrib"
+                    subprocess.run(
+                        [
+                            "msgattrib",
+                            "--no-fuzzy",
+                            "--no-obsolete",
+                            "-o",
+                            po_file,
+                        ],
+                        input=msgmerge.stdout,
+                        check=True,
                     )
-                )
-                continue
+                    success = True
+                    update_tree.add(
+                        f"[dim]{po_file.parent}{os.sep}[/dim][bold]{po_file.name}[/bold] :white_check_mark:"
+                    )
+                except CalledProcessError as error:
+                    failure = True
+                    update_tree.add(
+                        Panel(
+                            error.stderr.strip(),
+                            title=f"Updating {po_file.name} failed during {running_cmd}!",
+                            title_align="left",
+                            style="red",
+                            border_style="bold red",
+                        )
+                    )
+                    continue
+                progress.update(task, advance=1)
 
         log(update_tree, "")
 
