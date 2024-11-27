@@ -14,16 +14,19 @@ services:
     depends_on:
       - db
     volumes:
-      - ${ODOO_WORKSPACE_DIR}:/code
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
       - odoo-filestore:/home/odoo/.local/share/Odoo
+      - ./otk:/home/odoo/bin/otk
+      - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
       - ./.bash_aliases:/home/odoo/.bash_aliases
       - ./starship.toml:/home/odoo/.config/starship.toml
     ports:
       - "5678:5678"
-      - "8069:8069"
+      - "8070:8069"
       - "8071:8071"
       - "8072:8072"
       - "8073:8073"
+      - "8074:8074"
     working_dir: /code
     stdin_open: true
     tty: true
@@ -41,16 +44,19 @@ services:
     depends_on:
       - db
     volumes:
-      - ${ODOO_WORKSPACE_DIR}:/code
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
       - odoo-filestore:/home/odoo/.local/share/Odoo
+      - ./otk:/home/odoo/bin/otk
+      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
       - ./.bash_aliases:/home/odoo/.bash_aliases
       - ./starship.toml:/home/odoo/.config/starship.toml
     ports:
-      - "5678:5678"
-      - "8069:8069"
-      - "8071:8071"
-      - "8072:8072"
-      - "8073:8073"
+      - "5679:5678"
+      - "8075:8069"
+      - "8076:8076"
+      - "8077:8077"
+      - "8078:8078"
+      - "8079:8079"
     working_dir: /code
     stdin_open: true
     tty: true
@@ -64,11 +70,15 @@ services:
       - POSTGRES_USER=odoo
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
-      - odoo-db-data:/var/lib/postgresql/data/pgdata
+      - odoo-db-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
 
 volumes:
+  odoo-bash-history-data-jammy:
+    name: odoo-bash-history-data-jammy
+  odoo-bash-history-data-noble:
+    name: odoo-bash-history-data-noble
   odoo-db-data:
     name: odoo-db-data
   odoo-filestore:

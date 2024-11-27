@@ -1,7 +1,7 @@
 from .common import app
 from .dev import dev_app
-from .export_pot import export_pot
-from .update_po import update_po
+from .pot import export_pot
+from .po import update_po
 
 
 @app.callback()

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "odoo-toolkit"
-version = "0.1.6"
+version = "0.1.12"
 description = "This toolkit contains several useful tools for Odoo development."
 authors = ["Dylan Kiss <dyki@odoo.com>"]
 readme = "README.md"
@@ -11,6 +11,7 @@ otk = "odoo_toolkit.main:app"
 [tool.poetry.dependencies]
 python = "^3.10"
 typer = "^0.13.0"
+polib = "^1.2.0"
 
 [tool.ruff]
 line-length = 120

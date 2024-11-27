@@ -177,6 +177,9 @@ RUN --mount=type=bind,source=starship.bashrc,target=/tmp/starship.bashrc \
 # Install the following dependencies using the "odoo" user
 USER odoo
 
+# Set the right path for the installed tools
+ENV PATH="/home/odoo/bin:/home/odoo/.local/bin:$PATH"
+
 # Install Python dependencies via pip for packages not available via apt
 RUN pip install --no-cache-dir \
         # Install Odoo dependencies
@@ -194,15 +197,13 @@ RUN pip install --no-cache-dir \
         # Install debug tools
         debugpy
 
-# Install Odoo Toolkit
-RUN pipx install --pip-args "--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/" odoo-toolkit
-
 # Create the Odoo data folder already to prevent permission issues
 RUN mkdir -p /home/odoo/.local/share/Odoo
 
 WORKDIR /code
 
 # Expose useful ports
-EXPOSE 5678 8069 8071 8072 8073
+EXPOSE 5678 8069 8071 8072 8073 8074
 
-CMD [ "bash" ]
+# Install Odoo Toolkit before startin the shell (to always have the latest version)
+CMD ["sh", "-c", "pipx install --force --pip-args '--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/' odoo-toolkit && otk --install-completion && exec bash"]
