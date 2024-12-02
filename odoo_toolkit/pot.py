@@ -10,12 +10,10 @@ from socket import socket
 from subprocess import PIPE, CalledProcessError, Popen
 from typing import Annotated
 
-from rich.panel import Panel
-from rich.progress import Progress
 from rich.table import Table
 from typer import Argument, Option
 
-from .common import PROGRESS_COLUMNS, app, log, logger
+from .common import TransientProgress, app, print, print_command_title, print_error, print_header
 
 
 class OdooServerType(str, Enum):
@@ -115,14 +113,7 @@ def export_pot(
 
     If you want to export from your own running server, you can provide the corresponding options to the command.
     """
-    log(
-        Panel.fit(
-            ":outbox_tray: Odoo POT Export",
-            style="bold magenta",
-            border_style="bold magenta",
-        ),
-        "",
-    )
+    print_command_title(":outbox_tray: Odoo POT Export")
 
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
     com_modules_path = com_path.expanduser().resolve() / "addons"
@@ -144,7 +135,9 @@ def export_pot(
     modules_requiring_enterprise = modules_to_requirements_mapping.keys()
 
     def map_modules_to_paths(modules: set[str]) -> dict[str, Path]:
-        """Map the given modules to their containing directories using a dictionary."""
+        """
+        Map the given modules to their containing directories using a dictionary.
+        """
         return {
             module: path
             for modules, path in [
@@ -158,7 +151,8 @@ def export_pot(
     def get_modules_per_server_type(
         modules: set[str], server_type: OdooServerType = None
     ) -> dict[OdooServerType, set[str]] | set[str]:
-        """Get the provided modules according to the Odoo server type they should be exported from.
+        """
+        Get the provided modules according to the Odoo server type they should be exported from.
 
         :param modules: The modules to split per Odoo server type
         :type modules: set[str]
@@ -193,7 +187,7 @@ def export_pot(
         modules_to_export = {re.sub(r",", "", m) for m in modules if m in all_modules}
 
     if not modules_to_export:
-        log(":exclamation_mark: [red]The provided modules are not available! Nothing to export ...\n")
+        print_error("The provided modules are not available! Nothing to export ...\n")
         return
 
     if full_install:
@@ -205,7 +199,7 @@ def export_pot(
             for requirement in modules_to_requirements_mapping.get(module, {module})
         }
 
-    log(f"Modules to export: [bold]{'[/bold], [bold]'.join(sorted(modules_to_export))}[/bold]\n")
+    print(f"Modules to export: [b]{'[/b], [b]'.join(sorted(modules_to_export))}[/b]\n")
 
     # Determine the URL to connect to our Odoo server.
     host = "localhost" if start_server else host
@@ -226,10 +220,8 @@ def export_pot(
             if not modules:
                 continue
 
-            log(
-                Panel.fit(f":rocket: [bold]Start Odoo Server[/bold] ({server_type.value})"),
-                "",
-            )
+            print_header(f":rocket: Start Odoo Server ({server_type.value})")
+
             if server_type == OdooServerType.ENTERPRISE:
                 addons_path = f"{ent_modules_path},{addons_path}"
 
@@ -255,13 +247,10 @@ def export_pot(
             if db_password:
                 odoo_cmd.extend(["--db_password", db_password])
 
-            with (
-                Popen(odoo_cmd, stderr=PIPE, text=True) as p,
-                Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress,
-            ):
+            with Popen(odoo_cmd, stderr=PIPE, text=True) as p, TransientProgress() as progress:
                 # Run the Odoo server.
                 log_buffer = ""
-                task = None
+                progress_task = None
                 while p.poll() is None:
                     log_line = p.stderr.readline()
                     log_buffer += log_line
@@ -269,53 +258,37 @@ def export_pot(
                     if "odoo.modules.loading: init db" in log_line:
                         log_buffer = ""
                         database_created = True
-                        log(f"Database [bold]{database}[/bold] has been created :white_check_mark:")
+                        print(f"Database [b]{database}[/b] has been created :white_check_mark:")
                         continue
 
                     if match := re.search(r"odoo\.modules\.loading: loading (\d+) modules", log_line):
                         log_buffer = ""
                         total = int(match.group(1))
-                        if task is None:
+                        if progress_task is None:
                             # First module loaded is base. We don't want to display a total of 1 yet.
-                            log("Installing required modules ...")
-                            task = progress.add_task(description="Installing modules\n", total=None)
+                            print("Installing required modules ...")
+                            progress_task = progress.add_task("Installing modules", total=None)
                         else:
-                            progress.update(task, total=total)
+                            progress.update(progress_task, total=total)
                         continue
 
                     if match := re.search(r"odoo\.modules\.loading: Loading module (\w+) \(\d+/\d+\)", log_line):
                         log_buffer = ""
                         module_name = match.group(1)
                         progress.update(
-                            task,
+                            progress_task,
                             advance=1,
-                            description=f"Installing module [bold]{module_name}[/bold]\n",
+                            description=f"Installing module [b]{module_name}[/b]\n",
                         )
                         continue
 
                     if re.search(r"odoo\.(modules\.)?registry: Failed to load registry", log_line):
-                        log(":exclamation_mark: [red]An error occurred during loading! Terminating the process ...\n")
-                        log(
-                            Panel(
-                                log_buffer.strip(),
-                                title="Error Log",
-                                title_align="left",
-                                style="red",
-                                border_style="bold red",
-                            ),
-                        )
+                        print_error("An error occurred during loading! Terminating the process ...", log_buffer.strip())
                         break
 
                     if "odoo.sql_db: Connection to the database failed" in log_line:
-                        log(":exclamation_mark: [red]Could not connect to the database! Terminating the process ...\n")
-                        log(
-                            Panel(
-                                log_buffer.strip(),
-                                title="Error Log",
-                                title_align="left",
-                                style="red",
-                                border_style="bold red",
-                            ),
+                        print_error(
+                            "Could not connect to the database! Terminating the process ...", log_buffer.strip()
                         )
                         break
 
@@ -323,10 +296,10 @@ def export_pot(
                         # Close the pipe to prevent overfilling the buffer and blocking the process.
                         p.stderr.close()
 
-                        progress.update(task, description="Installing modules")
+                        progress.update(progress_task, description="Installing modules")
                         progress.stop()
-                        log("Modules have been installed :white_check_mark:")
-                        log("Odoo Server has started :white_check_mark:\n")
+                        print("Modules have been installed :white_check_mark:")
+                        print("Odoo Server has started :white_check_mark:\n")
 
                         # Export module terms.
                         export_module_terms(
@@ -339,25 +312,13 @@ def export_pot(
                         break
 
                 if p.returncode:
-                    log(
-                        f":exclamation_mark: [red]Running the Odoo server failed and exited with code: {p.returncode}\n"
-                    )
-                    log(
-                        Panel(
-                            log_buffer.strip(),
-                            title="Error Log",
-                            title_align="left",
-                            style="red",
-                            border_style="bold red",
-                        ),
+                    print_error(
+                        f"Running the Odoo server failed and exited with code: {p.returncode}", log_buffer.strip()
                     )
                 else:
-                    log(
-                        Panel.fit(f":raised_hand: [bold]Stop Odoo Server[/bold] ({server_type.value})"),
-                        "",
-                    )
+                    print_header(f":raised_hand: Stop Odoo Server ({server_type.value})")
                     p.kill()
-                    log("Odoo Server has stopped :white_check_mark:\n")
+                    print("Odoo Server has stopped :white_check_mark:\n")
 
         if database_created:
             dropdb_cmd = [
@@ -376,19 +337,11 @@ def export_pot(
 
             try:
                 subprocess.run(dropdb_cmd, env=cmd_env, capture_output=True, check=True)
-                log(f"Database [bold]{database}[/bold] has been deleted :white_check_mark:\n")
-            except CalledProcessError as error:
-                log(
-                    f":exclamation_mark: [red]Deleting database [bold]{database}[/bold] failed. You can try deleting it manually.[/red]"
-                )
-                log(
-                    Panel(
-                        error.stderr.strip(),
-                        title="Error Log",
-                        title_align="left",
-                        style="red",
-                        border_style="bold red",
-                    ),
+                print(f"Database [b]{database}[/b] has been deleted :white_check_mark:\n")
+            except CalledProcessError as e:
+                print_error(
+                    f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.",
+                    e.stderr.strip(),
                 )
 
     else:
@@ -409,16 +362,15 @@ def export_module_terms(
     username: str,
     password: str,
 ):
-    log(
-        Panel.fit(":link: [bold]Access Odoo Server"),
-        "",
-    )
+    print_header(":link: Access Odoo Server")
+
     common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
     uid = common.authenticate(database, username, password, {})
-    log(f"Logged in as [bold]{username}[/bold] in database [bold]{database}[/bold] :white_check_mark:\n")
+    print(f"Logged in as [b]{username}[/b] in database [b]{database}[/b] :white_check_mark:\n")
     models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
 
-    log(Panel.fit(":speech_balloon: [bold]Export Terms[/bold]"))
+    print_header(":speech_balloon: Export Terms")
+
     modules = list(modules_to_path_mapping.keys())
     if not modules:
         return
@@ -441,8 +393,8 @@ def export_module_terms(
 
     export_table = Table(box=None, pad_edge=False)
 
-    with Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress:
-        task = progress.add_task("Exporting terms ...", total=len(modules_to_export))
+    with TransientProgress() as progress:
+        progress_task = progress.add_task("Exporting terms ...", total=len(modules_to_export))
         for module in modules_to_export:
             # Create the export wizard with the current module.
             export_id = models.execute_kw(
@@ -491,28 +443,30 @@ def export_module_terms(
                     # Remove empty POT files.
                     pot_path.unlink()
                     export_table.add_row(
-                        f"[bold]{module_name}",
-                        f"[dim]Removed empty[/dim] [bold]{module_name}.pot[/bold] :negative_squared_cross_mark:",
+                        f"[b]{module_name}[/b]",
+                        f"[dim]Removed empty[/dim] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
                     )
                 else:
                     export_table.add_row(
-                        f"[bold]{module_name}",
+                        f"[b]{module_name}[/b]",
                         "[dim]No terms to translate[/dim] :negative_squared_cross_mark:",
                     )
             else:
                 pot_path.write_bytes(pot_file_content)
                 export_table.add_row(
-                    f"[bold]{module_name}",
-                    f"[dim]{i18n_path}{os.sep}[/dim][bold]{module_name}.pot[/bold] :white_check_mark:",
+                    f"[b]{module_name}[/b]",
+                    f"[dim]{i18n_path}{os.sep}[/dim][b]{module_name}.pot[/b] :white_check_mark:",
                 )
-            progress.update(task, advance=1)
+            progress.update(progress_task, advance=1)
 
-    log(export_table, "")
-    log("Terms have been exported :white_check_mark:\n")
+    print(export_table, "")
+    print("Terms have been exported :white_check_mark:\n")
 
 
 def free_port(host: str, start_port: int) -> int:
-    """Find the first free port on the host starting from the provided port."""
+    """
+    Find the first free port on the host starting from the provided port.
+    """
     for port in range(start_port, 65536):
         with socket() as s:
             try:
@@ -524,7 +478,9 @@ def free_port(host: str, start_port: int) -> int:
 
 
 def exportable_for_transifex(module: str) -> bool:
-    """Determine if the given module should be exported for Transifex."""
+    """
+    Determine if the given module should be exported for Transifex.
+    """
     return (
         ("l10n_" not in module or module == "l10n_multilang")
         and "theme_" not in module
@@ -535,7 +491,9 @@ def exportable_for_transifex(module: str) -> bool:
 
 
 def is_pot_file_empty(contents: bytes) -> bool:
-    """Determine if the given POT file's contents doesn't contains translatable terms."""
+    """
+    Determine if the given POT file's contents doesn't contains translatable terms.
+    """
     for line in contents.decode().split("\n"):
         line = line.strip()
         if line.startswith("msgid") and line != 'msgid ""':

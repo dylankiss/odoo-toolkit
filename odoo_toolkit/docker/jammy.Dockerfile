@@ -10,9 +10,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     # Turns off buffering for easier container logging
     PYTHONUNBUFFERED=1
 
-# Add flamegraph
-ADD --chmod=555 https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl /usr/local/bin/flamegraph.pl
-
 # Add GeoIP databases
 ADD https://github.com/maxmind/MaxMind-DB/raw/main/test-data/GeoIP2-City-Test.mmdb /usr/share/GeoIP/GeoLite2-City.mmdb
 ADD https://github.com/maxmind/MaxMind-DB/raw/main/test-data/GeoIP2-Country-Test.mmdb /usr/share/GeoIP/GeoLite2-Country.mmdb
@@ -24,127 +21,200 @@ RUN apt-get update -y && \
         ca-certificates \
         curl && \
     # Fetch Google Chrome (for web tour tests)
-    curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_123.0.6312.58-1_amd64.deb \
+    curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
         -o chrome.deb && \
     # Fetch the right version of wkhtmltox
     curl -sSL https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb \
-        -o wkhtmltox.deb && \
-    # Continue install after fetching debs
-    apt-get update -y && \
+        -o wkhtmltox.deb
+
+RUN apt-get update -y && \
+    apt-get upgrade -y && \
+    # Continue install after fetching Debian packages
     apt-get install -y --no-install-recommends \
-        # Install useful tools and optional Odoo dependencies
-        bash-completion \
-        build-essential \
-        ffmpeg \
-        flake8 \
+        #==============================================
+        # Install necessary and useful Debian packages
+        #==============================================
         file \
-        gawk \
         gettext \
-        gnupg2 \
-        libjpeg9-dev \
-        libldap2-dev \
-        libpq-dev \
-        libsasl2-dev \
-        libxslt1-dev \
         nano \
-        pipx \
         postgresql-client \
-        publicsuffix \
-        python3-google-auth \
-        python3-pdfminer \
-        python3-setuptools \
-        python3-wheel \
         sed \
         sudo \
-        unzip \
         vim \
-        zip \
-        zlib1g-dev \
+        #
+        #======================================
         # Install Python dependencies for Odoo
+        #======================================
+        # pylint==2.12.2 (test dep)
         pylint \
+        # aiosmtpd==1.4.2 (test dep)
         python3-aiosmtpd \
+        # asn1crypto==1.4.0
         python3-asn1crypto \
+        # astroid==2.9.3 (test dep)
         python3-astroid \
+        # Babel==2.8.0
         python3-babel \
+        # cbor2==5.4.2
         python3-cbor2 \
+        # chardet==4.0.0
+        python3-chardet \
+        # cryptography==3.4.8
+        python3-cryptography \
+        # python-dateutil==2.8.1
         python3-dateutil \
+        # dbfread==2.0.7 (account_winbooks_import)
         python3-dbfread \
+        # decorator==4.4.2
         python3-decorator \
-        python3-dev \
-        python3-docopt \
+        # docutils==0.17.1
         python3-docutils \
-        python3-feedparser \
+        # fonttools==4.29.1 (odoo/tools/pdf)
         python3-fonttools \
+        # freezegun==1.1.0
         python3-freezegun \
+        # geoip2==2.9.0
         python3-geoip2 \
+        # gevent==21.8.0
         python3-gevent \
-        python3-html2text \
+        # google-auth==1.5.1 (cloud_storage_google, social_push_notifications)
+        python3-google-auth \
+        # greenlet==1.1.2
+        python3-greenlet \
+        # idna==3.3.1
+        python3-idna \
+        # Jinja2==3.0.3
         python3-jinja2 \
+        # jwt==2.3.0 (l10n_be_hr_payroll_dimona, l10n_in_qr_code_bill_scan, l10n_in_reports_gstr)
         python3-jwt \
+        # libsass==0.20.1
         python3-libsass \
+        # lxml==4.8.0
         python3-lxml \
-        python3-mako \
+        # markdown==3.3.6 (upgrade, upgrade-util)
         python3-markdown \
-        python3-matplotlib \
-        python3-mock \
+        # MarkupSafe==2.0.1
+        python3-markupsafe \
+        # num2words==0.5.10
         python3-num2words \
+        # ofxparse==0.21
         python3-ofxparse \
-        python3-openid \
+        # openpyxl==3.0.9
+        python3-openpyxl \
+        # pyopenssl==21.0.0
         python3-openssl \
+        # passlib==1.7.4
         python3-passlib \
+        # pdfminer.six==20220319 (attachment_indexation)
         python3-pdfminer \
+        # phonenumbers==8.12.1 (account_peppol, data_cleaning, phone_validation)
         python3-phonenumbers \
+        # Pillow==9.0.1
         python3-pil \
+        # polib==1.1.1
         python3-polib \
+        # psutil==5.9.0
         python3-psutil \
-        python3-psycogreen \
+        # psycopg2==2.9.2
         python3-psycopg2 \
-        python3-pydot \
+        # python-ldap==3.2.0
         python3-pyldap \
-        python3-pyparsing \
+        # PyPDF2==1.26.0
         python3-pypdf2 \
+        # qrcode==7.3.1
         python3-qrcode \
-        python3-renderpm \
+        # reportlab==3.6.8
         python3-reportlab \
+        # requests==2.25.1
         python3-requests \
+        # rjsmin==1.1.0
         python3-rjsmin \
-        python3-setproctitle \
-        python3-simplejson \
+        # pyserial==3.5
+        python3-serial \
+        # python-slugify==4.0.0 (base)
         python3-slugify \
+        # python-stdnum==1.17
         python3-stdnum \
+        # suds==1.0.0 (fallback in odoo/_monkeypatches)
         python3-suds \
+        # pytz==2022.1
         python3-tz \
-        python3-unittest2 \
+        # urllib3==1.26.5
+        python3-urllib3 \
+        # pyusb==1.2.1
+        python3-usb \
+        # vobject==0.9.6.1
         python3-vobject \
+        # websocket==1.2.3 (test dep + hw_drivers)
         python3-websocket \
+        # Werkzeug==2.0.2
         python3-werkzeug \
+        # xlrd==1.2.0
         python3-xlrd \
+        # XlsxWriter==3.0.2
         python3-xlsxwriter \
+        # xlwt==1.3.0
         python3-xlwt \
+        # xmlsec==1.3.12 (l10n_nl_reports_sbr)
         python3-xmlsec \
+        # zeep==4.1.0
         python3-zeep \
+        #
+        #===================================================
         # Install Python dependencies for the documentation
+        #===================================================
+        # pygments==2.11.2
         python3-pygments \
+        # sphinx==4.3.2
         python3-sphinx \
+        # sphinx-tabs==3.2.0
         python3-sphinx-tabs \
-        # Set python3 by default
+        #
+        #=============================================================================================
+        # Install pip and build tools, to install Python dependencies not available as Debian package
+        #=============================================================================================
+        build-essential \
+        pipx \
+        python3-dev \
+        # Use python3 by default
         python-is-python3 \
-        # Install pip, to install python dependencies not packaged by Ubuntu
         python3-pip \
-        # Install lessc
-        node-less \
-        # Install npm, to install node dependencies not packaged by Ubuntu
+        python3-setuptools \
+        python3-wheel \
+        #
+        #===========================================
+        # Install npm, to install node dependencies
+        #===========================================
         npm \
+        #
+        #===============
         # Install fonts
+        #===============
+        # FreeFont (FreeSerif, FreeSans, FreeMono)
         fonts-freefont-ttf \
+        # Khmer OS (Khmer language spoken in Cambodia)
         fonts-khmeros-core \
+        # Noto CJK (Chinese, Japanese and Korean)
         fonts-noto-cjk \
+        # OCR-B (Barcodes)
         fonts-ocr-b \
+        # VL Gothic (Japanese)
         fonts-vlgothic \
+        # Replacing Times New Roman, Palatino, Century Schoolbook, Helvetica, Avant Garde, Courier ...
         gsfonts \
+        # matplotlib==3.6.3 (DejaVu fonts)
+        python3-matplotlib \
+        # Fonts like Courier, Helvetica, Times and Lucida
+        xfonts-75dpi \
+        #
+        #=======================
         # Install Google Chrome
+        #=======================
         ./chrome.deb \
+        #
+        #===================
         # Install wkhtmltox
+        #===================
         ./wkhtmltox.deb
 
 # Cleanup
@@ -161,7 +231,7 @@ RUN npm install -g \
         prettier@2.7.1
 
 # Remove the default Ubuntu user, add an Odoo user and set up his environment
-RUN --mount=type=bind,source=starship.bashrc,target=/tmp/starship.bashrc \
+RUN --mount=type=bind,source=append.bashrc,target=/tmp/append.bashrc \
     groupadd -g 1000 odoo && \
     useradd --create-home -u 1000 -g odoo -G audio,video odoo && \
     passwd -d odoo && \
@@ -172,7 +242,7 @@ RUN --mount=type=bind,source=starship.bashrc,target=/tmp/starship.bashrc \
     chown odoo /code && \
     # Configure the Bash shell using Starship
     curl -sS https://starship.rs/install.sh | sh -s -- --yes && \
-    cat /tmp/starship.bashrc >> /home/odoo/.bashrc
+    cat /tmp/append.bashrc >> /home/odoo/.bashrc
 
 # Install the following dependencies using the "odoo" user
 USER odoo
@@ -194,11 +264,14 @@ RUN pip install --no-cache-dir \
         sphinxcontrib-htmlhelp==2.0.1 \
         sphinxcontrib-serializinghtml==1.1.5 \
         sphinxcontrib-qthelp==1.0.3 \
-        # Install debug tools
-        debugpy
+        # Install development tools
+        debugpy \
+        pydevd-odoo \
+        watchdog
 
-# Create the Odoo data folder already to prevent permission issues
-RUN mkdir -p /home/odoo/.local/share/Odoo
+# Create mounted folders to prevent permission issues
+RUN mkdir -p /home/odoo/.local/share/Odoo && \
+    mkdir -p /home/odoo/.bash_history_data
 
 WORKDIR /code
 

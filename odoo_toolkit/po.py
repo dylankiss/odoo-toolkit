@@ -6,11 +6,20 @@ from typing import Annotated
 
 import polib
 from rich.panel import Panel
-from rich.progress import Progress
 from rich.tree import Tree
 from typer import Argument, Option
 
-from .common import PROGRESS_COLUMNS, app, log, logger
+from .common import (
+    TransientProgress,
+    app,
+    get_error_log_panel,
+    print,
+    print_command_title,
+    print_error,
+    print_header,
+    print_success,
+    print_warning,
+)
 
 
 class Lang(str, Enum):
@@ -259,14 +268,7 @@ def create_po(
     """
     Create Odoo translation files (.po) according to their .pot files.
     """
-    log(
-        Panel.fit(
-            ":new: Odoo PO Create",
-            style="bold magenta",
-            border_style="bold magenta",
-        ),
-        "",
-    )
+    print_command_title(":new: Odoo PO Create")
 
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
     com_modules_path = com_path.expanduser().resolve() / "addons"
@@ -289,10 +291,10 @@ def create_po(
         modules_to_update = {re.sub(r",", "", m) for m in modules if m in all_modules}
 
     if not modules_to_update:
-        log(":exclamation_mark: [red]The provided modules are not available! Nothing to update ...\n")
+        print_error("The provided modules are not available! Nothing to update ...")
         return
 
-    log(f"Modules to update: [bold]{'[/bold], [bold]'.join(sorted(modules_to_update))}[/bold]\n")
+    print(f"Modules to update: [b]{'[/b], [b]'.join(sorted(modules_to_update))}[/b]\n")
 
     # Map each module to its directory.
     modules_to_path_mapping = {
@@ -305,7 +307,8 @@ def create_po(
         for module in modules
     }
 
-    log(Panel.fit(":speech_balloon: [bold]Create Translations"), "")
+    print_header(":speech_balloon: Create Translations")
+
     modules = sorted(modules_to_update)
     success = failure = False
 
@@ -315,67 +318,51 @@ def create_po(
     languages = sorted(languages)
 
     for module in modules:
-        create_tree = Tree(f"[bold]{module}")
+        create_tree = Tree(f"[b]{module}[/b]")
         i18n_path = modules_to_path_mapping[module] / module / "i18n"
         pot_file = i18n_path / f"{module}.pot"
         if not pot_file.exists():
             failure = True
             create_tree.add("No .pot file found!")
-            log(create_tree, "")
+            print(create_tree, "")
             continue
         try:
             pot = polib.pofile(pot_file)
-        except OSError as error:
+        except OSError as e:
             failure = True
-            create_tree.add(
-                Panel(
-                    str(error),
-                    title=f"Reading {pot_file.name} failed!",
-                    title_align="left",
-                    style="red",
-                    border_style="bold red",
-                )
-            )
+            create_tree.add(get_error_log_panel(str(e), f"Reading {pot_file.name} failed!"))
             continue
 
-        with Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress:
-            task = progress.add_task(f"Updating [bold]{module}", total=len(languages))
+        with TransientProgress() as progress:
+            progress_task = progress.add_task(f"Updating [b]{module}[/b]", total=len(languages))
             for lang in languages:
                 try:
                     po_file = i18n_path / f"{lang.value}.po"
                     po = polib.POFile()
                     po.header = pot.header
                     po.metadata = pot.metadata.copy()
+                    # Set the correct language and plural forms in the PO file.
                     po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
                     for entry in pot:
+                        # Just add all entries in the POT to the PO file.
                         po.append(entry)
                     po.save(po_file)
                     success = True
-                    create_tree.add(
-                        f"[dim]{po_file.parent}{os.sep}[/dim][bold]{po_file.name}[/bold] :white_check_mark:"
-                    )
-                except OSError as error:
+                    create_tree.add(f"[dim]{po_file.parent}{os.sep}[/dim][b]{po_file.name}[/b] :white_check_mark:")
+                except OSError as e:
                     failure = True
-                    create_tree.add(
-                        Panel(
-                            str(error),
-                            title=f"Creating {po_file.name} failed!",
-                            title_align="left",
-                            style="red",
-                            border_style="bold red",
-                        )
-                    )
+                    create_tree.add(get_error_log_panel(str(e), f"Creating {po_file.name} failed!"))
                     continue
-                progress.update(task, advance=1)
+                progress.update(progress_task, advance=1)
 
-        log(create_tree, "")
+        print(create_tree, "")
 
     if not success and failure:
-        log(":exclamation_mark: [red]No translation files were created!\n")
+        print_error("No translation files were created!\n")
     elif success and failure:
-        log(":warning: [yellow]Some translation files were created correctly, while others weren't!\n")
+        print_warning("Some translation files were created correctly, while others weren't!\n")
     else:
-        log(":white_check_mark: [green]All translation files were created correctly!\n")
+        print_success("All translation files were created correctly!\n")
 
 
 @app.command()
@@ -408,7 +395,7 @@ def update_po(
     """
     Update Odoo translation files (.po) according to a new version of their .pot files.
     """
-    log(
+    print(
         Panel.fit(
             ":arrows_counterclockwise: Odoo PO Update",
             style="bold magenta",
@@ -438,10 +425,10 @@ def update_po(
         modules_to_update = {re.sub(r",", "", m) for m in modules if m in all_modules}
 
     if not modules_to_update:
-        log(":exclamation_mark: [red]The provided modules are not available! Nothing to update ...\n")
+        print_error("The provided modules are not available! Nothing to update ...\n")
         return
 
-    log(f"Modules to update: [bold]{'[/bold], [bold]'.join(sorted(modules_to_update))}[/bold]\n")
+    print(f"Modules to update: [b]{'[/b], [b]'.join(sorted(modules_to_update))}[/b]\n")
 
     # Map each module to its directory.
     modules_to_path_mapping = {
@@ -454,7 +441,8 @@ def update_po(
         for module in modules
     }
 
-    log(Panel.fit(":speech_balloon: [bold]Update Translations"), "")
+    print_header(":speech_balloon: Update Translations")
+
     modules = sorted(modules_to_update)
     success = failure = False
 
@@ -464,73 +452,57 @@ def update_po(
     languages = sorted(languages)
 
     for module in modules:
-        update_tree = Tree(f"[bold]{module}")
+        update_tree = Tree(f"[b]{module}[/b]")
         i18n_path = modules_to_path_mapping[module] / module / "i18n"
         pot_file = i18n_path / f"{module}.pot"
         if not pot_file.exists():
             failure = True
             update_tree.add("No .pot file found!")
-            log(update_tree, "")
+            print(update_tree, "")
             continue
         try:
             pot = polib.pofile(pot_file)
-        except OSError as error:
+        except OSError as e:
             failure = True
-            update_tree.add(
-                Panel(
-                    str(error),
-                    title=f"Reading {pot_file.name} failed!",
-                    title_align="left",
-                    style="red",
-                    border_style="bold red",
-                )
-            )
+            update_tree.add(get_error_log_panel(str(e), f"Reading {pot_file.name} failed!"))
             continue
+
         langs_to_update = [lang for lang in languages if (i18n_path / f"{lang.value}.po").exists()]
         if not langs_to_update:
-            update_tree.add("No .po files found!")
-            log(update_tree, "")
+            failure = True
+            update_tree.add("No .po files found for the requested languages!")
+            print(update_tree, "")
             continue
-        with Progress(*PROGRESS_COLUMNS, console=logger, transient=True) as progress:
-            task = progress.add_task(f"Updating [bold]{module}", total=len(langs_to_update))
+
+        with TransientProgress() as progress:
+            progress_task = progress.add_task(f"Updating [b]{module}[/b]", total=len(langs_to_update))
             for lang in langs_to_update:
                 try:
                     po_file = i18n_path / f"{lang.value}.po"
                     po = polib.pofile(po_file)
+                    # Update the PO header and metadata.
                     po.header = pot.header
                     po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
-                    # Remove entries that are obsolete, fuzzy, or not in the POT file.
-                    po[:] = [entry for entry in po if entry in pot and not entry.obsolete and not entry.fuzzy]
-                    # Add entries in the POT file that are not in the PO file yet.
-                    for entry in pot:
-                        if entry not in po:
-                            po.append(entry)
-                    # Sort the entries before saving.
+                    # Merge the PO file with the POT file to update all terms.
+                    po.merge(pot)
+                    # Remove entries that are obsolete or fuzzy.
+                    po[:] = [entry for entry in po if not entry.obsolete and not entry.fuzzy]
+                    # Sort the entries before saving, in the same way as `msgmerge -s`.
                     po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
                     po.save()
                     success = True
-                    update_tree.add(
-                        f"[dim]{po_file.parent}{os.sep}[/dim][bold]{po_file.name}[/bold] :white_check_mark:"
-                    )
-                except OSError as error:
+                    update_tree.add(f"[dim]{po_file.parent}{os.sep}[/dim][b]{po_file.name}[/b] :white_check_mark:")
+                except OSError as e:
                     failure = True
-                    update_tree.add(
-                        Panel(
-                            str(error),
-                            title=f"Updating {po_file.name} failed!",
-                            title_align="left",
-                            style="red",
-                            border_style="bold red",
-                        )
-                    )
+                    update_tree.add(get_error_log_panel(str(e), f"Updating {po_file.name} failed!"))
                     continue
-                progress.update(task, advance=1)
+                progress.update(progress_task, advance=1)
 
-        log(update_tree, "")
+        print(update_tree, "")
 
     if not success and failure:
-        log(":exclamation_mark: [red]No translation files were updated!\n")
+        print_error("No translation files were updated!\n")
     elif success and failure:
-        log(":warning: [yellow]Some translation files were updated correctly, while others weren't!\n")
+        print_warning("Some translation files were updated correctly, while others weren't!\n")
     else:
-        log(":white_check_mark: [green]All translation files were updated correctly!\n")
+        print_success("All translation files were updated correctly!\n")
