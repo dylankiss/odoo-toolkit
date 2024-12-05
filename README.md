@@ -120,16 +120,16 @@ $ otk dev [OPTIONS] COMMAND [ARGS]...
 
 **Commands**:
 
-* `start`: Start an Odoo Development Server using...
-* `start-db`: Start a standalone PostgreSQL container...
-* `stop`: Stop all running containers of the Odoo...
+* [`start`](#otk-dev-start): Start an Odoo Development Server using...
+* [`start-db`](#otk-dev-start-db): Start a standalone PostgreSQL container...
+* [`stop`](#otk-dev-stop): Stop and delete all running containers of...
 
 ### `otk dev start`
 
 Start an Odoo Development Server using Docker and launch a terminal session into it.
 
 This command will start both a PostgreSQL container and an Odoo container containing your source code.
-You can choose to launch a container using Ubuntu 24.04  (default) or 22.04  using "-u".
+You can choose to launch a container using Ubuntu 24.04 [`noble`] (default) or 22.04 [`jammy`] using "-u".
 The source code can be mapped using the "-w" option as the path to your workspace.
 
 **Usage**:
@@ -162,7 +162,7 @@ $ otk dev start-db [OPTIONS]
 
 ### `otk dev stop`
 
-Stop all running containers of the Odoo Development Server.
+Stop and delete all running containers of the Odoo Development Server.
 
 **Usage**:
 

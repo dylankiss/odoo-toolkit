@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.progress import Progress
 from typer import Option
 
-from .common import app, print, console, PROGRESS_COLUMNS
+from .common import TransientProgress, app, print, console, PROGRESS_COLUMNS, print_command_title, print_error, print_header
 
 
 class OdooRepo(str, Enum):
@@ -50,7 +50,7 @@ def multiverse(
         Option(
             "--repositories",
             "-r",
-            help="Specify the Odoo repositories you want to checkout.",
+            help="Specify the Odoo repositories you want to sync.",
         ),
     ] = DEFAULT_REPOS,
     multiverse_dir: Annotated[
@@ -60,43 +60,31 @@ def multiverse(
         ),
     ] = Path(os.getcwd()),
 ):
-    print(
-        Panel.fit(
-            ":earth_africa: Odoo Multiverse",
-            style="bold magenta",
-            border_style="bold magenta",
-        ),
-        "",
-    )
+    print_command_title(":earth_africa: Odoo Multiverse")
+
     # Ensure the multiverse directory exists.
     if multiverse_dir.is_file():
-        print(
-            f":exclamation_mark: [red]The provided multiverse path [b]{multiverse_dir}[/b] is not a directory. Aborting ...\n"
-        )
+        print_error(f"The provided multiverse path [b]{multiverse_dir}[/b] is not a directory. Aborting ...\n")
         return
     multiverse_dir.mkdir(parents=True, exist_ok=True)
+
     # Ensure the worktree source directory exists.
     worktree_src_dir = multiverse_dir / ".worktree-source"
-    if worktree_src_dir.exists() and not worktree_src_dir.is_dir():
-        print(
-            f":exclamation_mark: [red]The worktree source directory [b]{worktree_src_dir}[/b] is not a directory. Aborting ...\n"
-        )
+    if worktree_src_dir.is_file():
+        print_error(f"The worktree source directory [b]{worktree_src_dir}[/b] is not a directory. Aborting ...\n")
         return
     worktree_src_dir.mkdir(parents=True, exist_ok=True)
 
     # Checkout all bare repositories of the multibranch ones.
-    print(
-        Panel.fit(":jar: [bold]Configure Bare Multi-Branch Repositories[/bold]"),
-        "",
-    )
+    print_header(":jar: Configure Bare Multi-Branch Repositories")
+
     for repo in MULTI_BRANCH_REPOS:
-        print(f"Setting up bare repository for [bold]{repo.value}[/bold] ...")
+        print(f"Setting up bare repository for [b]{repo.value}[/b] ...")
+
         # Ensure the repo source directory exists.
         repo_src_dir = worktree_src_dir / repo.value
-        if repo_src_dir.exists() and not repo_src_dir.is_dir():
-            print(
-                f":exclamation_mark: [red]The [b]{repo.value}[/b] source directory [u]{repo_src_dir}[/u] is not a directory. Aborting ...\n"
-            )
+        if repo_src_dir.is_file():
+            print_error(f"The [b]{repo.value}[/b] source directory [u]{repo_src_dir}[/u] is not a directory. Aborting ...\n")
             return
         repo_src_dir.mkdir(parents=True, exist_ok=True)
 
@@ -105,18 +93,16 @@ def multiverse(
 
         # Check whether the bare directory already exists.
         bare_dir = repo_src_dir / ".bare"
-        with Progress(*PROGRESS_COLUMNS, console=console, transient=True) as progress:
+        with TransientProgress() as progress:
             try:
                 if bare_dir.exists():
                     if not bare_dir.is_dir():
-                        print(
-                            f":exclamation_mark: [red]The [b]{repo.value}[/b] bare directory [u]{bare_dir}[/u] is not a directory. Aborting ...\n"
-                        )
+                        print_error(f"The [b]{repo.value}[/b] bare directory [u]{bare_dir}[/u] is not a directory. Aborting ...\n")
                         return
                     else:
                         print(f"Bare repository for [b]{repo.value}[/b] already exists :white_check_mark:")
                 else:
-                    task = progress.add_task(description="Cloning bare repository ...", total=101)
+                    progress_task = progress.add_task("Cloning bare repository ...", total=101)
                     with Popen(
                         cmd := ["git", "clone", "--progress", "--bare", str(repo_url), str(bare_dir)],
                         stderr=PIPE,
@@ -128,60 +114,51 @@ def multiverse(
                             if match := re.search(r"Receiving objects: (\d+)%\]", log_line):
                                 completed = int(match.group(1))
                                 progress.update(
-                                    task,
+                                    progress_task,
                                     completed=completed,
                                 )
-                    progress.update(task, total=1, completed=1)
-                    task = progress.add_task(description="Adjusting origin fetch locations ...", total=1)
+                    progress.update(progress_task, total=1, completed=1)
+                    progress_task = progress.add_task("Adjusting origin fetch locations ...", total=1)
                     subprocess.run(
                         cmd := ["git", "-C", str(bare_dir), "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
                         capture_output=True,
                         check=True,
                         text=True,
                     )
-                    progress.update(task, advance=1)
+                    progress.update(progress_task, advance=1)
                     if repo != OdooRepo.DOCUMENTATION:
-                        task = progress.add_task(description="Adding [b]odoo-dev[/b] remote as [b]dev[/b] ...", total=2)
+                        progress_task = progress.add_task("Adding [b]odoo-dev[/b] remote as [b]dev[/b] ...", total=2)
                         subprocess.run(
                             cmd := ["git", "-C", str(bare_dir), "remote", "add", "dev", str(repo_dev_url)],
                             capture_output=True,
                             check=True,
                             text=True,
                         )
-                        progress.update(task, advance=1)
+                        progress.update(progress_task, advance=1)
                         subprocess.run(
                             cmd := ["git", "-C", str(bare_dir), "remote", "set-url", "--push", "origin", "do_not_push_on_this_repo"],
                             capture_output=True,
                             check=True,
                             text=True,
                         )
-                        progress.update(task, advance=1)
-                    task = progress.add_task(description="Setting .git file contents ...", total=1)
+                        progress.update(progress_task, advance=1)
+                    progress_task = progress.add_task("Setting .git file contents ...", total=1)
                     with open(repo_src_dir / ".git", "w", encoding="utf-8") as git_file:
                         git_file.write("gitdir: ./.bare")
-                    progress.update(task, advance=1)
-                    task = progress.add_task(description="Fetching all branches ...", total=1)
+                    progress.update(progress_task, advance=1)
+                    progress_task = progress.add_task("Fetching all branches ...", total=1)
                     subprocess.run(cmd := ["git", "-C", str(repo_src_dir), "fetch"], capture_output=True, check=True, text=True)
-                    progress.update(task, advance=1)
+                    progress.update(progress_task, advance=1)
 
-                task = progress.add_task(description="Pruning non-existing worktrees ...", total=1)
+                progress_task = progress.add_task("Pruning non-existing worktrees ...", total=1)
                 subprocess.run(cmd := ["git", "-C", str(repo_src_dir), "worktree", "prune"], capture_output=True, check=True, text=True)
-                progress.update(task, advance=1)
-            except CalledProcessError as error:
-                print(
-                    f":exclamation_mark: [red]Setting up the bare repository for [b]{repo.value}[/b] failed. The command that failed was:\n",
-                    "\t[bold red]" + " ".join(cmd) + "\n",
+                progress.update(progress_task, advance=1)
+            except CalledProcessError as e:
+                print_error(
+                    f"Setting up the bare repository for [b]{repo.value}[/b] failed. The command that failed was:\n\n[b]{' '.join(cmd)}[/b]",
+                    e.stderr.strip(),
                 )
-                print(
-                    Panel(
-                        error.stderr.strip(),
-                        title="Error Log",
-                        title_align="left",
-                        style="red",
-                        border_style="bold red",
-                    ),
-                )
-        print(f"Set up bare repository for [bold]{repo.value}[/bold] :white_check_mark:")
+        print(f"Set up bare repository for [b]{repo.value}[/b] :white_check_mark:")
 
     # Checkout all unibranch repositories.
     print(
@@ -204,7 +181,7 @@ def multiverse(
             repo_url = f"git@github.com:odoo/{repo.value}.git"
             with Progress(*PROGRESS_COLUMNS, console=console, transient=True) as progress:
                 try:
-                    task = progress.add_task(description="Cloning repository ...", total=101)
+                    progress_task = progress.add_task(description="Cloning repository ...", total=101)
                     with Popen(
                         cmd := ["git", "clone", "--progress", str(repo_url), str(repo_src_dir)],
                         stderr=PIPE,
@@ -216,10 +193,10 @@ def multiverse(
                             if match := re.search(r"Receiving objects: (\d+)%\]", log_line):
                                 completed = int(match.group(1))
                                 progress.update(
-                                    task,
+                                    progress_task,
                                     completed=completed,
                                 )
-                    progress.update(task, total=1, completed=1)
+                    progress.update(progress_task, total=1, completed=1)
                 except CalledProcessError as error:
                     print(
                         f":exclamation_mark: [red]Setting up the repository [b]{repo.value}[/b] failed. The command that failed was:\n",
@@ -262,14 +239,14 @@ def multiverse(
             bare_repo_dir = worktree_src_dir / repo.value
             with Progress(*PROGRESS_COLUMNS, console=console, transient=True) as progress:
                 try:
-                    task = progress.add_task(description="Adding worktree ...", total=None)
+                    progress_task = progress.add_task(description="Adding worktree ...", total=None)
                     subprocess.run(
                         cmd := ["git", "-C", str(bare_repo_dir), "worktree", "add", ""],
                         capture_output=True,
                         check=True,
                         text=True,
                     )
-                    progress.update(task, advance=1)
+                    progress.update(progress_task, advance=1)
                 except CalledProcessError as error:
                     print(
                         ":exclamation_mark: [red]Adding a worktree failed. The command that failed was:\n",

@@ -11,8 +11,11 @@ PROGRESS_COLUMNS = [
     TimeElapsedColumn(),
 ]
 
+# The main app to register all the commands on
 app = Typer(no_args_is_help=True)
+# The console object to print all messages on stderr by default
 console = Console(stderr=True, highlight=False)
+# Override the native print method to use the custom console
 print = console.print
 
 
@@ -41,7 +44,7 @@ def print_command_title(title: str):
     :param title: The title to render
     :type title: str
     """
-    print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
+    print(Panel(title, style="bold magenta", border_style="bold magenta"), "")
 
 
 def print_header(header: str):
@@ -73,7 +76,7 @@ def print_error(error_msg: str, stacktrace: str | None = None):
     :param stacktrace: The stacktrace to render, defaults to None
     :type stacktrace: str | None, optional
     """
-    print(":exclamation_mark: " + error_msg, style="red")
+    print(f":exclamation_mark: {error_msg}", style="red")
     if stacktrace:
         print(
             "",
@@ -120,6 +123,16 @@ def print_panel(content: str, title: str | None = None):
 
 
 def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
+    """
+    Returns a :class:`rich.panel.Panel` containing the provided error log and title.
+
+    :param error_logs: The error logs to render in the Panel
+    :type error_logs: str
+    :param title: The title to use on the Panel, defaults to "Error"
+    :type title: str, optional
+    :return: A Panel to be used in any rich objects for printing
+    :rtype: :class:`rich.panel.Panel`
+    """
     return Panel(
         error_logs,
         title=title,

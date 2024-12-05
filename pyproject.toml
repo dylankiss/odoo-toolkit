@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "odoo-toolkit"
-version = "0.1.15"
+version = "0.1.21"
 description = "This toolkit contains several useful tools for Odoo development."
 authors = ["Dylan Kiss <dyki@odoo.com>"]
 readme = "README.md"
@@ -19,7 +19,7 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-preview = true
+preview = false
 select = ["ALL"]
 ignore = [
     "ANN", "B", "C901", "COM812", "D", "E501", "E741", "EM101", "ERA001", "FBT", "I001", "N", "PD", "PERF", "PIE790",

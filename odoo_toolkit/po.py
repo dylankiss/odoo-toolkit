@@ -348,7 +348,7 @@ def create_po(
                         po.append(entry)
                     po.save(po_file)
                     success = True
-                    create_tree.add(f"[dim]{po_file.parent}{os.sep}[/dim][b]{po_file.name}[/b] :white_check_mark:")
+                    create_tree.add(f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark:")
                 except OSError as e:
                     failure = True
                     create_tree.add(get_error_log_panel(str(e), f"Creating {po_file.name} failed!"))
@@ -491,7 +491,7 @@ def update_po(
                     po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
                     po.save()
                     success = True
-                    update_tree.add(f"[dim]{po_file.parent}{os.sep}[/dim][b]{po_file.name}[/b] :white_check_mark:")
+                    update_tree.add(f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark:")
                 except OSError as e:
                     failure = True
                     update_tree.add(get_error_log_panel(str(e), f"Updating {po_file.name} failed!"))
