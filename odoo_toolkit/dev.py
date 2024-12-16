@@ -56,12 +56,15 @@ def start(
             "--db-port", "-p", help="Specify the port on your local machine the PostgreSQL database should listen on."
         ),
     ] = 5432,
+    rebuild: Annotated[
+        bool, Option("--rebuild", help="Rebuild the Docker image to get the latest dependencies.")
+    ] = False,
 ):
     """
     Start an Odoo Development Server using Docker and launch a terminal session into it.
 
     This command will start both a PostgreSQL container and an Odoo container containing your source code.
-    You can choose to launch a container using Ubuntu 24.04 [`noble`] (default) or 22.04 [`jammy`] using "-u".
+    You can choose to launch a container using Ubuntu 24.04 ["noble"] (default) or 22.04 ["jammy"] using "-u".
     The source code can be mapped using the "-w" option as the path to your workspace.
     """
     print_command_title(":computer: Odoo Development Server")
@@ -74,9 +77,9 @@ def start(
 
     try:
         with TransientProgress() as progress:
-            if not docker.image.exists(f"localhost/odoo-dev:{ubuntu_version.value}"):
+            if rebuild or not docker.image.exists(f"localhost/odoo-dev:{ubuntu_version.value}"):
                 progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
-                # Build Docker image if it wasn't already.
+                # Build Docker image if it wasn't already or when forced.
                 output_generator = docker.compose.build(
                     [f"odoo-{ubuntu_version.value}"],
                     stream_logs=True,

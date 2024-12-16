@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Annotated
 
 import polib
-from rich.panel import Panel
 from rich.tree import Tree
 from typer import Argument, Option
 
@@ -24,20 +23,20 @@ from .common import (
 
 class Lang(str, Enum):
     ALL = "all"
-    AM_ET = "am_ET"
+    AM_ET = "am"
     AR_001 = "ar"
     AR_SY = "ar_SY"
     AZ_AZ = "az"
     BE_BY = "be"
     BG_BG = "bg"
-    BN_IN = "bn_IN"
+    BN_IN = "bn"
     BS_BA = "bs"
-    CA_ES = "ca_ES"
-    CS_CZ = "cs_CZ"
-    DA_DK = "da_DK"
+    CA_ES = "ca"
+    CS_CZ = "cs"
+    DA_DK = "da"
     DE_DE = "de"
     DE_CH = "de_CH"
-    EL_GR = "el_GR"
+    EL_GR = "el"
     EN_AU = "en_AU"
     EN_CA = "en_CA"
     EN_GB = "en_GB"
@@ -60,7 +59,7 @@ class Lang(str, Enum):
     ES_UY = "es_UY"
     ES_VE = "es_VE"
     ET_EE = "et"
-    EU_ES = "eu_ES"
+    EU_ES = "eu"
     FA_IR = "fa"
     FI_FI = "fi"
     FR_FR = "fr"
@@ -79,18 +78,18 @@ class Lang(str, Enum):
     KA_GE = "ka"
     KAB_DZ = "kab"
     KM_KH = "km"
+    KO_KR = "ko"
     KO_KP = "ko_KP"
-    KO_KR = "ko_KR"
     LB_LU = "lb"
     LO_LA = "lo"
     LT_LT = "lt"
     LV_LV = "lv"
     MK_MK = "mk"
     ML_IN = "ml"
-    MN_MN = "mn_MN"
+    MN_MN = "mn"
     MS_MY = "ms"
     MY_MM = "my"
-    NB_NO = "nb_NO"
+    NB_NO = "nb"
     NL_NL = "nl"
     NL_BE = "nl_BE"
     PL_PL = "pl"
@@ -102,7 +101,7 @@ class Lang(str, Enum):
     SK_SK = "sk"
     SL_SI = "sl"
     SQ_AL = "sq"
-    SR_CYRL = "sr@Cyrl"
+    SR_RS = "sr"
     SR_LATIN = "sr@latin"
     SV_SE = "sv"
     SW = "sw"
@@ -112,7 +111,7 @@ class Lang(str, Enum):
     TR_TR = "tr"
     UK_UA = "uk"
     VI_VN = "vi"
-    ZH_CH = "zh_CH"
+    ZH_CN = "zh_CN"
     ZH_HK = "zh_HK"
     ZH_TW = "zh_TW"
 
@@ -130,7 +129,7 @@ PLURAL_RULES_TO_LANGS = {
         Lang.MY_MM,
         Lang.TH_TH,
         Lang.VI_VN,
-        Lang.ZH_CH,
+        Lang.ZH_CN,
         Lang.ZH_HK,
         Lang.ZH_TW,
     },
@@ -224,7 +223,7 @@ PLURAL_RULES_TO_LANGS = {
         Lang.UK_UA,
     },
     "nplurals=3; plural=(n == 1 || (n % 10 == 1 && n % 100 != 11)) ? 0 : ((n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2);": {
-        Lang.SR_CYRL,
+        Lang.SR_RS,
         Lang.SR_LATIN,
     },
     "nplurals=4; plural=(n%100==1 ? 0 : n%100==2 ? 1 : n%100==3 || n%100==4 ? 2 : 3);": {
@@ -246,8 +245,8 @@ def create_po(
     ],
     languages: Annotated[
         list[Lang],
-        Option("--languages", "-l", help='Create .po files for these languages, or "all".', case_sensitive=False),
-    ] = [Lang.ALL],
+        Option("--languages", "-l", help='Create .po files for these languages, or "all".'),
+    ],
     com_path: Annotated[
         Path,
         Option(
@@ -268,7 +267,8 @@ def create_po(
     """
     Create Odoo translation files (.po) according to their .pot files.
     """
-    print_command_title(":new: Odoo PO Create")
+    print(languages)
+    print_command_title(":memo: Odoo PO Create")
 
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
     com_modules_path = com_path.expanduser().resolve() / "addons"
@@ -395,14 +395,7 @@ def update_po(
     """
     Update Odoo translation files (.po) according to a new version of their .pot files.
     """
-    print(
-        Panel.fit(
-            ":arrows_counterclockwise: Odoo PO Update",
-            style="bold magenta",
-            border_style="bold magenta",
-        ),
-        "",
-    )
+    print_command_title(":arrows_counterclockwise: Odoo PO Update")
 
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
     com_modules_path = com_path.expanduser().resolve() / "addons"
@@ -506,3 +499,68 @@ def update_po(
         print_warning("Some translation files were updated correctly, while others weren't!\n")
     else:
         print_success("All translation files were updated correctly!\n")
+
+
+@app.command()
+def merge_po(
+    po_files: Annotated[list[Path], Argument(help="Merge these .po files together.")],
+    output_file: Annotated[Path, Option("--output-file", "-o", help="Specify the output .po file.")] = Path(
+        "merged.po"
+    ),
+    overwrite: Annotated[bool, Option("--overwrite", help="Overwrite existing translations.")] = False,
+):
+    """
+    Merge multiple translation files (.po) into one.
+
+    The order of the files determines which translations take priority.
+    Empty translations in earlier files will be completed with translations from later files, taking the first one in
+    the order they occur.
+    If "--overwrite" is chosen, existing translations in earlier files will be overwritten by translations in later
+    files.
+    The .po metadata is taken from the first file by default, unless "--overwrite" is chosen.
+    """
+    print_command_title(":shuffle_tracks_button: Odoo PO Merge")
+
+    if len(po_files) < 2:
+        print_error("You need at least two .po files to merge them.")
+        return
+
+    for po_file in po_files:
+        if not po_file.is_file():
+            print_error(f"The provided file [b]{po_file}[/b] does not exist or is not a file.")
+            return
+
+    print(
+        f"Merging files [b]{' ← '.join(str(po_file) for po_file in po_files)}[/b]{', overwriting translations.' if overwrite else '.'}\n"
+    )
+
+    merged_po = polib.POFile()
+    with TransientProgress() as progress:
+        progress_task = progress.add_task("Merging files ...", total=len(po_files))
+        try:
+            for po_file in po_files:
+                po = polib.pofile(po_file)
+                if po.metadata and (not merged_po.metadata or overwrite):
+                    merged_po.metadata = po.metadata
+                for entry in po:
+                    if entry.obsolete or entry.fuzzy:
+                        continue
+                    existing_entry = merged_po.find(entry.msgid, msgctxt=entry.msgctxt)
+                    if existing_entry:
+                        if entry.msgstr and (not existing_entry.msgstr or overwrite):
+                            existing_entry.msgstr = entry.msgstr
+                        if entry.msgstr_plural and (not existing_entry.msgstr_plural or overwrite):
+                            existing_entry.msgstr_plural = entry.msgstr_plural
+                    else:
+                        merged_po.append(entry)
+                progress.update(progress_task, advance=1)
+
+            merged_po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
+            merged_po.save(output_file)
+        except OSError as e:
+            print_error("Merging .po files failed.", str(e))
+            return
+
+    print_success(
+        f"The files were successfully merged into [b]{output_file}[/b] ({merged_po.percent_translated()}% translated)"
+    )

@@ -13,7 +13,7 @@ from typing import Annotated
 from rich.table import Table
 from typer import Argument, Option
 
-from .common import TransientProgress, app, print, print_command_title, print_error, print_header
+from .common import TransientProgress, app, print, print_command_title, print_error, print_header, print_warning
 
 
 class OdooServerType(str, Enum):
@@ -32,11 +32,15 @@ def export_pot(
     ],
     start_server: Annotated[
         bool,
-        Option(help="Start an Odoo server automatically.", rich_help_panel="Odoo Server Options"),
+        Option(
+            "--start-server/--own-server",
+            help="Start an Odoo server automatically or connect to your own server.",
+            rich_help_panel="Odoo Server Options",
+        ),
     ] = True,
     full_install: Annotated[
         bool,
-        Option(help="Install every available Odoo module.", rich_help_panel="Odoo Server Options"),
+        Option("--full-install", help="Install every available Odoo module.", rich_help_panel="Odoo Server Options"),
     ] = False,
     com_path: Annotated[
         Path,
@@ -227,6 +231,7 @@ def export_pot(
             print_header(f":rocket: Start Odoo Server ({server_type.value})")
 
             database_created = False
+            server_error = False
             if server_type in (OdooServerType.ENTERPRISE, OdooServerType.ENTERPRISE_L10N, OdooServerType.FULL_BASE):
                 addons_path = f"{ent_modules_path},{addons_path}"
 
@@ -289,12 +294,14 @@ def export_pot(
 
                     if re.search(r"odoo\.(modules\.)?registry: Failed to load registry", log_line):
                         print_error("An error occurred during loading! Terminating the process ...", log_buffer.strip())
+                        server_error = True
                         break
 
                     if "odoo.sql_db: Connection to the database failed" in log_line:
                         print_error(
                             "Could not connect to the database! Terminating the process ...", log_buffer.strip()
                         )
+                        server_error = True
                         break
 
                     if "odoo.modules.loading: Modules loaded." in log_line:
@@ -320,12 +327,17 @@ def export_pot(
                     print_error(
                         f"Running the Odoo server failed and exited with code: {p.returncode}", log_buffer.strip()
                     )
+                    server_error = True
                 else:
                     print_header(f":raised_hand: Stop Odoo Server ({server_type.value})")
                     p.kill()
                     print("Odoo Server has stopped :white_check_mark:\n")
 
-            if database_created:
+            if database_created and server_error:
+                print_warning(
+                    f"The database [b]{database}[/b] was not deleting to allow inspecting the error. You can delete it manually afterwards."
+                )
+            elif database_created:
                 dropdb_cmd = ["dropdb", database, "--host", db_host, "--port", str(db_port)]
                 cmd_env = os.environ
                 if db_username:

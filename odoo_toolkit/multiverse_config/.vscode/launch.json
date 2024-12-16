@@ -1,0 +1,77 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Odoo: Docker [Noble]",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5679
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "redirectOutput": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "justMyCode": false,
+        },
+        {
+            "name": "Debug Odoo: Docker [Jammy]",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "redirectOutput": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "justMyCode": false,
+        },
+        {
+            "name": "Debug Odoo: Community",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "'${workspaceFolder}/odoo/odoo-bin'",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": "--addons-path '${workspaceFolder}/odoo/addons' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
+        },
+        {
+            "name": "Debug Odoo: Enterprise",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "'${workspaceFolder}/odoo/odoo-bin'",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": "--addons-path '${workspaceFolder}/enterprise,${workspaceFolder}/odoo/addons' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
+        },
+        {
+            "name": "Debug Odoo: Upgrade Community",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "'${workspaceFolder}/odoo/odoo-bin'",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": "--addons-path '${workspaceFolder}/odoo/addons' --upgrade-path '${workspaceFolder}/upgrade-util/src,${workspaceFolder}/upgrade/migrations' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
+        },
+        {
+            "name": "Debug Odoo: Upgrade Enterprise",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "'${workspaceFolder}/odoo/odoo-bin'",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": "--addons-path '${workspaceFolder}/enterprise,${workspaceFolder}/odoo/addons' --upgrade-path '${workspaceFolder}/upgrade-util/src,${workspaceFolder}/upgrade/migrations' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
+        }
+    ]
+}

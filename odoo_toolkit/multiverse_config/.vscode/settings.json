@@ -1,0 +1,173 @@
+{
+    "autoDocstring.docstringFormat": "sphinx",
+    "autoDocstring.startOnNewLine": true,
+    "cSpell.allowCompoundWords": true,
+    "editor.quickSuggestions": {
+        "strings": "on"
+    },
+    "editor.rulers": [120],
+    "eslint.format.enable": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "files.trimTrailingWhitespace": true,
+    "gitlens.autolinks": [
+        {
+            "prefix": "task-",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "task ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "task-id ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-id ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-Id ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-ID ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "taskid ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Taskid ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "TaskId ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "TaskID ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "task: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "task-id: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-id: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-Id: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task-ID: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "taskid: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Taskid: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "TaskId: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "TaskID: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "opw-",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Support Ticket #<num> in Odoo"
+        },
+        {
+            "prefix": "OPW-",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Support Ticket #<num> in Odoo"
+        },
+        {
+            "prefix": "opw ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Support Ticket #<num> in Odoo"
+        },
+        {
+            "prefix": "OPW ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Support Ticket #<num> in Odoo"
+        },
+        {
+            "prefix": "opw: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Support Ticket #<num> in Odoo"
+        },
+        {
+            "prefix": "OPW: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Support Ticket #<num> in Odoo"
+        }
+    ],
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/enterprise",
+        "${workspaceFolder}/design-themes",
+    ],
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "search.exclude": {
+        "**/.github": true,
+        "**/.venv": true,
+        "**/.vscode": true,
+        "**/node_modules": true,
+    },
+    "xml.codeLens.enabled": true,
+    "xml.format.closingBracketNewLine": true,
+    "xml.format.enforceQuoteStyle": "preferred",
+    "xml.format.maxLineWidth": 0,
+    "xml.server.preferBinary": true,
+    "xml.validation.resolveExternalEntities": true,
+}

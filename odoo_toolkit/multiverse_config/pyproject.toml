@@ -1,0 +1,86 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+preview = true
+select = ["ALL"]
+ignore = [
+    "ANN",      # (flake8-annotations)
+    "B",        # (flake8-bugbear)
+    "C901",     # (complex-structure)
+    "COM812",   # (missing-trailing-comma)
+    "D",        # (pydocstyle)
+    "E501",     # (line-too-long)
+    "E741",     # (ambiguous-variable-name)
+    "EM101",    # (raw-string-in-exception)
+    "ERA001",   # (commented-out-code)
+    "FBT",      # (flake8-boolean-trap)
+    "I001",     # (unsorted-imports)
+    "N",        # (pep8-naming)
+    "PD",       # (pandas-vet)
+    "PERF",     # (Perflint)
+    "PIE790",   # (no-unnecessary-pass)
+    "PLR",      # (pylint-refactoring)
+    "PT",       # (flake8-pytest-style)
+    "Q",        # (flake8-quotes)
+    "RET502",   # (implicit-return-value)
+    "RET503",   # (implicit-return)
+    "RSE102",   # (unnecessary-paren-on-raise-exception)
+    "RUF001",   # (ambiguous-unicode-character-string)
+    "RUF012",   # (mutable-class-default)
+    "S",        # (flake8-bandit)
+    "SIM102",   # (collapsible-if)
+    "SIM108",   # (if-else-block-instead-of-if-exp)
+    "SLF001",   # (private-member-access)
+    "TID252",   # (relative-imports)
+    "UP031",    # (printf-string-formatting)
+    "TRY002",   # (raise-vanilla-class)
+    "TRY003",   # (raise-vanilla-args)
+    "TRY300",   # (try-consider-else)
+    "UP038",    # (non-pep604-isinstance)
+    "E713",     # (not-in-test)
+    "SIM117",   # ( multiple-with-statements)
+    "PGH003",   # (blanket-type-ignore)
+    "RUF005",   # (collection-literal-concatenation)
+    "RET",      # (flake8-return)
+    "DTZ",      # (datetime-now-without-tz-arg)
+    "FIX",      # (flake8-fixme)
+    "TD",       # (flake8-todos)
+    "ARG",      # (unused-arguments)
+    "TRY400",   # (error-instead-of-exception)
+    "B904",     # (reraise-no-cause)
+    "C408",     # (unnecessary-collection-call)
+    "PLW2901",  # (redefined-loop-name)
+    "PTH",      # (flake8-use-pathlib)
+    "FURB103",  # (write-whole-file)
+    "EM102",    # (f-string-in-exception)
+    "INP001",   # (implicit-namespace-package)
+    "CPY001",   # (flake8_copyright)
+    "UP006",    # (non-pep585-annotation)
+    "UP007",    # (non-pep604-annotation)
+    "E266",     # (multiple-leading-hashes-for-block-comment)
+    "PIE808",   # (unnecessary-range-start)
+    "PLC2701",  # (import-private-name)
+    "FURB101",  # (read-whole-file)
+    "RUF021",   # (parenthesize-chained-operators)
+    "FURB118",  # (reimplemented-operator)
+    "RUF100",   # (unused-noqa)
+    "FA100",    # (future-rewritable-type-annotation)
+    "FURB152",  # (math-constant)
+    "DOC",      # (docstring-missing-returns)
+    "C420",     # (unnecessary-dict-comprehension-for-iterable)
+    "A",        # (builtin-shadowing)
+    "FURB156",  # (hardcoded-string-charset)
+    "FA102",    # (future-required-type-annotation)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = [
+    "E402",     # (module-import-not-at-top-of-file)
+    "F401",     # (unused-import)
+    "F403",     # (undefined-local-with-import-star)
+]
+
+[tool.ruff.format]
+quote-style = "preserve"

@@ -44,7 +44,7 @@ def print_command_title(title: str):
     :param title: The title to render
     :type title: str
     """
-    print(Panel(title, style="bold magenta", border_style="bold magenta"), "")
+    print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
 
 
 def print_header(header: str):

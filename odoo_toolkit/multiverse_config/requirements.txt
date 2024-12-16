@@ -1,0 +1,18 @@
+# Useful and optional Python dependencies
+pylint          # Test dependency
+aiosmtpd        # Test dependency
+astroid         # Test dependency
+dbfread         # `account_winbooks_import` dependency
+debugpy         # Debugger for Python
+fonttools       # `odoo/tools/pdf` dependency
+google-auth     # `cloud_storage_google` and `social_push_notifications` dependency
+jwt             # `l10n_be_hr_payroll_dimona`, `l10n_in_qr_code_bill_scan` and `l10n_in_reports_gstr` dependency
+markdown        # `upgrade` and `upgrade-util` dependency
+pdfminer.six    # `attachment_indexation` dependency
+phonenumbers    # `account_peppol`, `data_cleaning` and `phone_validation` dependency
+pydevd-odoo     # Odoo plugin for PyDev, PyCharm and VSCode debugger to work with recordsets
+python-slugify  # `base` dependency
+suds            # Fallback in `odoo/_monkeypatches` dependency
+watchdog        # Allow reloading server on file changes
+websocket       # Test and `hw_drivers` dependency
+xmlsec          # `l10n_nl_reports_sbr` dependency
