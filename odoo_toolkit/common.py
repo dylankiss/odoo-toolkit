@@ -12,34 +12,29 @@ PROGRESS_COLUMNS = [
 ]
 
 # The main app to register all the commands on
-app = Typer(no_args_is_help=True)
+app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
 # The console object to print all messages on stderr by default
 console = Console(stderr=True, highlight=False)
 # Override the native print method to use the custom console
-print = console.print
+print = console.print  # noqa: A001
 
 
 class TransientProgress(Progress):
-    """
-    Renders auto-updating transient progress bars using opinionated styling.
-    """
+    """Renders auto-updating transient progress bars using opinionated styling."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003, ARG002, D107
         super().__init__(*PROGRESS_COLUMNS, console=console, transient=True)
 
 
 class StickyProgress(Progress):
-    """
-    Renders auto-updating sticky progress bars using opinionated styling.
-    """
+    """Renders auto-updating sticky progress bars using opinionated styling."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003, ARG002, D107
         super().__init__(*PROGRESS_COLUMNS, console=console)
 
 
-def print_command_title(title: str):
-    """
-    Prints a styled command title to the console using a fitted box and bold magenta text and box borders.
+def print_command_title(title: str) -> None:
+    """Print a styled command title to the console using a fitted box and bold magenta text and box borders.
 
     :param title: The title to render
     :type title: str
@@ -47,9 +42,8 @@ def print_command_title(title: str):
     print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
 
 
-def print_header(header: str):
-    """
-    Prints a styled header to the console using a fitted box.
+def print_header(header: str) -> None:
+    """Print a styled header to the console using a fitted box.
 
     :param header: The header text to render
     :type header: str
@@ -57,9 +51,8 @@ def print_header(header: str):
     print(Panel.fit(header, style="bold"), "")
 
 
-def print_subheader(header: str):
-    """
-    Prints a styled header to the console using a fitted box.
+def print_subheader(header: str) -> None:
+    """Print a styled header to the console using a fitted box.
 
     :param header: The header text to render
     :type header: str
@@ -67,9 +60,8 @@ def print_subheader(header: str):
     print(Panel.fit(header), "")
 
 
-def print_error(error_msg: str, stacktrace: str | None = None):
-    """
-    Prints a styled error message with optional stacktrace.
+def print_error(error_msg: str, stacktrace: str | None = None) -> None:
+    """Print a styled error message with optional stacktrace.
 
     :param error_msg: The error message to render
     :type error_msg: str
@@ -90,9 +82,8 @@ def print_error(error_msg: str, stacktrace: str | None = None):
         )
 
 
-def print_warning(warning_msg: str):
-    """
-    Prints a styled warning message.
+def print_warning(warning_msg: str) -> None:
+    """Print a styled warning message.
 
     :param warning_msg: The warning to render
     :type warning_msg: str
@@ -100,9 +91,8 @@ def print_warning(warning_msg: str):
     print(f":warning: {warning_msg}", style="yellow")
 
 
-def print_success(success_msg: str):
-    """
-    Prints a styled success message.
+def print_success(success_msg: str) -> None:
+    """Print a styled success message.
 
     :param success_msg: The success message to render
     :type success_msg: str
@@ -110,9 +100,8 @@ def print_success(success_msg: str):
     print(f":white_check_mark: {success_msg}", style="green")
 
 
-def print_panel(content: str, title: str | None = None):
-    """
-    Prints a fitted panel with some content and an optional title.
+def print_panel(content: str, title: str | None = None) -> None:
+    """Print a fitted panel with some content and an optional title.
 
     :param content: The content to render in the panel
     :type content: str
@@ -123,8 +112,7 @@ def print_panel(content: str, title: str | None = None):
 
 
 def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
-    """
-    Returns a :class:`rich.panel.Panel` containing the provided error log and title.
+    """Return a :class:`rich.panel.Panel` containing the provided error log and title.
 
     :param error_logs: The error logs to render in the Panel
     :type error_logs: str

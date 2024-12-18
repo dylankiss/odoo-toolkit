@@ -1,6 +1,6 @@
 {
     "autoDocstring.docstringFormat": "sphinx",
-    "autoDocstring.startOnNewLine": true,
+    "autoDocstring.startOnNewLine": false,
     "cSpell.allowCompoundWords": true,
     "editor.quickSuggestions": {
         "strings": "on"

@@ -1,6 +1,6 @@
 {
     "autoDocstring.docstringFormat": "sphinx",
-    "autoDocstring.startOnNewLine": true,
+    "autoDocstring.startOnNewLine": false,
     "cSpell.allowCompoundWords": true,
     "editor.quickSuggestions": {
         "strings": "on"
@@ -13,5 +13,13 @@
     "python.terminal.activateEnvInCurrentTerminal": true,
     "search.exclude": {
         "**/.venv": true
-    }
+    },
+    "cSpell.words": [
+        "msgctxt",
+        "odoo",
+        "odoofin",
+        "pofile",
+        "rtype",
+        "transifex"
+    ]
 }

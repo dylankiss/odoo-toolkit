@@ -5,29 +5,45 @@ from pathlib import Path
 from typing import Annotated
 
 from python_on_whales import DockerClient, DockerException
-from typer import Option, Typer
+from typer import Exit, Option, Typer
 
-from .common import TransientProgress, app, print, print_command_title, print_error, print_header, print_panel
+from .common import (
+    TransientProgress,
+    app,
+    print,
+    print_command_title,
+    print_error,
+    print_header,
+    print_panel,
+    print_success,
+)
 
 # Initialize the Docker client with the correct compose file.
 docker = DockerClient(compose_files=[Path(__file__).parent / "docker" / "compose.yaml"])
 
 
 class UbuntuVersion(str, Enum):
+    """Ubuntu versions available as Docker images."""
+
     NOBLE = "noble"
     JAMMY = "jammy"
 
 
-dev_app = Typer(no_args_is_help=True)
+dev_app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
 app.add_typer(dev_app, name="dev")
 
 
 @dev_app.callback()
-def callback():
-    """
-    💻 Odoo Development Server
+def callback() -> None:
+    """Run an Odoo Development Server using Docker.
 
-    Run an Odoo Development Server using Docker.
+    The following commands allow you to automatically start and stop a fully configured Docker container to run your
+    Odoo server(s) during development.
+    \n\n
+    These tools require Docker Desktop to be installed on your system.
+    \n\n
+    The Docker container is configured to resemble Odoo's CI or production servers and thus tries to eliminate
+    discrepancies between your local system and the CI or production server.
     """
 
 
@@ -38,9 +54,11 @@ def start(
         Option(
             "--workspace",
             "-w",
-            help='Specify the path to your development workspace that will be mounted in the container\'s "/code" directory.',
+            help='Specify the path to your development workspace that will be mounted in the container\'s "/code" '
+                'directory.',
         ),
     ] = Path("~/code/odoo"),
+    *,
     ubuntu_version: Annotated[
         UbuntuVersion,
         Option(
@@ -53,19 +71,24 @@ def start(
     db_port: Annotated[
         int,
         Option(
-            "--db-port", "-p", help="Specify the port on your local machine the PostgreSQL database should listen on."
+            "--db-port", "-p", help="Specify the port on your local machine the PostgreSQL database should listen on.",
         ),
     ] = 5432,
     rebuild: Annotated[
-        bool, Option("--rebuild", help="Rebuild the Docker image to get the latest dependencies.")
+        bool, Option("--rebuild", help="Rebuild the Docker image to get the latest dependencies."),
     ] = False,
-):
-    """
-    Start an Odoo Development Server using Docker and launch a terminal session into it.
+) -> None:
+    """Start an Odoo Development Server using Docker and launch a terminal session into it.
 
-    This command will start both a PostgreSQL container and an Odoo container containing your source code.
-    You can choose to launch a container using Ubuntu 24.04 ["noble"] (default) or 22.04 ["jammy"] using "-u".
-    The source code can be mapped using the "-w" option as the path to your workspace.
+    This command will start both a PostgreSQL container and an Odoo container containing your source code, located on
+    your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the
+    location `/code` and allows live code updates during local development.
+    \n\n
+    You can choose to launch a container using Ubuntu 24.04 [`-u noble`] (default, recommended starting from version
+    18.0) or 22.04 [`-u jammy`] (for earlier versions).
+    \n\n
+    When you're done with the container, you can exit the session by running the `exit` command. At this point, the
+    container will still be running and you can start a new session using the same `otk dev start` command.
     """
     print_command_title(":computer: Odoo Development Server")
 
@@ -89,7 +112,8 @@ def start(
                     # Loop through every output line to check on the progress.
                     if stream_type != "stdout":
                         continue
-                    if match := re.search(r"(\d+)/(\d+)\]", stream_content.decode()):
+                    match = re.search(r"(\d+)/(\d+)\]", stream_content.decode())
+                    if match:
                         completed, total = (int(g) for g in match.groups())
                         progress.update(
                             progress_task,
@@ -101,13 +125,13 @@ def start(
                         # (Under)estimate progress update per log line in the longest task.
                         progress.update(progress_task, advance=0.0002)
                 progress.update(progress_task, description="Building Docker image :coffee: ...", total=1, completed=1)
-                print("Docker image built :white_check_mark:")
+                print_success("Docker image built")
 
-            progress_task = progress.add_task(description="Starting containers ...", total=None)
+            progress_task = progress.add_task("Starting containers ...", total=None)
             # Start the container in the background.
             docker.compose.up([f"odoo-{ubuntu_version.value}"], detach=True, quiet=True)
             progress.update(progress_task, total=1, completed=1)
-            print("Containers started :white_check_mark:\n")
+            print_success("Containers started\n")
 
         print_header(":computer: Start Session")
 
@@ -122,9 +146,11 @@ def start(
         else:
             stacktrace = e.stdout
         print_error(
-            f"Starting the development server failed. The command that failed was:\n\n[b]{' '.join(e.docker_command)}[/b]",
+            "Starting the development server failed. The command that failed was:\n\n"
+            f"[b]{' '.join(e.docker_command)}[/b]",
             stacktrace,
         )
+        raise Exit from e
 
 
 @dev_app.command()
@@ -133,9 +159,12 @@ def start_db(
         int,
         Option("--port", "-p", help="Specify the port on your local machine the PostgreSQL database should listen on."),
     ] = 5432,
-):
-    """
-    Start a standalone PostgreSQL container for your Odoo databases.
+) -> None:
+    """Start a standalone PostgreSQL container for your Odoo databases.
+
+    You can use this standalone container if you want to connect to it from your local machine which is running Odoo.
+    By default it will listen on port `5432`, but you can modify this if you already have another PostgreSQL server
+    running locally.
     """
     print_command_title(":computer: PostgreSQL Server")
 
@@ -150,7 +179,7 @@ def start_db(
             # Start the PostgreSQL container in the background.
             docker.compose.up(["db"], detach=True, quiet=True)
             progress.update(progress_task, total=1, completed=1)
-            print("PostgreSQL container started :white_check_mark:\n")
+            print_success("PostgreSQL container started\n")
             print_panel(
                 f"Host: [b]localhost[/b]\nPort: [b]{port}[/b]\nUser: [b]odoo[/b]\nPassword: [b]odoo[/b]",
                 "Connection Details",
@@ -162,15 +191,22 @@ def start_db(
         else:
             stacktrace = e.stdout
         print_error(
-            f"Starting the PostgreSQL server failed. The command that failed was:\n\n[b]{' '.join(e.docker_command)}[/b]",
+            "Starting the PostgreSQL server failed. The command that failed was:\n\n"
+            f"[b]{' '.join(e.docker_command)}[/b]",
             stacktrace,
         )
+        raise Exit from e
 
 
 @dev_app.command()
-def stop():
-    """
-    Stop and delete all running containers of the Odoo Development Server.
+def stop() -> None:
+    """Stop and delete all running containers of the Odoo Development Server.
+
+    This is useful if you want to build a new version of the container, or you want the container to have the latest
+    version of `odoo-toolkit`.
+    \n\n
+    Running this is also necessary if you updated the `odoo-toolkit` package on your local machine. If not, your
+    container won't be able to mount the configuration files.
     """
     print_command_title(":computer: Odoo Development Server")
 
@@ -180,7 +216,7 @@ def stop():
             # Stop and delete the running containers.
             docker.compose.down(quiet=True)
             progress.update(progress_task, total=1, completed=1)
-            print("Containers stopped and deleted :white_check_mark:\n")
+            print_success("Containers stopped and deleted\n")
     except DockerException as e:
         stacktrace = e.stderr
         if stacktrace:
@@ -188,6 +224,8 @@ def stop():
         else:
             stacktrace = e.stdout
         print_error(
-            f"Stopping the development server failed. The command that failed was:\n\n[b]{' '.join(e.docker_command)}[/b]",
+            "Stopping the development server failed. The command that failed was:\n\n"
+            f"[b]{' '.join(e.docker_command)}[/b]",
             stacktrace,
         )
+        raise Exit from e

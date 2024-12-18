@@ -2,11 +2,12 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import polib
+from rich.console import RenderableType
 from rich.tree import Tree
-from typer import Argument, Option
+from typer import Argument, Exit, Option
 
 from .common import (
     TransientProgress,
@@ -22,6 +23,8 @@ from .common import (
 
 
 class Lang(str, Enum):
+    """Languages available in Odoo."""
+
     ALL = "all"
     AM_ET = "am"
     AR_001 = "ar"
@@ -222,7 +225,7 @@ PLURAL_RULES_TO_LANGS = {
         Lang.RU_RU,
         Lang.UK_UA,
     },
-    "nplurals=3; plural=(n == 1 || (n % 10 == 1 && n % 100 != 11)) ? 0 : ((n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2);": {
+    "nplurals=3; plural=(n == 1 || (n % 10 == 1 && n % 100 != 11)) ? 0 : ((n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2);": {  # noqa: E501
         Lang.SR_RS,
         Lang.SR_LATIN,
     },
@@ -245,7 +248,7 @@ def create_po(
     ],
     languages: Annotated[
         list[Lang],
-        Option("--languages", "-l", help='Create .po files for these languages, or "all".'),
+        Option("--languages", "-l", help='Create .po files for these languages, or "all".', case_sensitive=False),
     ],
     com_path: Annotated[
         Path,
@@ -263,51 +266,29 @@ def create_po(
             help="Specify the path to your Odoo Enterprise repository.",
         ),
     ] = Path("enterprise"),
-):
+) -> None:
+    """Create Odoo translation files (.po) according to their .pot files.
+
+    This command will provide you with a clean .po file per language you specified for the given modules. It basically
+    copies all entries from the .pot file in the module and completes the metadata with the right language information.
+    All generated .po files will be saved in the respective modules' `i18n` directories.
+    \n\n
+    > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
+    and `enterprise` repositories are checked out with these names.
     """
-    Create Odoo translation files (.po) according to their .pot files.
-    """
-    print(languages)
     print_command_title(":memo: Odoo PO Create")
 
-    base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
-    com_modules_path = com_path.expanduser().resolve() / "addons"
-    ent_modules_path = ent_path.expanduser().resolve()
-
-    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
-    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
-    all_modules = {"base"} | com_modules | ent_modules
-
-    # Determine all modules to update.
-    if len(modules) == 1 and modules[0] == "all":
-        modules_to_update = all_modules
-    elif len(modules) == 1 and modules[0] == "community":
-        modules_to_update = {"base"} | com_modules
-    elif len(modules) == 1 and modules[0] == "enterprise":
-        modules_to_update = ent_modules
-    elif len(modules) == 1:
-        modules_to_update = set(modules[0].split(",")) & all_modules
-    else:
-        modules_to_update = {re.sub(r",", "", m) for m in modules if m in all_modules}
-
+    modules_to_update, modules_to_path_mapping = _determine_modules_and_path_mapping(
+        modules=modules,
+        com_path=com_path,
+        ent_path=ent_path,
+    )
     if not modules_to_update:
-        print_error("The provided modules are not available! Nothing to update ...")
-        return
+        print_error("The provided modules are not available! Nothing to create ...")
+        raise Exit
+    print(f"Modules to create translation files for: [b]{'[/b], [b]'.join(sorted(modules_to_update))}[/b]\n")
 
-    print(f"Modules to update: [b]{'[/b], [b]'.join(sorted(modules_to_update))}[/b]\n")
-
-    # Map each module to its directory.
-    modules_to_path_mapping = {
-        module: path
-        for modules, path in [
-            ({"base"} & modules_to_update, base_module_path),
-            (com_modules & modules_to_update, com_modules_path),
-            (ent_modules & modules_to_update, ent_modules_path),
-        ]
-        for module in modules
-    }
-
-    print_header(":speech_balloon: Create Translations")
+    print_header(":speech_balloon: Create Translation Files")
 
     modules = sorted(modules_to_update)
     success = failure = False
@@ -318,44 +299,14 @@ def create_po(
     languages = sorted(languages)
 
     for module in modules:
-        create_tree = Tree(f"[b]{module}[/b]")
-        i18n_path = modules_to_path_mapping[module] / module / "i18n"
-        pot_file = i18n_path / f"{module}.pot"
-        if not pot_file.exists():
-            failure = True
-            create_tree.add("No .pot file found!")
-            print(create_tree, "")
-            continue
-        try:
-            pot = polib.pofile(pot_file)
-        except OSError as e:
-            failure = True
-            create_tree.add(get_error_log_panel(str(e), f"Reading {pot_file.name} failed!"))
-            continue
-
-        with TransientProgress() as progress:
-            progress_task = progress.add_task(f"Updating [b]{module}[/b]", total=len(languages))
-            for lang in languages:
-                try:
-                    po_file = i18n_path / f"{lang.value}.po"
-                    po = polib.POFile()
-                    po.header = pot.header
-                    po.metadata = pot.metadata.copy()
-                    # Set the correct language and plural forms in the PO file.
-                    po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
-                    for entry in pot:
-                        # Just add all entries in the POT to the PO file.
-                        po.append(entry)
-                    po.save(po_file)
-                    success = True
-                    create_tree.add(f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark:")
-                except OSError as e:
-                    failure = True
-                    create_tree.add(get_error_log_panel(str(e), f"Creating {po_file.name} failed!"))
-                    continue
-                progress.update(progress_task, advance=1)
-
-        print(create_tree, "")
+        result = _create_or_update_po_files_for_module(
+            module=module,
+            languages=languages,
+            modules_to_path_mapping=modules_to_path_mapping,
+            mode="create",
+        )
+        success = success or result in (True, None)
+        failure = failure or result in (False, None)
 
     if not success and failure:
         print_error("No translation files were created!\n")
@@ -374,7 +325,7 @@ def update_po(
     languages: Annotated[
         list[Lang],
         Option("--languages", "-l", help='Update .po files for these languages, or "all".', case_sensitive=False),
-    ] = [Lang.ALL],
+    ] = [Lang.ALL],  # noqa: B006
     com_path: Annotated[
         Path,
         Option(
@@ -391,50 +342,28 @@ def update_po(
             help="Specify the path to your Odoo Enterprise repository.",
         ),
     ] = Path("enterprise"),
-):
-    """
-    Update Odoo translation files (.po) according to a new version of their .pot files.
+) -> None:
+    """Update Odoo translation files (.po) according to a new version of their .pot files.
+
+    This command will update the .po files for the provided modules according to a new .pot file you might have exported
+    in their `i18n` directory.
+    \n\n
+    > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
+    and `enterprise` repositories are checked out with these names.
     """
     print_command_title(":arrows_counterclockwise: Odoo PO Update")
 
-    base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
-    com_modules_path = com_path.expanduser().resolve() / "addons"
-    ent_modules_path = ent_path.expanduser().resolve()
-
-    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
-    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
-    all_modules = {"base"} | com_modules | ent_modules
-
-    # Determine all modules to update.
-    if len(modules) == 1 and modules[0] == "all":
-        modules_to_update = all_modules
-    elif len(modules) == 1 and modules[0] == "community":
-        modules_to_update = {"base"} | com_modules
-    elif len(modules) == 1 and modules[0] == "enterprise":
-        modules_to_update = ent_modules
-    elif len(modules) == 1:
-        modules_to_update = set(modules[0].split(",")) & all_modules
-    else:
-        modules_to_update = {re.sub(r",", "", m) for m in modules if m in all_modules}
-
+    modules_to_update, modules_to_path_mapping = _determine_modules_and_path_mapping(
+        modules=modules,
+        com_path=com_path,
+        ent_path=ent_path,
+    )
     if not modules_to_update:
-        print_error("The provided modules are not available! Nothing to update ...\n")
-        return
+        print_error("The provided modules are not available! Nothing to update ...")
+        raise Exit
+    print(f"Modules to update translation files for: [b]{'[/b], [b]'.join(sorted(modules_to_update))}[/b]\n")
 
-    print(f"Modules to update: [b]{'[/b], [b]'.join(sorted(modules_to_update))}[/b]\n")
-
-    # Map each module to its directory.
-    modules_to_path_mapping = {
-        module: path
-        for modules, path in [
-            ({"base"} & modules_to_update, base_module_path),
-            (com_modules & modules_to_update, com_modules_path),
-            (ent_modules & modules_to_update, ent_modules_path),
-        ]
-        for module in modules
-    }
-
-    print_header(":speech_balloon: Update Translations")
+    print_header(":speech_balloon: Update Translation Files")
 
     modules = sorted(modules_to_update)
     success = failure = False
@@ -445,53 +374,14 @@ def update_po(
     languages = sorted(languages)
 
     for module in modules:
-        update_tree = Tree(f"[b]{module}[/b]")
-        i18n_path = modules_to_path_mapping[module] / module / "i18n"
-        pot_file = i18n_path / f"{module}.pot"
-        if not pot_file.exists():
-            failure = True
-            update_tree.add("No .pot file found!")
-            print(update_tree, "")
-            continue
-        try:
-            pot = polib.pofile(pot_file)
-        except OSError as e:
-            failure = True
-            update_tree.add(get_error_log_panel(str(e), f"Reading {pot_file.name} failed!"))
-            continue
-
-        langs_to_update = [lang for lang in languages if (i18n_path / f"{lang.value}.po").exists()]
-        if not langs_to_update:
-            failure = True
-            update_tree.add("No .po files found for the requested languages!")
-            print(update_tree, "")
-            continue
-
-        with TransientProgress() as progress:
-            progress_task = progress.add_task(f"Updating [b]{module}[/b]", total=len(langs_to_update))
-            for lang in langs_to_update:
-                try:
-                    po_file = i18n_path / f"{lang.value}.po"
-                    po = polib.pofile(po_file)
-                    # Update the PO header and metadata.
-                    po.header = pot.header
-                    po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
-                    # Merge the PO file with the POT file to update all terms.
-                    po.merge(pot)
-                    # Remove entries that are obsolete or fuzzy.
-                    po[:] = [entry for entry in po if not entry.obsolete and not entry.fuzzy]
-                    # Sort the entries before saving, in the same way as `msgmerge -s`.
-                    po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
-                    po.save()
-                    success = True
-                    update_tree.add(f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark:")
-                except OSError as e:
-                    failure = True
-                    update_tree.add(get_error_log_panel(str(e), f"Updating {po_file.name} failed!"))
-                    continue
-                progress.update(progress_task, advance=1)
-
-        print(update_tree, "")
+        result = _create_or_update_po_files_for_module(
+            module=module,
+            languages=languages,
+            modules_to_path_mapping=modules_to_path_mapping,
+            mode="update",
+        )
+        success = success or result in (True, None)
+        failure = failure or result in (False, None)
 
     if not success and failure:
         print_error("No translation files were updated!\n")
@@ -505,33 +395,34 @@ def update_po(
 def merge_po(
     po_files: Annotated[list[Path], Argument(help="Merge these .po files together.")],
     output_file: Annotated[Path, Option("--output-file", "-o", help="Specify the output .po file.")] = Path(
-        "merged.po"
+        "merged.po",
     ),
     overwrite: Annotated[bool, Option("--overwrite", help="Overwrite existing translations.")] = False,
-):
-    """
-    Merge multiple translation files (.po) into one.
+) -> None:
+    """Merge multiple translation files (.po) into one.
 
-    The order of the files determines which translations take priority.
-    Empty translations in earlier files will be completed with translations from later files, taking the first one in
-    the order they occur.
-    If "--overwrite" is chosen, existing translations in earlier files will be overwritten by translations in later
-    files.
-    The .po metadata is taken from the first file by default, unless "--overwrite" is chosen.
+    The order of the files determines which translation takes priority. Empty translations in earlier files will be
+    completed with translations from later files, taking the first one in the order they occur.
+    \n\n
+    If the option `--overwrite` is active, existing translations in earlier files will always be overwritten by
+    translations in later files. In that case the last file takes precedence.
+    \n\n
+    The .po metadata is taken from the first file by default, or the last if `--overwrite` is active.
     """
     print_command_title(":shuffle_tracks_button: Odoo PO Merge")
 
-    if len(po_files) < 2:
+    if len(po_files) < 2:  # noqa: PLR2004
         print_error("You need at least two .po files to merge them.")
-        return
+        raise Exit
 
     for po_file in po_files:
         if not po_file.is_file():
             print_error(f"The provided file [b]{po_file}[/b] does not exist or is not a file.")
-            return
+            raise Exit
 
     print(
-        f"Merging files [b]{' ← '.join(str(po_file) for po_file in po_files)}[/b]{', overwriting translations.' if overwrite else '.'}\n"
+        f"Merging files [b]{' ← '.join(str(po_file) for po_file in po_files)}[/b]"
+        f"{', overwriting translations.' if overwrite else '.'}\n",
     )
 
     merged_po = polib.POFile()
@@ -542,25 +433,208 @@ def merge_po(
                 po = polib.pofile(po_file)
                 if po.metadata and (not merged_po.metadata or overwrite):
                     merged_po.metadata = po.metadata
-                for entry in po:
-                    if entry.obsolete or entry.fuzzy:
-                        continue
-                    existing_entry = merged_po.find(entry.msgid, msgctxt=entry.msgctxt)
-                    if existing_entry:
-                        if entry.msgstr and (not existing_entry.msgstr or overwrite):
-                            existing_entry.msgstr = entry.msgstr
-                        if entry.msgstr_plural and (not existing_entry.msgstr_plural or overwrite):
-                            existing_entry.msgstr_plural = entry.msgstr_plural
-                    else:
-                        merged_po.append(entry)
+                merged_po = _merge_second_po_into_first(merged_po, po)
                 progress.update(progress_task, advance=1)
 
             merged_po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
             merged_po.save(output_file)
         except OSError as e:
             print_error("Merging .po files failed.", str(e))
-            return
+            raise Exit from e
 
     print_success(
-        f"The files were successfully merged into [b]{output_file}[/b] ({merged_po.percent_translated()}% translated)"
+        f"The files were successfully merged into [b]{output_file}[/b] ({merged_po.percent_translated()}% translated)",
     )
+
+
+def _merge_second_po_into_first(
+    first_po: polib.POFile, second_po: polib.POFile, overwrite: bool = False,
+) -> polib.POFile:
+    """Merge the second .po file into the first, without considering order.
+
+    :param first_po: The first .po file, that will be modified by the second
+    :type first_po: polib.POFile
+    :param second_po: The second .po file, that will be merged into the first
+    :type second_po: polib.POFile
+    :param overwrite: Whether to overwrite translations in the first file by ones in the second, defaults to False
+    :type overwrite: bool, optional
+    :return: The merged .po file
+    :rtype: polib.POFile
+    """
+    for entry in second_po:
+        if entry.obsolete or entry.fuzzy:
+            continue
+        existing_entry = first_po.find(entry.msgid, entry.msgctxt)
+        if existing_entry:
+            if entry.msgstr and (not existing_entry.msgstr or overwrite):
+                existing_entry.msgstr = entry.msgstr
+            if entry.msgstr_plural and (not existing_entry.msgstr_plural or overwrite):
+                existing_entry.msgstr_plural = entry.msgstr_plural
+        else:
+            first_po.append(entry)
+    return first_po
+
+
+
+def _determine_modules_and_path_mapping(
+    modules: list[str],
+    com_path: Path,
+    ent_path: Path,
+) -> tuple[list[str], dict[str, Path]]:
+    """Determine the modules to consider and their addons directories.
+
+    :param modules: The requested list of modules to update
+    :type modules: list[str]
+    :param com_path: The Odoo Community repository
+    :type com_path: Path
+    :param ent_path: The Odoo Enterprise repository
+    :type ent_path: Path
+    :raises Exit: If there are no modules to update
+    :return: A tuple containing the modules to update, and the mapping to their addons directory
+    :rtype: tuple[list[str], dict[str, Path]]
+    """
+    base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
+    com_modules_path = com_path.expanduser().resolve() / "addons"
+    ent_modules_path = ent_path.expanduser().resolve()
+
+    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
+    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
+    all_modules = {"base"} | com_modules | ent_modules
+
+    # Determine all modules to consider.
+    if len(modules) == 1:
+        match modules[0]:
+            case "all":
+                modules_to_consider = all_modules
+            case "community":
+                modules_to_consider = {"base"} | com_modules
+            case "enterprise":
+                modules_to_consider = ent_modules
+            case _:
+                modules_to_consider = set(modules[0].split(",")) & all_modules
+    else:
+        modules_to_consider = {re.sub(r",", "", m) for m in modules if m in all_modules}
+
+    if not modules_to_consider:
+        return [], {}
+
+    # Map each module to its addons directory.
+    modules_to_path_mapping = {
+        module: path
+        for modules, path in [
+            ({"base"} & modules_to_consider, base_module_path),
+            (com_modules & modules_to_consider, com_modules_path),
+            (ent_modules & modules_to_consider, ent_modules_path),
+        ]
+        for module in modules
+    }
+
+    return modules_to_consider, modules_to_path_mapping
+
+
+def _create_or_update_po_files_for_module(
+    module: str,
+    languages: list[Lang],
+    modules_to_path_mapping: dict[str, Path],
+    mode: Literal["create", "update"],
+) -> bool | None:
+    """Create or update .po files for the given module and languages.
+
+    :param module: The module to create or update .po files for
+    :type module: str
+    :param languages: The languages to create or update .po files for
+    :type languages: list[Lang]
+    :param modules_to_path_mapping: The mapping from every module to its addons directory
+    :type modules_to_path_mapping: dict[str, Path]
+    :return: `True` if all .po files were created/updated correctly, `False` if none were, and `None` if some were
+    :rtype: bool | None
+    """
+    success = failure = False
+    po_tree = Tree(f"[b]{module}[/b]")
+    i18n_path = modules_to_path_mapping[module] / module / "i18n"
+    pot_file = i18n_path / f"{module}.pot"
+    if not pot_file.exists():
+        po_tree.add("No .pot file found!")
+        print(po_tree, "")
+        return False
+    try:
+        pot = polib.pofile(pot_file)
+    except OSError as e:
+        po_tree.add(get_error_log_panel(str(e), f"Reading {pot_file.name} failed!"))
+        print(po_tree, "")
+        return False
+
+    with TransientProgress() as progress:
+        progress_task = progress.add_task(f"Updating [b]{module}[/b]", total=len(languages))
+        for lang in languages:
+            if mode == "create":
+                result, renderable = _create_po_for_lang(lang, pot)
+            elif mode == "update":
+                result, renderable = _update_po_for_lang(lang, pot)
+            else:
+                raise Exit
+            po_tree.add(renderable)
+            success = success or result
+            failure = failure or not result
+            progress.update(progress_task, advance=1)
+
+    print(po_tree, "")
+    return None if success and failure else success and not failure
+
+
+def _create_po_for_lang(lang: Lang, pot: polib.POFile) -> tuple[bool, RenderableType]:
+    """Create a .po file for the given language and .pot file.
+
+    :param lang: The language to create the .po file for
+    :type lang: Lang
+    :param pot: The .pot file to get the terms from
+    :type pot: polib.POFile
+    :return: A tuple containing `True` if the creation succeeded and `False` if it didn't,
+        and the message to print to the console
+    :rtype: tuple[bool, RenderableType]
+    """
+    try:
+        po_file = Path(pot.fpath).parent / f"{lang.value}.po"
+        po = polib.POFile()
+        po.header = pot.header
+        po.metadata = pot.metadata.copy()
+        # Set the correct language and plural forms in the PO file.
+        po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
+        for entry in pot:
+            # Just add all entries in the POT to the PO file.
+            po.append(entry)
+        po.save(po_file)
+    except OSError as e:
+        return False, get_error_log_panel(str(e), f"Creating {po_file.name} failed!")
+    else:
+        return True, f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark:"
+
+
+def _update_po_for_lang(lang: Lang, pot: polib.POFile) -> tuple[bool, RenderableType]:
+    """Update a .po file for the given language and .pot file.
+
+    :param lang: The language to update the .po file for
+    :type lang: Lang
+    :param pot: The .pot file to get the terms from
+    :type pot: polib.POFile
+    :return: A tuple containing `True` if the update succeeded and `False` if it didn't,
+        and the message to print to the console
+    :rtype: tuple[bool, RenderableType]
+    """
+    try:
+        po_file = Path(pot.fpath).parent / f"{lang.value}.po"
+        po = polib.POFile(po_file)
+        # Update the PO header and metadata.
+        po.header = pot.header
+        po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
+        # Merge the PO file with the POT file to update all terms.
+        po.merge(pot)
+        # Remove entries that are obsolete or fuzzy.
+        po[:] = [entry for entry in po if not entry.obsolete and not entry.fuzzy]
+        # Sort the entries before saving, in the same way as `msgmerge -s`.
+        po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
+        po.save()
+    except OSError as e:
+        return False, get_error_log_panel(str(e), f"Updating {po_file.name} failed!")
+    else:
+        return True, f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark:"

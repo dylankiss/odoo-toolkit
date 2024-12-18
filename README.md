@@ -19,9 +19,9 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 **Options**:
 
-* `--version`: Show the version and exit.
 * `--install-completion`: Install completion for the current shell.
 * `--show-completion`: Show completion for the current shell, to copy it or customize the installation.
+* `--version`: Show the version and exit.
 * `--help`: Show this message and exit.
 
 
@@ -34,13 +34,24 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk export-pot`](#otk-export-pot) | Export Odoo translation files (.pot) to each module's i18n folder.                  |
 | [`otk create-po`](#otk-create-po)   | Create Odoo translation files (.po) according to their .pot files.                  |
 | [`otk update-po`](#otk-update-po)   | Update Odoo translation files (.po) according to a new version of their .pot files. |
+| [`otk merge-po`](#otk-merge-po)     | Merge multiple translation files (.po) into one.                                    |
 |                                     | [Available Languages](#available-languages)                                         |
 
 ### Development Server Commands
 
-| Command               | Purpose                                      |
-| --------------------- | -------------------------------------------- |
-| [`otk dev`](#otk-dev) | Run an Odoo Development Server using Docker. |
+| Command                                 | Purpose                                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------ |
+|                                         | [Odoo Development Server](#odoo-development-server)                                  |
+| [`otk dev start`](#otk-dev-start)       | Start an Odoo Development Server using Docker and launch a terminal session into it. |
+| [`otk dev start-db`](#otk-dev-start-db) | Start a standalone PostgreSQL container for your Odoo databases.                     |
+| [`otk dev stop`](#otk-dev-stop)         | Stop and delete all running containers of the Odoo Development Server.               |
+
+### Other Commands
+
+| Command                             | Purpose                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`otk multiverse`](#otk-multiverse) | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
+
 
 
 ## `otk export-pot`
@@ -49,24 +60,31 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server will be started for Community, Community (Localizations), Enterprise, and Enterprise (Localizations) modules with only the modules installed to be exported in that version.
 
-When exporting the translations for `base`, we install all possible modules to ensure all manifest terms get exported in the `base.pot` files as well.
+When exporting the translations for `base`, we install all possible modules to ensure all terms added in by other modules get exported in the `base.pot` files as well.
 
-You can also export terms from your own running server using the `--no-start-server` option and optionally passing the correct arguments to reach your Odoo server.
+You can also export terms from your own running server using the `--own-server` option and optionally passing the correct arguments to reach your Odoo server.
 
 > [!NOTE]
 > Without any options specified, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost` using port `5432`, accessible without a password using your current user.
 >
 > Of course, all of this can be tweaked with the available options. 😉
 
-**Usage**:
+### Usage
 
 ```console
 $ otk export-pot [OPTIONS] MODULES...
 ```
+e.g.
 
-**Arguments**:
+```console
+$ otk export-pot -p 8079 account mrp sale
+```
+
+### Arguments
 
 * `MODULES...`: Export .pot files for these Odoo modules, or either `all`, `community`, or `enterprise`.  **[required]**
+
+### Options
 
 **Odoo Server Options**:
 
@@ -87,6 +105,9 @@ $ otk export-pot [OPTIONS] MODULES...
 * `--db-username TEXT`: Specify the PostgreSQL server's username.
 * `--db-password TEXT`: Specify the PostgreSQL user's password.
 
+**Options:**
+
+* `--help`: Show this message and exit.
 
 ## `otk create-po`
 
@@ -97,21 +118,27 @@ This command will provide you with a clean .po file per language you specified f
 > [!NOTE]
 > Without any options specified, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names.
 
-**Usage**:
+### Usage
 
 ```console
 $ otk create-po [OPTIONS] MODULES...
 ```
+e.g.
 
-**Arguments**:
+```console
+$ otk create-po -l nl -l fr -l de l10n_be l10n_be_reports
+```
+
+### Arguments
 
 * `MODULES...`: Create .po files for these Odoo modules, or either `all`, `community`, or `enterprise`.  **[required]**
 
-**Options**:
+### Options
 
-* [`-l, --languages LANG`](#available-languages): Create .po files for these languages, or `all`.  [default: `all`]
+* [`-l, --languages LANG`](#available-languages): Create .po files for these languages, or `all`.  [default: None] **[required]**
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `--help`: Show this message and exit.
 
 
 ## `otk update-po`
@@ -123,21 +150,58 @@ This command will update the .po files for the provided modules according to a n
 > [!NOTE]
 > Without any options specified, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names.
 
-**Usage**:
+### Usage
 
 ```console
 $ otk update-po [OPTIONS] MODULES...
 ```
+e.g.
+```console
+$ otk update-po -l nl -l fr account account_accountant
+```
 
-**Arguments**:
+### Arguments
 
 * `MODULES...`: Update .po files for these Odoo modules, or either `all`, `community`, or `enterprise`.  **[required]**
 
-**Options**:
+### Options
 
 * [`-l, --languages LANG`](#available-languages): Update .po files for these languages, or `all`.  [default: `all`]
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `--help`: Show this message and exit.
+
+
+## `otk merge-po`
+
+**Merge multiple translation files (.po) into one.**
+
+The order of the files determines which translation takes priority. Empty translations in earlier files will be completed with translations from later files, taking the first one in the order they occur.
+
+If the option `--overwrite` is active, existing translations in earlier files will always be overwritten by translations in later files. In that case the last file takes precedence.
+
+The .po metadata is taken from the first file by default, or the last if `--overwrite` is active.
+
+### Usage
+
+```console
+$ otk merge-po [OPTIONS] PO_FILES...
+```
+e.g.
+```console
+$ otk merge-po -o nl_merged.po nl.po nl_BE.po
+```
+
+### Arguments
+
+* `PO_FILES...`: Merge these .po files together.  [required]
+
+### Options
+
+* `-o, --output-file PATH`: Specify the output .po file.  [default: `merged.po`]
+* `--overwrite`: Overwrite existing translations.
+* `--help`: Show this message and exit.
+
 
 ## Available Languages
 
@@ -196,7 +260,7 @@ When `LANG` is given as a type, any of the following language codes can be used.
 | `gu`     | Gujarati                     | `zh_TW`    | Chinese (Traditional) |
 
 
-## 💻 Odoo Development Server
+## Odoo Development Server
 
 **Run an Odoo Development Server using Docker.**
 
@@ -207,16 +271,15 @@ The following commands allow you to automatically start and stop a fully configu
 
 The Docker container is configured to resemble Odoo's CI or production servers and thus tries to eliminate discrepancies between your local system and the CI or production server.
 
-**Usage**:
+### Usage
 
 ```console
 $ otk dev [OPTIONS] COMMAND [ARGS]...
 ```
 
-**Options**:
+### Options
 
 * `--help`: Show this message and exit.
-
 
 ## `otk dev start`
 
@@ -225,46 +288,205 @@ $ otk dev [OPTIONS] COMMAND [ARGS]...
 This command will start both a PostgreSQL container and an Odoo container containing your source code, located on your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the location `/code` and allows live code updates during local development.
 
 You can choose to launch a container using Ubuntu 24.04 [`-u noble`] (default, recommended starting from version 18.0) or 22.04 [`-u jammy`] (for earlier versions).
-The source code can be mapped using the "-w" option as the path to your workspace.
 
-**Usage**:
+When you're done with the container, you can exit the session by running the `exit` command. At this point, the container will still be running and you can start a new session using the same `otk dev start` command.
+
+### Port Mapping
+
+The `jammy` container exposes ports `8070`, `8071`, `8072`, `8073` and `8074`. The default port `8069` inside the container is mapped to `8070` on your machine and the other 4 are transparently mapped to their own port.
+
+The `noble` container exposes ports `8075`, `8076`, `8077`, `8078` and `8079`. The default port `8069` inside the container is mapped to `8075` on your machine and the other four are transparently mapped to their own port.
+
+This allows you to run up to 5 different servers per Docker container, all accessible on your local machine. If you also have a local server running on default port `8069`, it will not clash with the Docker ports.
+
+### PostgreSQL Container
+
+The command starts a separate PostgreSQL container that you can access from your host machine at `localhost:5432` by default, using `odoo` as username and password. Inside your other Docker container, the hostname of this server is `db`.
+
+### Aliases
+
+The container contains some helpful aliases that you can use to run and debug Odoo from your workspace (*either `/code` or `/code/<branch>` if you're using the multiverse setup*). They contain the right configuration to connect to the PostgreSQL database and set very high time limits by default (useful for debugging). You can check them in [`.bash_aliases`](odoo_toolkit/docker/.bash_aliases).
+
+**Running Odoo** (from within the workspace folder)
+- `o-bin` can be used instead of `odoo/odoo-bin` with the same arguments.
+
+**Running an Odoo shell** (from within the workspace folder)
+- `o-bin-sh` can be used instead of `odoo/odoo-bin shell` with the same arguments.
+
+**Upgrading Odoo** (from within the workspace folder)
+- `o-bin-up` can be used instead of `odoo/odoo-bin --upgrade-path=...` with the same arguments.
+
+**Debugging Odoo** (from within the workspace folder)
+- `o-bin-deb` can be used instead of `odoo/odoo-bin` with the same arguments, starts a debug session using [`debugpy`](https://github.com/microsoft/debugpy) and waits for your local debugger to connect to it before starting.
+
+**Debugging Odoo Upgrade** (from within the workspace folder)
+- `o-bin-deb-up` can be used instead of `odoo/odoo-bin --upgrade-path=...` with the same arguments, starts a debug session using [`debugpy`](https://github.com/microsoft/debugpy) and waits for your local debugger to connect to it before starting.
+
+> [!TIP]
+> Every alias can be appended by `-c` or `-e` to have the addons paths for respectively Community or Enterprise (e.g. `o-bin-deb-up-c`).
+
+> [!TIP]
+> Compatible [Visual Studio Code](https://code.visualstudio.com/) debug configurations are available in [`launch.json`](odoo_toolkit/multiverse_config/.vscode/launch.json).
+
+The most common PostgreSQL commands have also been aliased to use the right database and credentials, so you could just run e.g. `dropdb <database>`.
+
+### Docker Configuration
+
+The configuration for the Docker containers is located in the `odoo_toolkit/docker` folder in this repository. The [`compose.yaml`](odoo_toolkit/docker/compose.yaml) file defines an `odoo-noble` and `odoo-jammy` service that run the development containers with the right configuration and file mounts, and a `db` service that runs the PostgreSQL server.
+
+The development container configuration is laid out in [`noble.Dockerfile`](odoo_toolkit/docker/noble.Dockerfile) and [`jammy.Dockerfile`](odoo_toolkit/docker/jammy.Dockerfile).
+
+### Usage
 
 ```console
 $ otk dev start [OPTIONS]
 ```
+e.g.
+```console
+$ otk dev start -u jammy
+```
 
-**Options**:
+### Options
 
-* `-w, --workspace PATH`: Specify the path to your development workspace that will be mounted in the container's "/code" directory.  [default: ~/code/odoo]
-* `-u, --ubuntu-version [noble|jammy]`: Specify the Ubuntu version to run in this container.  [default: noble]
-* `-p, --db-port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: 5432]
+* `-w, --workspace PATH`: Specify the path to your development workspace that will be mounted in the container's `/code` directory.  [default: `~/code/odoo`]
+* `-u, --ubuntu-version [noble|jammy]`: Specify the Ubuntu version to run in this container.  [default: `noble`]
+* `-p, --db-port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
+* `--rebuild`: Rebuild the Docker image to get the latest dependencies.
 * `--help`: Show this message and exit.
 
-### `otk dev start-db`
 
-Start a standalone PostgreSQL container for your Odoo databases.
+## `otk dev start-db`
 
-**Usage**:
+**Start a standalone PostgreSQL container for your Odoo databases.**
+
+You can use this standalone container if you want to connect to it from your local machine which is running Odoo. By default it will listen on port 5432, but you can modify this if you already have another PostgreSQL server running locally.
+
+### Usage
 
 ```console
 $ otk dev start-db [OPTIONS]
 ```
 
-**Options**:
+### Options
 
-* `-p, --port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: 5432]
+* `-p, --port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
 * `--help`: Show this message and exit.
 
-### `otk dev stop`
 
-Stop and delete all running containers of the Odoo Development Server.
+## `otk dev stop`
 
-**Usage**:
+**Stop and delete all running containers of the Odoo Development Server.**
+
+This is useful if you want to build a new version of the container, or you want the container to have the latest version of `odoo-toolkit`.
+
+Running this is also necessary if you updated the `odoo-toolkit` package on your local machine. If not, your container won't be able to mount the configuration files.
+
+### Usage
 
 ```console
 $ otk dev stop [OPTIONS]
 ```
 
-**Options**:
+### Options
 
 * `--help`: Show this message and exit.
+
+
+## `otk multiverse`
+
+**Set up an Odoo Multiverse environment, having different branches checked out at the same time.**
+
+This way you can easily work on tasks in different versions without having to switch branches, or easily compare behaviors in different versions.
+
+The setup makes use of the [`git worktree`](https://git-scm.com/docs/git-worktree) feature to prevent having multiple full clones of the repositories for each version. The `git` history is only checked out once, and the only extra data you have per branch are the actual source files.
+
+The easiest way to set this up is by creating a directory for your multiverse setup and then run this command from that directory.
+
+> [!IMPORTANT]
+> Make sure you have set up your GitHub SSH key beforehand in order to clone the repositories.
+
+You can run the command as many times as you want. It will skip already existing branches and repositories and only renew their configuration (when passed the `--reset-config` option).
+
+> [!TIP]
+> If you're using [Visual Studio Code](https://code.visualstudio.com/), you can use the `--vscode` option to have the script copy some [default configuration](odoo_toolkit/multiverse_config/.vscode) to each branch folder. It contains recommended plugins, plugin configurations and debug configurations (that also work with the Docker container started via [`otk dev start`](#otk-dev-start)).
+
+### Inner Workings
+
+The command will basically do the following:
+
+1. Clone the repositories that have multiple active branches (among `odoo`, `enterprise`, `design-themes`, `documentation`, `industry` and `o-spreadsheet`) as [bare repositories](https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-code--barecode) to a `.multiverse-source/<repository>` folder (we don't need the source files themselves here). We set them up in a way that we can correctly create worktrees for each branch. We add the remote `origin` (`git@github.com:odoo/<repository>.git`) for all repositories and the remote `dev` (`git@github.com:odoo-dev/<repository>.git`) for all except the `documentation` and `o-spreadsheet` repositories.
+
+2. Clone the single-branch repositories (among `upgrade`, `upgrade-util`, `odoofin` and `internal`) to the root of your multiverse directory.
+
+3. Create a directory per branch in your multiverse directory, and a directory per multi-branch repository inside each branch directory. We use [`git worktree add`](https://git-scm.com/docs/git-worktree#Documentation/git-worktree.txt-addltpathgtltcommit-ishgt) to add a worktree for the correct branch for each repository.
+
+4. Create a symlink to each single-branch repository in each branch directory, since they all use the same `master` branch of these repositories.
+
+5. Copy all [configuration files](odoo_toolkit/multiverse_config) into each branch directory and set up the Javascript tooling for `odoo` and `enterprise` (located in the `tooling` directory inside the `web` module).
+
+6. Set up a Python virtual environment ([`venv`](https://docs.python.org/3/library/venv.html)) in the `.venv` directory inside each branch directory and install all requirements of `odoo` and `documentation`, as well as the recommended ones in [`requirements.txt`](odoo_toolkit/multiverse_config/requirements.txt).
+   *You can use this environment from the branch directory using `source .venv/bin/activate`.*
+
+After all that is done, your directory structure should look like this with the default repositories selected:
+
+```
+<multiverse-folder>
+├── .worktree-source
+│   ├── odoo (bare)
+│   ├── enterprise (bare)
+│   └── design-themes (bare)
+├── 16.0
+│   └── ...
+├── 17.0
+│   └── ...
+├── saas-17.2
+│   └── ...
+├── saas-17.4
+│   └── ...
+├── 18.0
+│   ├── .venv (Python virtual environment)
+│   ├── odoo (18.0)
+│   ├── enterprise (18.0)
+│   ├── design-themes (18.0)
+│   ├── upgrade (symlink to ../upgrade)
+│   ├── upgrade-util (symlink to ../upgrade-util)
+│   ├── pyproject.toml
+│   └── requirements.txt
+├── master
+│   └── ...
+├── upgrade (master)
+└── upgrade-util (master)
+```
+
+### Usage
+
+```console
+$ otk multiverse [OPTIONS]
+```
+e.g.
+```console
+$ otk multiverse -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgrade-util --vscode
+```
+
+### Options
+
+* `-b, --branches TEXT`: Specify the Odoo branches you want to add.  [default: `16.0`, `17.0`, `saas-17.2`, `saas-17.4`, `18.0`, `master`]
+* `-r, --repositories REPO`: Specify the Odoo repositories you want to sync.  [default: `odoo`, `enterprise`, `design-themes`, `upgrade`, `upgrade-util`]
+* `-d, --multiverse-dir PATH`: Specify the directory in which you want to install the multiverse setup.  [default: `<current working directory>`]
+* `--reset-config`: Reset every specified worktree's Ruff config, Python virtual environment and dependencies, and optional Visual Studio Code config.
+* `--vscode`: Copy settings and debug configurations for Visual Studio Code.
+* `--help`: Show this message and exit.
+
+### Repositories
+
+`REPO` can be any of these repositories:
+- [`odoo`](https://github.com/odoo/odoo)
+- [`enterprise`](https://github.com/odoo/enterprise)
+- [`design-themes`](https://github.com/odoo/design-themes)
+- [`documentation`](https://github.com/odoo/documentation)
+- [`upgrade`](https://github.com/odoo/upgrade)
+- [`upgrade-util`](https://github.com/odoo/upgrade-util)
+- [`odoofin`](https://github.com/odoo/odoofin)
+- [`industry`](https://github.com/odoo/industry)
+- [`o-spreadsheet`](https://github.com/odoo/o-spreadsheet)
+- [`internal`](https://github.com/odoo/internal)

@@ -1,36 +1,6 @@
 name: odoo-dev
 
 services:
-  odoo-jammy:
-    build:
-      context: .
-      dockerfile: ./jammy.Dockerfile
-      platforms:
-        - linux/amd64
-    image: localhost/odoo-dev:jammy
-    container_name: odoo-jammy
-    hostname: odoo-jammy
-    platform: linux/amd64
-    depends_on:
-      - db
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - ./otk:/home/odoo/bin/otk
-      - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
-      - ./.bash_aliases:/home/odoo/.bash_aliases
-      - ./starship.toml:/home/odoo/.config/starship.toml
-    ports:
-      - "5678:5678"
-      - "8070:8069"
-      - "8071:8071"
-      - "8072:8072"
-      - "8073:8073"
-      - "8074:8074"
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
   odoo-noble:
     build:
       context: .
@@ -57,6 +27,36 @@ services:
       - "8077:8077"
       - "8078:8078"
       - "8079:8079"
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  odoo-jammy:
+    build:
+      context: .
+      dockerfile: ./jammy.Dockerfile
+      platforms:
+        - linux/amd64
+    image: localhost/odoo-dev:jammy
+    container_name: odoo-jammy
+    hostname: odoo-jammy
+    platform: linux/amd64
+    depends_on:
+      - db
+    volumes:
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - ./otk:/home/odoo/bin/otk
+      - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
+      - ./.bash_aliases:/home/odoo/.bash_aliases
+      - ./starship.toml:/home/odoo/.config/starship.toml
+    ports:
+      - "5678:5678"
+      - "8070:8069"
+      - "8071:8071"
+      - "8072:8072"
+      - "8073:8073"
+      - "8074:8074"
     working_dir: /code
     stdin_open: true
     tty: true

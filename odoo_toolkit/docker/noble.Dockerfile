@@ -282,4 +282,4 @@ WORKDIR /code
 EXPOSE 5678 8069 8076 8077 8078 8079
 
 # Install Odoo Toolkit before starting the shell (to always have the latest version)
-CMD ["sh", "-c", "pipx install --force --pip-args '--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/' odoo-toolkit && otk --install-completion && exec bash"]
+CMD ["sh", "-c", "pipx install --force odoo-toolkit && otk --install-completion && exec bash"]
