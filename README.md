@@ -77,12 +77,12 @@ $ otk export-pot [OPTIONS] MODULES...
 e.g.
 
 ```console
-$ otk export-pot -p 8079 account mrp sale
+$ otk export-pot --db-username odoo --db-password odoo "account_*" mrp sale
 ```
 
 ### Arguments
 
-* `MODULES...`: Export .pot files for these Odoo modules, or either `all`, `community`, or `enterprise`.  **[required]**
+* `MODULES...`: Export .pot files for these Odoo modules (supports glob patterns), or either `all`, `community`, or `enterprise`.  **[required]**
 
 ### Options
 
