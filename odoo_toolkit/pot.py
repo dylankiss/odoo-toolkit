@@ -185,7 +185,7 @@ def export_pot(
         # Start a temporary Odoo server to export the terms.
         odoo_bin_path = com_path.expanduser().resolve() / "odoo-bin"
 
-        for server_type, modules_to_install, modules_to_export in modules_per_server_type.items():
+        for server_type, (modules_to_install, modules_to_export) in modules_per_server_type.items():
             if not modules_to_export:
                 continue
 
@@ -276,6 +276,7 @@ def _run_server_and_export_terms(
     print_header(f":rocket: Start Odoo Server ({server_type.value})")
 
     data = _LogLineData(
+        progress=None,
         progress_task=None,
         log_buffer="",
         database=database,
@@ -369,10 +370,10 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     match = re.search(r"loading (\d+) modules", log_line)
     if match:
         data.log_buffer = ""
-        if data.progress_task:
-            data.progress.update(data.progress_task, total=int(match.group(1)))
-        else:
+        if data.progress_task is None:
             data.progress_task = data.progress.add_task("Installing modules", total=None)
+        else:
+            data.progress.update(data.progress_task, total=int(match.group(1)))
 
     match = re.search(r"Loading module (\w+) \(\d+/\d+\)", log_line)
     if match:
