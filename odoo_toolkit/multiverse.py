@@ -186,13 +186,15 @@ def multiverse(
             print(f"Finishing configuration for branch [b]{branch}[/b] ...")
             _setup_config_in_branch_dir(branch_dir=branch_dir, reset_config=reset_config, vscode=vscode)
             _configure_python_env_for_branch(branch_dir=branch_dir, reset_config=reset_config)
-            print_success(f"Finished configuration for worktree [b]{branch}[/b]\n")
+            print_success(f"Finished configuration for branch [b]{branch}[/b]\n")
 
         print_header(":muscle: Great! You're now ready to work on multiple versions of Odoo")
 
     except OSError as e:
         print_error(
-            "Setting up the multiverse environment failed during file handling.",
+            "Setting up the multiverse environment failed during file handling:\n"
+            f"\t{e.filename}\n"
+            f"\t{e.filename2}",
             e.strerror,
         )
         raise Exit from e
@@ -476,7 +478,7 @@ def _setup_config_in_branch_dir(branch_dir: Path, reset_config: bool, vscode: bo
                 total=None,
             )
             try:
-                shutil.copytree(MULTIVERSE_CONFIG_DIR / ".vscode", branch_dir / ".vscode")
+                shutil.copytree(MULTIVERSE_CONFIG_DIR / ".vscode", branch_dir / ".vscode", dirs_exist_ok=True)
             except shutil.Error as e:
                 print_error(
                     f"Copying the [b].vscode[/b] settings directory to branch [b]{branch}[/b] failed.",
@@ -676,7 +678,7 @@ def _enable_js_tooling(root_dir: Path) -> None:
                 return
         # Copy over node_modules and package-lock.json to avoid "npm install" twice.
         shutil.copyfile(com_dir / "package-lock.json", ent_dir / "package-lock.json")
-        shutil.copytree(com_dir / "node_modules", ent_dir / "node_modules")
+        shutil.copytree(com_dir / "node_modules", ent_dir / "node_modules", dirs_exist_ok=True)
 
 
 def _disable_js_tooling(root_dir: Path) -> None:
