@@ -1,10 +1,10 @@
 import contextlib
-import fnmatch
 import os
 import re
 import subprocess
 import xmlrpc.client
 from base64 import b64decode
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from operator import itemgetter
@@ -13,29 +13,25 @@ from socket import socket
 from subprocess import PIPE, CalledProcessError, Popen
 from typing import Annotated
 
-import polib
+from polib import pofile
 from rich.progress import TaskID
 from rich.table import Table
-from typer import Argument, Exit, Option
+from typer import Argument, Exit, Option, Typer
 
-from .common import (
-    TransientProgress,
-    app,
-    print,
-    print_command_title,
-    print_error,
-    print_header,
-    print_warning,
-)
+from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_header, print_warning
+
+from .common import get_valid_modules_to_path_mapping
 
 HTTPS_PORT = 443
 
+app = Typer()
 
-class _OdooServerType(str, Enum):
-    COMMUNITY = "Community"
-    COMMUNITY_L10N = "Community Localizations"
-    ENTERPRISE = "Enterprise"
-    ENTERPRISE_L10N = "Enterprise Localizations"
+
+class _ServerType(str, Enum):
+    COM = "Community"
+    COM_L10N = "Community Localizations"
+    ENT = "Enterprise"
+    ENT_L10N = "Enterprise Localizations"
     FULL_BASE = "Full Base"
 
 
@@ -51,7 +47,7 @@ class _LogLineData:
 
 
 @app.command()
-def export_pot(
+def export(
     modules: Annotated[
         list[str],
         Argument(
@@ -145,36 +141,40 @@ def export_pot(
 
     This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A
     separate server will be started for Community, Community (Localizations), Enterprise, and Enterprise (Localizations)
-    modules with only the modules installed to be exported in that version.
-    \n\n
+    modules with only the modules installed to be exported in that version.\n
+    \n
     When exporting the translations for `base`, we install all possible modules to ensure all terms added in by other
-    modules get exported in the `base.pot` files as well.
-    \n\n
+    modules get exported in the `base.pot` files as well.\n
+    \n
     You can also export terms from your own running server using the `--no-start-server` option and optionally passing
-    the correct arguments to reach your Odoo server.
-    \n\n
+    the correct arguments to reach your Odoo server.\n
+    \n
     > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
     and `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost`
-    using port `5432`, accessible without a password using your current user.
-    \n\n
+    using port `5432`, accessible without a password using your current user.\n
+    \n
     > Of course, all of this can be tweaked with the available options.
     """
     print_command_title(":outbox_tray: Odoo POT Export")
 
-    com_modules_path = com_path.expanduser().resolve() / "addons"
-    ent_modules_path = ent_path.expanduser().resolve()
-
-    modules_per_server_type, modules_to_path_mapping = _get_modules_to_install_and_export_per_server_type(
+    modules_to_path_mapping = get_valid_modules_to_path_mapping(
         modules=modules,
         com_path=com_path,
         ent_path=ent_path,
-        full_install=full_install,
+        filter_fn=_is_exportable_to_transifex,
     )
     valid_modules_to_export = modules_to_path_mapping.keys()
 
     if not valid_modules_to_export:
         print_error("The provided modules are not available! Nothing to export ...\n")
         raise Exit
+
+    modules_per_server_type = _get_modules_per_server_type(
+        modules_to_path_mapping=modules_to_path_mapping,
+        com_path=com_path,
+        ent_path=ent_path,
+        full_install=full_install,
+    )
 
     print(f"Modules to export: [b]{'[/b], [b]'.join(sorted(valid_modules_to_export))}[/b]\n")
 
@@ -190,12 +190,14 @@ def export_pot(
     if start_server:
         # Start a temporary Odoo server to export the terms.
         odoo_bin_path = com_path.expanduser().resolve() / "odoo-bin"
+        com_modules_path = com_path.expanduser().resolve() / "addons"
+        ent_modules_path = ent_path.expanduser().resolve()
 
-        for server_type, (modules_to_install, modules_to_export) in modules_per_server_type.items():
+        for server_type, (modules_to_export, modules_to_install) in modules_per_server_type.items():
             if not modules_to_export:
                 continue
 
-            if server_type in (_OdooServerType.ENTERPRISE, _OdooServerType.ENTERPRISE_L10N, _OdooServerType.FULL_BASE):
+            if server_type in (_ServerType.ENT, _ServerType.ENT_L10N, _ServerType.FULL_BASE):
                 addons_path = f"{ent_modules_path},{com_modules_path}"
             else:
                 addons_path = str(com_modules_path)
@@ -221,9 +223,6 @@ def export_pot(
             if db_password:
                 cmd_env |= {"PGPASSWORD": db_password}
 
-            current_modules_to_path_mapping = {
-                k: v for k, v in modules_to_path_mapping.items() if k in modules_to_export
-            }
             _run_server_and_export_terms(
                 server_type=server_type,
                 odoo_cmd=odoo_cmd,
@@ -233,7 +232,7 @@ def export_pot(
                 database=database,
                 username=username,
                 password=password,
-                modules_to_path_mapping=current_modules_to_path_mapping,
+                modules_to_path_mapping={k: v for k, v in modules_to_path_mapping.items() if k in modules_to_export},
             )
 
     else:
@@ -248,7 +247,7 @@ def export_pot(
 
 
 def _run_server_and_export_terms(
-    server_type: _OdooServerType,
+    server_type: _ServerType,
     odoo_cmd: list[str],
     dropdb_cmd: list[str],
     env: dict[str, str],
@@ -260,24 +259,24 @@ def _run_server_and_export_terms(
 ) -> None:
     """Start an Odoo server and export .pot files for the given modules.
 
-    :param server_type: The server type to run
-    :type server_type: _OdooServerType
-    :param odoo_cmd: The command to start the Odoo server
+    :param server_type: The server type to run.
+    :type server_type: :class:`_ServerType`
+    :param odoo_cmd: The command to start the Odoo server.
     :type odoo_cmd: list[str]
-    :param dropdb_cmd: The command to drop the database
+    :param dropdb_cmd: The command to drop the database.
     :type dropdb_cmd: list[str]
-    :param env: The environment variabled to run commands with
+    :param env: The environment variables to run the commands with.
     :type env: dict[str, str]
-    :param url: The Odoo server URL
+    :param url: The Odoo server URL.
     :type url: str
-    :param database: The database name
+    :param database: The database name.
     :type database: str
-    :param username: The Odoo username
+    :param username: The Odoo username.
     :type username: str
-    :param password: The Odoo password
+    :param password: The Odoo password.
     :type password: str
-    :param modules_to_path_mapping: A mapping from each module to export to its addons path
-    :type modules_to_path_mapping: dict[str, Path]
+    :param modules_to_path_mapping: The modules to export mapped to their directories.
+    :type modules_to_path_mapping: dict[str, :class:`pathlib.Path`]
     """
     print_header(f":rocket: Start Odoo Server ({server_type.value})")
 
@@ -291,17 +290,18 @@ def _run_server_and_export_terms(
         error_msg=None,
     )
 
-    with Popen(odoo_cmd, env=env, stderr=PIPE, text=True) as p, TransientProgress() as progress:
+    with Popen(odoo_cmd, env=env, stderr=PIPE, text=True) as proc, TransientProgress() as progress:
         data.progress = progress
-        while p.poll() is None:
-            log_line = p.stderr.readline()
+        while proc.poll() is None:
+            # As long as the process is still running ...
+            log_line = proc.stderr.readline()
             data.log_buffer += log_line
 
             if _process_server_log_line(log_line=log_line, data=data):
                 # The server is ready to export.
 
                 # Close the pipe to prevent overfilling the buffer and blocking the process.
-                p.stderr.close()
+                proc.stderr.close()
 
                 # Stop the progress.
                 progress.update(data.progress_task, description="Installing modules")
@@ -324,12 +324,14 @@ def _run_server_and_export_terms(
                 print_error(data.error_msg, data.log_buffer.strip())
                 break
 
-        if p.returncode:
-            print_error(f"Running the Odoo server failed and exited with code: {p.returncode}", data.log_buffer.strip())
+        if proc.returncode:
+            print_error(
+                f"Running the Odoo server failed and exited with code: {proc.returncode}", data.log_buffer.strip(),
+            )
             data.server_error = True
         else:
             print_header(f":raised_hand: Stop Odoo Server ({server_type.value})")
-            p.kill()
+            proc.kill()
             print("Odoo Server has stopped :white_check_mark:\n")
 
     if data.database_created and data.server_error:
@@ -347,14 +349,16 @@ def _run_server_and_export_terms(
             )
 
 
+
+
 def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     """Process an Odoo server log line and update the passed data.
 
-    :param log_line: The log line to process
+    :param log_line: The log line to process.
     :type log_line: str
-    :param data: The data needed to process the line and to be updated by this function
+    :param data: The data needed to process the line and to be updated by this function.
     :type data: _LogLineData
-    :return: `True` if the server is ready to export, `False` if not
+    :return: `True` if the server is ready to export, `False` if not.
     :rtype: bool
     """
     if "Modules loaded." in log_line:
@@ -401,15 +405,15 @@ def _export_module_terms(
 ) -> None:
     """Export .pot files for the given modules.
 
-    :param modules_to_path_mapping: A mapping from each module to its addons path
+    :param modules_to_path_mapping: A mapping from each module to its directory.
     :type modules_to_path_mapping: dict[str, Path]
-    :param url: The Odoo server URL to connect to
+    :param url: The Odoo server URL to connect to.
     :type url: str
-    :param database: The database name
+    :param database: The database name.
     :type database: str
-    :param username: The Odoo username
+    :param username: The Odoo username.
     :type username: str
-    :param password: The Odoo password
+    :param password: The Odoo password.
     :type password: str
     """
     print_header(":link: Access Odoo Server")
@@ -443,113 +447,91 @@ def _export_module_terms(
 
     export_table = Table(box=None, pad_edge=False)
 
-    with TransientProgress() as progress:
-        progress_task = progress.add_task("Exporting terms ...", total=len(modules_to_export))
-        for module in modules_to_export:
-            # Create the export wizard with the current module.
-            export_id = models.execute_kw(
-                database,
-                uid,
-                password,
-                "base.language.export",
-                "create",
-                [
-                    {
-                        "lang": "__new__",
-                        "format": "po",
-                        "modules": [(6, False, [module["id"]])],
-                        "state": "choose",
-                    },
-                ],
-            )
-            # Export the POT file.
-            models.execute_kw(
-                database,
-                uid,
-                password,
-                "base.language.export",
-                "act_getfile",
-                [[export_id]],
-            )
-            # Get the exported POT file.
-            pot_file = models.execute_kw(
-                database,
-                uid,
-                password,
-                "base.language.export",
-                "read",
-                [[export_id], ["data"], {"bin_size": False}],
-            )
-            pot_file_content = b64decode(pot_file[0]["data"])
+    for module in TransientProgress().track(modules_to_export, description="Exporting terms ..."):
+        # Create the export wizard with the current module.
+        export_id = models.execute_kw(
+            database,
+            uid,
+            password,
+            "base.language.export",
+            "create",
+            [
+                {
+                    "lang": "__new__",
+                    "format": "po",
+                    "modules": [(6, False, [module["id"]])],
+                    "state": "choose",
+                },
+            ],
+        )
+        # Export the .pot file.
+        models.execute_kw(
+            database,
+            uid,
+            password,
+            "base.language.export",
+            "act_getfile",
+            [[export_id]],
+        )
+        # Get the exported .pot file.
+        pot_file = models.execute_kw(
+            database,
+            uid,
+            password,
+            "base.language.export",
+            "read",
+            [[export_id], ["data"], {"bin_size": False}],
+        )
+        pot_file_content = b64decode(pot_file[0]["data"])
 
-            module_name: str = module["name"]
-            i18n_path = modules_to_path_mapping[module_name] / module_name / "i18n"
-            if not i18n_path.exists():
-                i18n_path.mkdir()
-            pot_path = i18n_path / f"{module_name}.pot"
+        module_name: str = module["name"]
+        i18n_path = modules_to_path_mapping[module_name] / "i18n"
+        if not i18n_path.exists():
+            i18n_path.mkdir()
+        pot_path = i18n_path / f"{module_name}.pot"
 
-            if _is_pot_file_empty(pot_file_content):
-                if pot_path.is_file():
-                    # Remove empty POT files.
-                    pot_path.unlink()
-                    export_table.add_row(
-                        f"[b]{module_name}[/b]",
-                        f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
-                    )
-                else:
-                    export_table.add_row(
-                        f"[b]{module_name}[/b]",
-                        "[d]No terms to translate[/d] :negative_squared_cross_mark:",
-                    )
-            else:
-                pot_metadata = None
-                with contextlib.suppress(Exception):
-                    pot_metadata = polib.pofile(str(pot_path)).metadata
-                pot = polib.pofile(pot_file_content.decode())
-                if pot_metadata:
-                    pot.metadata = pot_metadata
-                pot.save(str(pot_path))
+        if _is_pot_file_empty(pot_file_content):
+            if pot_path.is_file():
+                # Remove empty .pot files.
+                pot_path.unlink()
                 export_table.add_row(
                     f"[b]{module_name}[/b]",
-                    f"[d]{i18n_path}{os.sep}[/d][b]{module_name}.pot[/b] :white_check_mark:",
+                    f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
                 )
-            progress.update(progress_task, advance=1)
+                continue
+
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                "[d]No terms to translate[/d] :negative_squared_cross_mark:",
+            )
+            continue
+
+        pot_metadata = None
+        with contextlib.suppress(OSError, ValueError):
+            pot_metadata = pofile(str(pot_path)).metadata
+        try:
+            pot = pofile(pot_file_content.decode())
+            if pot_metadata:
+                pot.metadata = pot_metadata
+            pot.save(str(pot_path))
+        except (OSError, ValueError):
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:",
+            )
+            continue
+
+        export_table.add_row(
+            f"[b]{module_name}[/b]",
+            f"[d]{i18n_path}{os.sep}[/d][b]{module_name}.pot[/b] :white_check_mark: ({len(pot)} terms)",
+        )
 
     print(export_table, "")
     print("Terms have been exported :white_check_mark:\n")
 
 
-def _free_port(host: str, start_port: int) -> int:
-    """Find the first free port on the host starting from the provided port."""
-    for port in range(start_port, 65536):
-        with socket() as s:
-            try:
-                s.bind((host, port))
-            except OSError:
-                continue
-            else:
-                return port
-    return None
-
-
-def _installable_for_base(module: str) -> bool:
-    """Determine if the given module should be installed to export base terms."""
-    return "hw_" not in module and "test" not in module
-
-
-def _exportable_for_transifex(module: str) -> bool:
-    """Determine if the given module should be exported for Transifex."""
-    return (
-        ("l10n_" not in module or module == "l10n_multilang")
-        and "theme_" not in module
-        and "hw_" not in module
-        and "test" not in module
-        and "pos_blackbox_be" not in module
-    )
-
-
 def _is_pot_file_empty(contents: bytes) -> bool:
-    """Determine if the given POT file's contents doesn't contains translatable terms."""
+    """Determine if the given .pot file's contents doesn't contain translatable terms."""
     in_msgid = False
     for line in map(str.strip, contents.decode().splitlines()):
         if line.startswith("msgid"):
@@ -564,101 +546,119 @@ def _is_pot_file_empty(contents: bytes) -> bool:
     return True
 
 
-def _get_modules_to_install_and_export_per_server_type(
-    modules: list[str],
+def _get_modules_per_server_type(
+    modules_to_path_mapping: dict[str, Path],
     com_path: Path,
     ent_path: Path,
     full_install: bool = False,
-) -> tuple[dict[_OdooServerType, tuple[list[str], list[str]]], dict[str, Path]]:
-    """Find out what modules to install and export per server type.
+) -> dict[_ServerType, tuple[set[str], set[str]]]:
+    """Get all modules to export and install per server type.
 
-    :param modules: The requested modules to export (supports glob patterns)
-    :type modules: list[str]
-    :param com_path: The path to the Odoo Community repository
-    :type com_path: Path
-    :param ent_path: The path to the Odoo Enterprise repository
-    :type ent_path: Path
-    :param full_install: Whether we want to install all modules before export, defaults to False
+    :param modules_to_path_mapping: The modules to export, mapped to their directories.
+    :type modules_to_path_mapping: dict[str, :class:`pathlib.Path`]
+    :param com_path: The path to the Odoo Community repository.
+    :type com_path: :class:`pathlib.Path`
+    :param ent_path: The path to the Odoo Enterprise repository.
+    :type ent_path: :class:`pathlib.Path`
+    :param full_install: Whether we want to install all modules before exporting, defaults to `False`.
     :type full_install: bool, optional
-    :return: A tuple containing:
-        - A mapping from the server type to a tuple of modules to install, and modules to export
-        - A mapping from modules to export to their addons path
-    :rtype: tuple[dict[_OdooServerType, tuple[list[str], list[str]]], dict[str, Path]]
+    :return: A mapping from each server type to a tuple containing the set of modules to export,
+        and the set of modules to install.
+    :rtype: dict[:class:`_ServerType`, tuple[set[str], set[str]]]
     """
-    base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
     com_modules_path = com_path.expanduser().resolve() / "addons"
     ent_modules_path = ent_path.expanduser().resolve()
 
-    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
-    com_modules_l10n = {m for m in com_modules if "l10n_" in m and m != "l10n_multilang"}
-    com_modules_no_l10n = com_modules - com_modules_l10n
-    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
-    ent_modules_l10n = {m for m in ent_modules if "l10n_" in m}
-    ent_modules_no_l10n = ent_modules - ent_modules_l10n
-    all_modules = {"base"} | com_modules | ent_modules
-    modules_for_base = {m for m in all_modules if _installable_for_base(m)}
-    modules_for_transifex = {m for m in all_modules if _exportable_for_transifex(m)}
+    modules_to_export = defaultdict(set)
+    modules_to_install = defaultdict(set)
 
-    # Determine all modules to export.
-    if len(modules) == 1:
-        match modules[0]:
-            case "all":
-                modules_to_export = modules_for_transifex
-            case "community":
-                modules_to_export = ({"base"} | com_modules) & modules_for_transifex
-            case "enterprise":
-                modules_to_export = ent_modules & modules_for_transifex
-            case _:
-                modules = modules[0].split(",")
-                modules_to_export = {m for m in all_modules if any(fnmatch.fnmatch(m, p) for p in modules)}
+    # Determine all modules to export per server type.
+    for m, p in modules_to_path_mapping.items():
+        if m == "base":
+            modules_to_export[_ServerType.FULL_BASE].add(m)
+        elif p.is_relative_to(ent_modules_path):
+            modules_to_export[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
+        elif p.is_relative_to(com_modules_path):
+            modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
+
+    # Determine all modules to install per server type.
+    if full_install:
+        modules_to_install = _get_full_install_modules_per_server_type(com_modules_path, ent_modules_path)
     else:
-        modules = {re.sub(r",", "", m) for m in modules}
-        modules_to_export = {m for m in all_modules if any(fnmatch.fnmatch(m, p) for p in modules)}
+        # Some modules' .pot files contain terms generated by other modules.
+        # In order to keep them, we define which modules contribute to the terms of another.
+        contributors_per_module = {
+            "account": {"account", "account_avatax", "point_of_sale", "pos_restaurant", "stock_account"},
+        }
+        for server_type in _ServerType:
+            modules_to_install[server_type].update(
+                c for m in modules_to_export[server_type] for c in contributors_per_module.get(m, {m})
+            )
 
-    # Some modules' .pot files contain terms generated by other modules.
-    # In order to keep them, we define which modules contribute to the terms of another.
-    modules_to_contributors_mapping = {
-        "account": {"account", "account_avatax", "point_of_sale", "pos_restaurant", "stock_account"},
-    }
-    modules_to_install = {
-        contributor
-        for module in modules_to_export
-        for contributor in modules_to_contributors_mapping.get(module, {module})
-    }
-
-    # Map each server type to its modules to install and export.
-    modules_per_server_type = {
-        _OdooServerType.COMMUNITY: (
-            com_modules_no_l10n if full_install else modules_to_install & com_modules_no_l10n,
-            modules_to_export & com_modules_no_l10n,
-        ),
-        _OdooServerType.COMMUNITY_L10N: (
-            com_modules_l10n if full_install else modules_to_install & com_modules_l10n,
-            modules_to_export & com_modules_l10n,
-        ),
-        _OdooServerType.ENTERPRISE: (
-            ent_modules_no_l10n if full_install else modules_to_install & ent_modules_no_l10n,
-            modules_to_export & ent_modules_no_l10n,
-        ),
-        _OdooServerType.ENTERPRISE_L10N: (
-            ent_modules_l10n if full_install else modules_to_install & ent_modules_l10n,
-            modules_to_export & ent_modules_l10n,
-        ),
-        _OdooServerType.FULL_BASE: (
-            modules_for_base if "base" in modules_to_export else {},
-            {"base"} & modules_to_export,
-        ),
+    return {
+        server_type: (modules_to_export[server_type], modules_to_install[server_type]) for server_type in _ServerType
     }
 
-    # Map each module to export to its addons directory.
-    modules_to_path_mapping = {
-        module: path
-        for scoped_modules, path in [
-            ({"base"} & modules_to_export, base_module_path),
-            (com_modules & modules_to_export, com_modules_path),
-            (ent_modules & modules_to_export, ent_modules_path),
-        ]
-        for module in scoped_modules
-    }
 
-    return modules_per_server_type, modules_to_path_mapping
+def _get_full_install_modules_per_server_type(
+    com_modules_path: Path,
+    ent_modules_path: Path,
+) -> dict[_ServerType, set[str]]:
+    """Get all modules to install per server type for .pot export with `full_install = True`."""
+    modules = defaultdict(set)
+
+    for m in (f.parent.name for f in com_modules_path.glob("*/__manifest__.py")):
+        # Add each Community module to the right server types.
+        if _is_l10n_module(m):
+            modules[_ServerType.COM_L10N].add(m)
+        else:
+            modules[_ServerType.COM].add(m)
+        if _is_needed_for_base_export(m):
+            modules[_ServerType.FULL_BASE].add(m)
+
+    for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
+        # Add each Enterprise module to the right server types.
+        if _is_l10n_module(m):
+            modules[_ServerType.ENT_L10N].add(m)
+        else:
+            modules[_ServerType.ENT].add(m)
+        if _is_needed_for_base_export(m):
+            modules[_ServerType.FULL_BASE].add(m)
+
+    modules[_ServerType.FULL_BASE].add("base")
+
+    return modules
+
+
+def _is_exportable_to_transifex(module: str) -> bool:
+    """Determine if the given module should be exported to Transifex."""
+    return (
+        ("l10n_" not in module or module == "l10n_multilang")
+        and "theme_" not in module
+        and "hw_" not in module
+        and "test" not in module
+        and "pos_blackbox_be" not in module
+    )
+
+
+def _is_needed_for_base_export(module: str) -> bool:
+    """Determine if the given module should be installed to export base terms."""
+    return "hw_" not in module and "test" not in module
+
+
+def _is_l10n_module(module: str) -> bool:
+    """Determine if the given module is a localization module."""
+    return "l10n_" in module and module != "l10n_multilang"
+
+
+def _free_port(host: str, start_port: int) -> int:
+    """Find the first free port on the host starting from the provided port."""
+    for port in range(start_port, 65536):
+        with socket() as s:
+            try:
+                s.bind((host, port))
+            except OSError:
+                continue
+            else:
+                return port
+    return None

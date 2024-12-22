@@ -8,11 +8,10 @@ from subprocess import PIPE, CalledProcessError, Popen
 from typing import Annotated
 from venv import EnvBuilder
 
-from typer import Exit, Option
+from typer import Exit, Option, Typer
 
 from .common import (
     TransientProgress,
-    app,
     print,
     print_command_title,
     print_error,
@@ -21,6 +20,8 @@ from .common import (
     print_success,
     print_warning,
 )
+
+app = Typer()
 
 
 class OdooRepo(str, Enum):
@@ -105,28 +106,28 @@ def multiverse(
         Option("--vscode", help="Copy settings and debug configurations for Visual Studio Code."),
     ] = False,
 ) -> None:
-    """Set up an Odoo Multiverse environment, having different branches checked out at the same time.
+    """Set up an :milky_way: Odoo Multiverse environment, having different branches checked out at the same time.
 
     This way you can easily work on tasks in different versions without having to switch branches, or easily compare
-    behaviors in different versions.
-    \n\n
+    behaviors in different versions.\n
+    \n
     The setup makes use of the [`git worktree`](https://git-scm.com/docs/git-worktree) feature to prevent having
     multiple full clones of the repositories for each version. The `git` history is only checked out once, and the only
-    extra data you have per branch are the actual source files.
-    \n\n
+    extra data you have per branch are the actual source files.\n
+    \n
     The easiest way to set this up is by creating a directory for your multiverse setup and then run this command from
-    that directory.
-    \n\n
-    > Make sure you have set up your **GitHub SSH key** beforehand in order to clone the repositories.
-    \n\n
+    that directory.\n
+    \n
+    > Make sure you have set up your **GitHub SSH key** beforehand in order to clone the repositories.\n
+    \n
     You can run the command as many times as you want. It will skip already existing branches and repositories and only
-    renew their configuration (when passed the `--reset-config` option).
-    \n\n
+    renew their configuration (when passed the `--reset-config` option).\n
+    \n
     > If you're using **Visual Studio Code**, you can use the `--vscode` option to have the script copy some default
     configuration to each branch folder. It contains recommended plugins, plugin configurations and debug configurations
     (that also work with the Docker container started via `otk dev start`).
     """
-    print_command_title(":earth_africa: Odoo Multiverse")
+    print_command_title(":milky_way: Odoo Multiverse")
 
     try:
         # Ensure the multiverse directory exists.
@@ -537,7 +538,7 @@ def _configure_python_env_for_branch(branch_dir: Path, reset_config: bool) -> No
             f"Configuring Python virtual environment for branch [b]{branch}[/b] ...",
             total=None,
         )
-        EnvBuilder(with_pip=True, upgrade=True).create(venv_path)
+        EnvBuilder(with_pip=True, symlinks=True, upgrade=not reset_config, upgrade_deps=True).create(venv_path)
         progress.update(progress_task, total=1, completed=1)
 
         # Locate the Python executable in the virtual environment.

@@ -27,21 +27,20 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ## Table of Contents
 
-### Translations Related Commands
+### [Odoo Translations (`otk po`)](#odoo-translations-otk-po-1)
 
-| Command                             | Purpose                                                                             |
-| ----------------------------------- | ----------------------------------------------------------------------------------- |
-| [`otk export-pot`](#otk-export-pot) | Export Odoo translation files (.pot) to each module's i18n folder.                  |
-| [`otk create-po`](#otk-create-po)   | Create Odoo translation files (.po) according to their .pot files.                  |
-| [`otk update-po`](#otk-update-po)   | Update Odoo translation files (.po) according to a new version of their .pot files. |
-| [`otk merge-po`](#otk-merge-po)     | Merge multiple translation files (.po) into one.                                    |
-|                                     | [Available Languages](#available-languages)                                         |
+| Command                           | Purpose                                                                             |
+| --------------------------------- | ----------------------------------------------------------------------------------- |
+| [`otk po export`](#otk-po-export) | Export Odoo translation files (.pot) to each module's i18n folder.                  |
+| [`otk po create`](#otk-po-create) | Create Odoo translation files (.po) according to their .pot files.                  |
+| [`otk po update`](#otk-po-update) | Update Odoo translation files (.po) according to a new version of their .pot files. |
+| [`otk po merge`](#otk-po-merge)   | Merge multiple translation files (.po) into one.                                    |
+|                                   | [Available Languages](#available-languages)                                         |
 
-### Development Server Commands
+### [Odoo Development Server (`otk dev`)](#odoo-development-server-otk-dev-1)
 
 | Command                                 | Purpose                                                                              |
 | --------------------------------------- | ------------------------------------------------------------------------------------ |
-|                                         | [Odoo Development Server](#odoo-development-server)                                  |
 | [`otk dev start`](#otk-dev-start)       | Start an Odoo Development Server using Docker and launch a terminal session into it. |
 | [`otk dev start-db`](#otk-dev-start-db) | Start a standalone PostgreSQL container for your Odoo databases.                     |
 | [`otk dev stop`](#otk-dev-stop)         | Stop and delete all running containers of the Odoo Development Server.               |
@@ -53,8 +52,14 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk multiverse`](#otk-multiverse) | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
 
 
+## Odoo Translations (`otk po`)
 
-## `otk export-pot`
+**Work with Odoo Translations (.po and .pot files).**
+
+The following commands allow you to export `.pot` files for Odoo modules, create or update `.po` files according to their (updated) `.pot` files, or merge multiple `.po` files into one.
+
+
+## `otk po export`
 
 **Export Odoo translation files (.pot) to each module's i18n folder.**
 
@@ -72,12 +77,12 @@ You can also export terms from your own running server using the `--own-server` 
 ### Usage
 
 ```console
-$ otk export-pot [OPTIONS] MODULES...
+$ otk po export [OPTIONS] MODULES...
 ```
 e.g.
 
 ```console
-$ otk export-pot --db-username odoo --db-password odoo "account_*" mrp sale
+$ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 ```
 
 ### Arguments
@@ -109,7 +114,7 @@ $ otk export-pot --db-username odoo --db-password odoo "account_*" mrp sale
 
 * `--help`: Show this message and exit.
 
-## `otk create-po`
+## `otk po create`
 
 **Create Odoo translation files (.po) according to their .pot files.**
 
@@ -121,12 +126,12 @@ This command will provide you with a clean .po file per language you specified f
 ### Usage
 
 ```console
-$ otk create-po [OPTIONS] MODULES...
+$ otk po create [OPTIONS] MODULES...
 ```
 e.g.
 
 ```console
-$ otk create-po -l nl -l fr -l de l10n_be l10n_be_reports
+$ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 ```
 
 ### Arguments
@@ -141,7 +146,7 @@ $ otk create-po -l nl -l fr -l de l10n_be l10n_be_reports
 * `--help`: Show this message and exit.
 
 
-## `otk update-po`
+## `otk po update`
 
 **Update Odoo translation files (.po) according to a new version of their .pot files.**
 
@@ -153,11 +158,11 @@ This command will update the .po files for the provided modules according to a n
 ### Usage
 
 ```console
-$ otk update-po [OPTIONS] MODULES...
+$ otk po update [OPTIONS] MODULES...
 ```
 e.g.
 ```console
-$ otk update-po -l nl -l fr account account_accountant
+$ otk po update -l nl -l fr account account_accountant
 ```
 
 ### Arguments
@@ -172,7 +177,7 @@ $ otk update-po -l nl -l fr account account_accountant
 * `--help`: Show this message and exit.
 
 
-## `otk merge-po`
+## `otk po merge`
 
 **Merge multiple translation files (.po) into one.**
 
@@ -185,11 +190,11 @@ The .po metadata is taken from the first file by default, or the last if `--over
 ### Usage
 
 ```console
-$ otk merge-po [OPTIONS] PO_FILES...
+$ otk po merge [OPTIONS] PO_FILES...
 ```
 e.g.
 ```console
-$ otk merge-po -o nl_merged.po nl.po nl_BE.po
+$ otk po merge -o nl_merged.po nl.po nl_BE.po
 ```
 
 ### Arguments
@@ -260,7 +265,7 @@ When `LANG` is given as a type, any of the following language codes can be used.
 | `gu`     | Gujarati                     | `zh_TW`    | Chinese (Traditional) |
 
 
-## Odoo Development Server
+## Odoo Development Server (`otk dev`)
 
 **Run an Odoo Development Server using Docker.**
 
@@ -271,15 +276,6 @@ The following commands allow you to automatically start and stop a fully configu
 
 The Docker container is configured to resemble Odoo's CI or production servers and thus tries to eliminate discrepancies between your local system and the CI or production server.
 
-### Usage
-
-```console
-$ otk dev [OPTIONS] COMMAND [ARGS]...
-```
-
-### Options
-
-* `--help`: Show this message and exit.
 
 ## `otk dev start`
 

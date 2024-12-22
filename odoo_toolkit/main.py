@@ -2,17 +2,22 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from typing import Annotated
 
-from typer import Exit, Option
+from typer import Exit, Option, Typer
 
-from .common import app, print
-from .dev import dev_app  # noqa: F401
-from .multiverse import multiverse  # noqa: F401
-from .po import create_po, merge_po, update_po  # noqa: F401
-from .pot import export_pot  # noqa: F401
+from .common import print
+from .dev import app as dev_app
+from .multiverse import app as multiverse_app
+from .po import app as po_app
+
+# The main app to register all the commands with.
+app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
+app.add_typer(po_app, name="po")
+app.add_typer(dev_app, name="dev")
+app.add_typer(multiverse_app)
 
 
 @app.callback(invoke_without_command=True)
-def main(*, version: Annotated[bool, Option("--version", help="Show the version and exit.")] = False) -> None:
+def main(version: Annotated[bool, Option("--version", help="Show the version and exit.")] = False) -> None:
     """🧰 Odoo Toolkit
 
     This toolkit contains several useful tools for Odoo development.

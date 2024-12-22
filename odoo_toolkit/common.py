@@ -1,15 +1,9 @@
+from enum import Enum
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from typer import Typer
-
-PROGRESS_COLUMNS = [
-    SpinnerColumn(),
-    TextColumn("[progress.description]{task.description}"),
-    BarColumn(),
-    TaskProgressColumn(),
-    TimeElapsedColumn(),
-]
 
 # The main app to register all the commands on
 app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
@@ -19,18 +13,28 @@ console = Console(stderr=True, highlight=False)
 print = console.print  # noqa: A001
 
 
+class Status(Enum):
+    """The status of a specific function call."""
+
+    SUCCESS = 1
+    FAILURE = 2
+    PARTIAL = 3
+
+
 class TransientProgress(Progress):
-    """Renders auto-updating transient progress bars using opinionated styling."""
+    """Render auto-updating transient progress bars using opinionated styling."""
 
-    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003, ARG002, D107
-        super().__init__(*PROGRESS_COLUMNS, console=console, transient=True)
-
-
-class StickyProgress(Progress):
-    """Renders auto-updating sticky progress bars using opinionated styling."""
-
-    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003, ARG002, D107
-        super().__init__(*PROGRESS_COLUMNS, console=console)
+    def __init__(self) -> None:
+        """Initialize the :class:`rich.progress.Progress` instance with a specific styling."""
+        super().__init__(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+            transient=True,
+        )
 
 
 def print_command_title(title: str) -> None:
@@ -70,16 +74,7 @@ def print_error(error_msg: str, stacktrace: str | None = None) -> None:
     """
     print(f":exclamation_mark: {error_msg}", style="red")
     if stacktrace:
-        print(
-            "",
-            Panel(
-                stacktrace,
-                title="Logs",
-                title_align="left",
-                style="red",
-                border_style="bold red",
-            ),
-        )
+        print("", Panel(stacktrace, title="Logs", title_align="left", style="red", border_style="bold red"))
 
 
 def print_warning(warning_msg: str) -> None:
@@ -121,10 +116,4 @@ def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
     :return: A Panel to be used in any rich objects for printing
     :rtype: :class:`rich.panel.Panel`
     """
-    return Panel(
-        error_logs,
-        title=title,
-        title_align="left",
-        style="red",
-        border_style="bold red",
-    )
+    return Panel(error_logs, title=title, title_align="left", style="red", border_style="bold red")
