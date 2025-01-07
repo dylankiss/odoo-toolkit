@@ -11,6 +11,7 @@ from odoo_toolkit.common import (
     Status,
     TransientProgress,
     get_error_log_panel,
+    get_valid_modules_to_path_mapping,
     print,
     print_command_title,
     print_error,
@@ -19,7 +20,7 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import LANG_TO_PLURAL_RULES, Lang, get_valid_modules_to_path_mapping, update_module_po
+from .common import LANG_TO_PLURAL_RULES, Lang, update_module_po
 
 app = Typer()
 
@@ -61,17 +62,17 @@ def update(
     """
     print_command_title(":arrows_counterclockwise: Odoo PO Update")
 
-    modules_to_path_mapping = get_valid_modules_to_path_mapping(
+    module_to_path = get_valid_modules_to_path_mapping(
         modules=modules,
         com_path=com_path,
         ent_path=ent_path,
     )
 
-    if not modules_to_path_mapping:
+    if not module_to_path:
         print_error("The provided modules are not available! Nothing to update ...")
         raise Exit
 
-    modules = sorted(modules_to_path_mapping.keys())
+    modules = sorted(module_to_path.keys())
     print(f"Modules to update translation files for: [b]{'[/b], [b]'.join(modules)}[/b]\n")
 
     print_header(":speech_balloon: Update Translation Files")
@@ -88,7 +89,7 @@ def update(
             action=_update_po_for_lang,
             module=module,
             languages=languages,
-            module_path=modules_to_path_mapping[module],
+            module_path=module_to_path[module],
             module_tree=module_tree,
         )
         print(module_tree, "")

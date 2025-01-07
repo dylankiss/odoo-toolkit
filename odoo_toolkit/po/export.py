@@ -18,9 +18,15 @@ from rich.progress import TaskID
 from rich.table import Table
 from typer import Argument, Exit, Option, Typer
 
-from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_header, print_warning
-
-from .common import get_valid_modules_to_path_mapping
+from odoo_toolkit.common import (
+    TransientProgress,
+    get_valid_modules_to_path_mapping,
+    print,
+    print_command_title,
+    print_error,
+    print_header,
+    print_warning,
+)
 
 HTTPS_PORT = 443
 
@@ -157,20 +163,20 @@ def export(
     """
     print_command_title(":outbox_tray: Odoo POT Export")
 
-    modules_to_path_mapping = get_valid_modules_to_path_mapping(
+    module_to_path = get_valid_modules_to_path_mapping(
         modules=modules,
         com_path=com_path,
         ent_path=ent_path,
         filter_fn=_is_exportable_to_transifex,
     )
-    valid_modules_to_export = modules_to_path_mapping.keys()
+    valid_modules_to_export = module_to_path.keys()
 
     if not valid_modules_to_export:
         print_error("The provided modules are not available! Nothing to export ...\n")
         raise Exit
 
     modules_per_server_type = _get_modules_per_server_type(
-        modules_to_path_mapping=modules_to_path_mapping,
+        modules_to_path_mapping=module_to_path,
         com_path=com_path,
         ent_path=ent_path,
         full_install=full_install,
@@ -232,13 +238,13 @@ def export(
                 database=database,
                 username=username,
                 password=password,
-                modules_to_path_mapping={k: v for k, v in modules_to_path_mapping.items() if k in modules_to_export},
+                module_to_path={k: v for k, v in module_to_path.items() if k in modules_to_export},
             )
 
     else:
         # Export from a running server.
         _export_module_terms(
-            modules_to_path_mapping={k: v for k, v in modules_to_path_mapping.items() if k in valid_modules_to_export},
+            module_to_path={k: v for k, v in module_to_path.items() if k in valid_modules_to_export},
             url=url,
             database=database,
             username=username,
@@ -255,7 +261,7 @@ def _run_server_and_export_terms(
     database: str,
     username: str,
     password: str,
-    modules_to_path_mapping: dict[str, Path],
+    module_to_path: dict[str, Path],
 ) -> None:
     """Start an Odoo server and export .pot files for the given modules.
 
@@ -275,8 +281,8 @@ def _run_server_and_export_terms(
     :type username: str
     :param password: The Odoo password.
     :type password: str
-    :param modules_to_path_mapping: The modules to export mapped to their directories.
-    :type modules_to_path_mapping: dict[str, :class:`pathlib.Path`]
+    :param module_to_path: The modules to export mapped to their directories.
+    :type module_to_path: dict[str, :class:`pathlib.Path`]
     """
     print_header(f":rocket: Start Odoo Server ({server_type.value})")
 
@@ -311,7 +317,7 @@ def _run_server_and_export_terms(
 
                 # Export module terms.
                 _export_module_terms(
-                    modules_to_path_mapping=modules_to_path_mapping,
+                    module_to_path=module_to_path,
                     url=url,
                     database=database,
                     username=username,
@@ -397,7 +403,7 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
 
 
 def _export_module_terms(
-    modules_to_path_mapping: dict[str, Path],
+    module_to_path: dict[str, Path],
     url: str,
     database: str,
     username: str,
@@ -405,8 +411,8 @@ def _export_module_terms(
 ) -> None:
     """Export .pot files for the given modules.
 
-    :param modules_to_path_mapping: A mapping from each module to its directory.
-    :type modules_to_path_mapping: dict[str, Path]
+    :param module_to_path: A mapping from each module to its directory.
+    :type module_to_path: dict[str, Path]
     :param url: The Odoo server URL to connect to.
     :type url: str
     :param database: The database name.
@@ -425,7 +431,7 @@ def _export_module_terms(
 
     print_header(":speech_balloon: Export Terms")
 
-    modules = list(modules_to_path_mapping.keys())
+    modules = list(module_to_path.keys())
     if not modules:
         return
 
@@ -485,7 +491,7 @@ def _export_module_terms(
         pot_file_content = b64decode(pot_file[0]["data"])
 
         module_name: str = module["name"]
-        i18n_path = modules_to_path_mapping[module_name] / "i18n"
+        i18n_path = module_to_path[module_name] / "i18n"
         if not i18n_path.exists():
             i18n_path.mkdir()
         pot_path = i18n_path / f"{module_name}.pot"
@@ -547,15 +553,15 @@ def _is_pot_file_empty(contents: bytes) -> bool:
 
 
 def _get_modules_per_server_type(
-    modules_to_path_mapping: dict[str, Path],
+    module_to_path: dict[str, Path],
     com_path: Path,
     ent_path: Path,
     full_install: bool = False,
 ) -> dict[_ServerType, tuple[set[str], set[str]]]:
     """Get all modules to export and install per server type.
 
-    :param modules_to_path_mapping: The modules to export, mapped to their directories.
-    :type modules_to_path_mapping: dict[str, :class:`pathlib.Path`]
+    :param module_to_path: The modules to export, mapped to their directories.
+    :type module_to_path: dict[str, :class:`pathlib.Path`]
     :param com_path: The path to the Odoo Community repository.
     :type com_path: :class:`pathlib.Path`
     :param ent_path: The path to the Odoo Enterprise repository.
@@ -573,7 +579,7 @@ def _get_modules_per_server_type(
     modules_to_install = defaultdict(set)
 
     # Determine all modules to export per server type.
-    for m, p in modules_to_path_mapping.items():
+    for m, p in module_to_path.items():
         if m == "base":
             modules_to_export[_ServerType.FULL_BASE].add(m)
         elif p.is_relative_to(ent_modules_path):

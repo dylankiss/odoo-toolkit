@@ -1,8 +1,5 @@
-
-import re
 from collections.abc import Callable
 from enum import Enum
-from fnmatch import fnmatch
 from pathlib import Path
 
 from polib import POFile, pofile
@@ -228,64 +225,6 @@ PLURAL_RULES_TO_LANGS = {
     },
 }
 LANG_TO_PLURAL_RULES = {lang: plural_rules for plural_rules, langs in PLURAL_RULES_TO_LANGS.items() for lang in langs}
-
-def get_valid_modules_to_path_mapping(
-    modules: list[str],
-    com_path: Path,
-    ent_path: Path,
-    filter_fn: Callable[[str], bool] = lambda m: True,  # noqa: ARG005
-) -> dict[str, Path]:
-    """Determine the valid modules and their directories.
-
-    :param modules: The requested list of modules, or `all`, `community`, or `enterprise`.
-    :type modules: list[str]
-    :param com_path: The Odoo Community repository.
-    :type com_path: :class:`pathlib.Path`
-    :param ent_path: The Odoo Enterprise repository.
-    :type ent_path: :class:`pathlib.Path`
-    :param filter_fn: A function to filter the modules when using `all`, `community`, or `enterprise`,
-        defaults to `lambda m: True`.
-    :type filter_fn: Callable[[str], bool], optional
-    :return: A tuple containing the valid modules, and the mapping to their directory.
-    :rtype: dict[str, :class:`pathlib.Path`]
-    """
-    base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
-    com_modules_path = com_path.expanduser().resolve() / "addons"
-    ent_modules_path = ent_path.expanduser().resolve()
-
-    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
-    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
-    all_modules = {"base"} | com_modules | ent_modules
-
-    # Determine all modules to consider.
-    if len(modules) == 1:
-        match modules[0]:
-            case "all":
-                modules_to_consider = {m for m in all_modules if filter_fn(m)}
-            case "community":
-                modules_to_consider = {m for m in {"base"} | com_modules if filter_fn(m)}
-            case "enterprise":
-                modules_to_consider = {m for m in ent_modules if filter_fn(m)}
-            case _:
-                modules = modules[0].split(",")
-                modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
-    else:
-        modules = {re.sub(r",", "", m) for m in modules}
-        modules_to_consider = {re.sub(r",", "", m) for m in modules if m in all_modules}
-
-    if not modules_to_consider:
-        return {}
-
-    # Map each module to its directory.
-    return {
-        module: path / module
-        for modules, path in [
-            ({"base"} & modules_to_consider, base_module_path),
-            (com_modules & modules_to_consider, com_modules_path),
-            (ent_modules & modules_to_consider, ent_modules_path),
-        ]
-        for module in modules
-    }
 
 
 def update_module_po(

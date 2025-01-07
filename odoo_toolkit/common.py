@@ -1,9 +1,15 @@
+import re
+from collections.abc import Callable
 from enum import Enum
+from fnmatch import fnmatch
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from typer import Typer
+
+EMPTY_LIST = []
 
 # The main app to register all the commands on
 app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
@@ -117,3 +123,71 @@ def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
     :rtype: :class:`rich.panel.Panel`
     """
     return Panel(error_logs, title=title, title_align="left", style="red", border_style="bold red")
+
+
+def get_valid_modules_to_path_mapping(
+    modules: list[str],
+    com_path: Path,
+    ent_path: Path,
+    extra_addons_paths: list[Path] = EMPTY_LIST,
+    filter_fn: Callable[[str], bool] = lambda _m: True,
+) -> dict[str, Path]:
+    """Determine the valid modules and their directories.
+
+    :param modules: The requested list of modules, or `all`, `community`, or `enterprise`.
+    :type modules: list[str]
+    :param com_path: The Odoo Community repository.
+    :type com_path: :class:`pathlib.Path`
+    :param ent_path: The Odoo Enterprise repository.
+    :type ent_path: :class:`pathlib.Path`
+    :param extra_addons_paths: An optional list of extra directories containing Odoo modules, defaults to `[]`.
+    :type extra_addons_paths: list[:class:`pathlib.Path`], optional
+    :param filter_fn: A function to filter the modules when using `all`, `community`, or `enterprise`,
+        defaults to `lambda _m: True`.
+    :type filter_fn: Callable[[str], bool], optional
+    :return: A tuple containing the valid modules, and the mapping to their directory.
+    :rtype: dict[str, :class:`pathlib.Path`]
+    """
+    base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
+    com_modules_path = com_path.expanduser().resolve() / "addons"
+    ent_modules_path = ent_path.expanduser().resolve()
+    extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
+
+    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
+    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
+
+    modules_path_tuples = [
+        ({"base"}, base_module_path),
+        (com_modules, com_modules_path),
+        (ent_modules, ent_modules_path),
+    ]
+    modules_path_tuples.extend(({f.parent.name for f in p.glob("*/__manifest__.py")}, p) for p in extra_modules_paths)
+
+    all_modules = {"base"} | com_modules | ent_modules
+    all_modules.update(m for t in modules_path_tuples[3:] for m in t[0])
+
+    # Determine all modules to consider.
+    if len(modules) == 1:
+        match modules[0]:
+            case "all":
+                modules_to_consider = {m for m in all_modules if filter_fn(m)}
+            case "community":
+                modules_to_consider = {m for m in {"base"} | com_modules if filter_fn(m)}
+            case "enterprise":
+                modules_to_consider = {m for m in ent_modules if filter_fn(m)}
+            case _:
+                modules = modules[0].split(",")
+                modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
+    else:
+        modules = {re.sub(r",", "", m) for m in modules}
+        modules_to_consider = {re.sub(r",", "", m) for m in modules if m in all_modules}
+
+    if not modules_to_consider:
+        return {}
+
+    # Map each module to its directory.
+    return {
+        module: path / module
+        for modules, path in modules_path_tuples
+        for module in modules & modules_to_consider
+    }
