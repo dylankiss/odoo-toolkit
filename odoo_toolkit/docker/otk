@@ -2,26 +2,20 @@
 
 # This script intercepts the "otk" calls to add arguments specifically for use in the Odoo Development Container.
 
-# Check if no arguments are provided
+# Check if no arguments are provided.
 if [[ $# -eq 0 ]]; then
     # No arguments were provided. Call the original otk command without arguments.
     "$HOME/.local/bin/otk"
     exit 0
 fi
 
-# Get the subcommand.
-subcommand="$1"
-
-# Shift the arguments to remove the subcommand from the list.
-shift
-
-# Check if the subcommand is "export-pot".
-if [[ "$subcommand" == "export-pot" ]]; then
+# Check if the command is "otk po export"
+if [[ "$1" == "po" && "$2" == "export" ]]; then
     # Define database-specific arguments for the Docker container.
     extra_args=("--db-host" "db" "--db-username" "odoo" "--db-password" "odoo")
-    # Call the original otk export-pot command with the extra arguments.
-    "$HOME/.local/bin/otk" export-pot "$@" "${extra_args[@]}"
+    # Call the original otk po export command with the extra arguments.
+    "$HOME/.local/bin/otk" po export "${@:3}" "${extra_args[@]}"
 else
-    # For other subcommands, just pass the arguments unmodified.
-    "$HOME/.local/bin/otk" "$subcommand" "$@"
+    # For all other commands, pass the arguments unmodified.
+    "$HOME/.local/bin/otk" "$@"
 fi
