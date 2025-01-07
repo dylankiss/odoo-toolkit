@@ -11,6 +11,9 @@ $ pipx install odoo-toolkit
 > [!TIP]
 > You can run any command with the `--help` option to find out all options you can use.
 
+> [!TIP]
+> Anywhere you can provide modules as arguments or options, you can also use [glob patterns](https://docs.python.org/3/library/fnmatch.html) to match multiple similar ones.
+
 **Usage**:
 
 ```console
@@ -45,7 +48,13 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk dev start-db`](#otk-dev-start-db) | Start a standalone PostgreSQL container for your Odoo databases.                     |
 | [`otk dev stop`](#otk-dev-stop)         | Stop and delete all running containers of the Odoo Development Server.               |
 
-### Other Commands
+### [Odoo Transifex (`otk tx`)](#odoo-transifex-otk-tx-1)
+
+| Command                     | Purpose                                   |
+| --------------------------- | ----------------------------------------- |
+| [`otk tx add`](#otk-tx-add) | Add modules to the Transifex config file. |
+
+### [Other Commands](#other-commands-1)
 
 | Command                             | Purpose                                                                                        |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -386,6 +395,51 @@ $ otk dev stop [OPTIONS]
 ### Options
 
 * `--help`: Show this message and exit.
+
+
+## Odoo Transifex (`otk tx`)
+
+**Work with Transifex.**
+
+The following commands allow you to modify the Transifex config files.
+
+
+## `otk tx add`
+
+**Add modules to the Transifex config file.**
+
+This command will add module entries to `.tx/config` files. The `.tx/config` files need to be located at the provided
+addons paths' roots. If the entries already exists, they will potentially be updated.
+
+For `odoo` and `enterprise`, the project name follows the format `odoo-18` for major versions and `odoo-s18-1` for SaaS
+versions. Other repos have their own project names.
+
+### Usage
+
+```console
+$ otk tx add [OPTIONS] MODULES...
+```
+e.g.
+
+```console
+$ otk tx add -p odoo-18 -a design-themes theme_*
+```
+
+### Arguments
+
+* `MODULES...`: Add these Odoo modules to `.tx/config`, or either `all`, `community`, or `enterprise`.  **[required]**
+
+### Options
+
+* `-p, --tx-project TEXT`: Specify the Transifex project name.  **[required]**
+* `-o, --tx-org TEXT`: Specify the Transifex organization name.  [default: `odoo`]
+* `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
+* `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `--help`: Show this message and exit.
+
+
+## Other Commands
 
 
 ## `otk multiverse`
