@@ -176,7 +176,7 @@ def export(
         raise Exit
 
     modules_per_server_type = _get_modules_per_server_type(
-        modules_to_path_mapping=module_to_path,
+        module_to_path=module_to_path,
         com_path=com_path,
         ent_path=ent_path,
         full_install=full_install,

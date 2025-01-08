@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "odoo-toolkit"
-version = "0.1.30"
+version = "0.1.31"
 description = "This toolkit contains a few useful tools for Odoo development."
 authors = ["Dylan Kiss <dyki@odoo.com>"]
 readme = "README.md"
