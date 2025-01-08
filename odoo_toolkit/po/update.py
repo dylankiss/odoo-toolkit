@@ -79,16 +79,19 @@ def update(
 
     # Determine all .po file languages to update.
     if Lang.ALL in languages:
-        languages = Lang
+        languages = [lang for lang in Lang if lang != Lang.ALL]
     languages = sorted(languages)
 
     status = None
     for module in TransientProgress().track(modules, description="Updating .po files ..."):
+        module_languages = [
+            lang for lang in languages if (module_to_path[module] / "i18n" / f"{lang.value}.po").is_file()
+        ]
         module_tree = Tree(f"[b]{module}[/b]")
         update_status = update_module_po(
             action=_update_po_for_lang,
             module=module,
-            languages=languages,
+            languages=module_languages,
             module_path=module_to_path[module],
             module_tree=module_tree,
         )
