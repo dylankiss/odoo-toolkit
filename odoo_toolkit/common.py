@@ -180,7 +180,7 @@ def get_valid_modules_to_path_mapping(
                 modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
     else:
         modules = {re.sub(r",", "", m) for m in modules}
-        modules_to_consider = {re.sub(r",", "", m) for m in modules if m in all_modules}
+        modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
 
     if not modules_to_consider:
         return {}
