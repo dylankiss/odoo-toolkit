@@ -306,7 +306,7 @@ This allows you to run up to 5 different servers per Docker container, all acces
 
 ### PostgreSQL Container
 
-The command starts a separate PostgreSQL container that you can access from your host machine at `localhost:5432` by default, using `odoo` as username and password. Inside your other Docker container, the hostname of this server is `db`.
+The command starts a separate [PostgreSQL](https://www.postgresql.org/) container that you can access from your host machine at `localhost:5432` by default, using `odoo` as username and password. Inside your other Docker container, the hostname of this server is `db`. It is exposed to the Odoo containers via a socket as well in the `/var/run/postgresql` directory.
 
 ### Aliases
 

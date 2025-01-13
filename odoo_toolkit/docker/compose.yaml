@@ -20,6 +20,7 @@ services:
       - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
       - ./.bash_aliases:/home/odoo/.bash_aliases
       - ./starship.toml:/home/odoo/.config/starship.toml
+      - odoo-db-sockets:/var/run/postgresql
     ports:
       - 5679:5678
       - 8075:8075
@@ -50,6 +51,7 @@ services:
       - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
       - ./.bash_aliases:/home/odoo/.bash_aliases
       - ./starship.toml:/home/odoo/.config/starship.toml
+      - odoo-db-sockets:/var/run/postgresql
     ports:
       - 5678:5678
       - 8070:8070
@@ -65,14 +67,16 @@ services:
     image: postgres:16
     container_name: db
     environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_PASSWORD=odoo
-      - POSTGRES_USER=odoo
-      - PGDATA=/var/lib/postgresql/data/pgdata
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_USER: odoo
+      PGDATA: /var/lib/postgresql/data/pgdata
+      PGHOST: /var/run/postgresql
     volumes:
       - odoo-db-data:/var/lib/postgresql/data
+      - odoo-db-sockets:/var/run/postgresql
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - ${DB_PORT:-5432}:5432
 
 volumes:
   odoo-bash-history-data-jammy:
@@ -81,6 +85,8 @@ volumes:
     name: odoo-bash-history-data-noble
   odoo-db-data:
     name: odoo-db-data
+  odoo-db-sockets:
+    name: odoo-db-sockets
   odoo-filestore:
     name: odoo-filestore
 
