@@ -227,6 +227,9 @@ def _clone_bare_multi_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:  
                         f"The [b]{repo.value}[/b] path [u]{bare_dir}[/u] is not a Git repository. Aborting ...\n",
                     )
                     raise Exit
+                # Fetch latest branches from remote
+                cmd = ["git", "-C", str(bare_dir), "fetch", "origin", "--prune"]
+                subprocess.run(cmd, capture_output=True, check=True)
                 print_success(f"Bare repository for [b]{repo.value}[/b] already exists.\n")
                 return
 
@@ -367,10 +370,10 @@ def _configure_worktree_for_branch(repo: OdooRepo, branch: str, bare_repo_dir: P
         print_success(f"The [b]{repo.value}[/b] worktree [u]{worktree_dir}[/u] already exists.\n")
         return
 
-    # Check whether the branch we want to add exists.
+    # Check whether the branch we want to add exists on the remote.
     try:
         subprocess.run(
-            ["git", "-C", str(bare_repo_dir), "rev-parse", "--verify", branch],
+            ["git", "-C", str(bare_repo_dir), "rev-parse", "--verify", f"origin/{branch}"],
             capture_output=True,
             check=True,
         )
