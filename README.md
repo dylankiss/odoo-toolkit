@@ -298,9 +298,9 @@ When you're done with the container, you can exit the session by running the `ex
 
 ### Port Mapping
 
-The `jammy` container exposes ports `8070`, `8071`, `8072`, `8073` and `8074`. The default port `8069` inside the container is mapped to `8070` on your machine and the other 4 are transparently mapped to their own port.
+The `jammy` container exposes ports `8070`, `8071`, `8072`, `8073` and `8074`. The default port inside the container when using the `o-bin-*` commands, is `8070`. When not using the `o-bin-*` commands, or when starting another server, you need to use the `--http-port` option to run on one of the available ports.
 
-The `noble` container exposes ports `8075`, `8076`, `8077`, `8078` and `8079`. The default port `8069` inside the container is mapped to `8075` on your machine and the other four are transparently mapped to their own port.
+The `noble` container exposes ports `8075`, `8076`, `8077`, `8078` and `8079`. The default port inside the container when using the `o-bin-*` commands, is `8075`. When not using the `o-bin-*` commands, or when starting another server, you need to use the `--http-port` option to run on one of the available ports.
 
 This allows you to run up to 5 different servers per Docker container, all accessible on your local machine. If you also have a local server running on default port `8069`, it will not clash with the Docker ports.
 

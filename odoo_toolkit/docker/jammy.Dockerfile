@@ -22,12 +22,10 @@ RUN apt-get update -y && \
         curl && \
     # Fetch Google Chrome (for web tour tests)
     curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-        -o chrome.deb && \
-    # Fetch the right version of wkhtmltox
-    curl -sSL https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb \
-        -o wkhtmltox.deb
+        -o chrome.deb
 
-RUN apt-get update -y && \
+RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wkhtmltox.deb \
+    apt-get update -y && \
     apt-get upgrade -y && \
     # Continue install after fetching Debian packages
     apt-get install -y --no-install-recommends \
@@ -215,7 +213,7 @@ RUN apt-get update -y && \
         #===================
         # Install wkhtmltox
         #===================
-        ./wkhtmltox.deb
+        /tmp/wkhtmltox.deb
 
 # Cleanup
 RUN rm -rf ./chrome.deb ./wkhtmltox.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -276,7 +274,7 @@ RUN mkdir -p /home/odoo/.local/share/Odoo && \
 WORKDIR /code
 
 # Expose useful ports
-EXPOSE 5678 8069 8071 8072 8073 8074
+EXPOSE 5678 8070 8071 8072 8073 8074
 
 # Install Odoo Toolkit before startin the shell (to always have the latest version)
 CMD ["sh", "-c", "pipx install --force odoo-toolkit && otk --install-completion && exec bash"]

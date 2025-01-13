@@ -21,12 +21,12 @@ services:
       - ./.bash_aliases:/home/odoo/.bash_aliases
       - ./starship.toml:/home/odoo/.config/starship.toml
     ports:
-      - "5679:5678"
-      - "8075:8069"
-      - "8076:8076"
-      - "8077:8077"
-      - "8078:8078"
-      - "8079:8079"
+      - 5679:5678
+      - 8075:8075
+      - 8076:8076
+      - 8077:8077
+      - 8078:8078
+      - 8079:8079
     working_dir: /code
     stdin_open: true
     tty: true
@@ -51,12 +51,12 @@ services:
       - ./.bash_aliases:/home/odoo/.bash_aliases
       - ./starship.toml:/home/odoo/.config/starship.toml
     ports:
-      - "5678:5678"
-      - "8070:8069"
-      - "8071:8071"
-      - "8072:8072"
-      - "8073:8073"
-      - "8074:8074"
+      - 5678:5678
+      - 8070:8070
+      - 8071:8071
+      - 8072:8072
+      - 8073:8073
+      - 8074:8074
     working_dir: /code
     stdin_open: true
     tty: true
