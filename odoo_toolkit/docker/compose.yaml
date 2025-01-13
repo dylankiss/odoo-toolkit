@@ -13,6 +13,7 @@ services:
     platform: linux/amd64
     depends_on:
       - db
+      - mailpit
     volumes:
       - ${ODOO_WORKSPACE_DIR:-~}:/code
       - odoo-filestore:/home/odoo/.local/share/Odoo
@@ -44,6 +45,7 @@ services:
     platform: linux/amd64
     depends_on:
       - db
+      - mailpit
     volumes:
       - ${ODOO_WORKSPACE_DIR:-~}:/code
       - odoo-filestore:/home/odoo/.local/share/Odoo
@@ -78,6 +80,20 @@ services:
     ports:
       - ${DB_PORT:-5432}:5432
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    volumes:
+      - odoo-mailpit-data:/data
+    ports:
+      - 1025:1025
+      - 8025:8025
+
 volumes:
   odoo-bash-history-data-jammy:
     name: odoo-bash-history-data-jammy
@@ -89,6 +105,8 @@ volumes:
     name: odoo-db-sockets
   odoo-filestore:
     name: odoo-filestore
+  odoo-mailpit-data:
+    name: odoo-mailpit-data
 
 networks:
   default:

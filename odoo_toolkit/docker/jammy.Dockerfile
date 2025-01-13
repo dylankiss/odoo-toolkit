@@ -37,7 +37,11 @@ RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wk
         nano \
         postgresql-client \
         sed \
+        # To route localhost routes to other containers
+        socat \
         sudo \
+        # To properly manage background processes (socat)
+        tini \
         vim \
         #
         #======================================
@@ -276,5 +280,13 @@ WORKDIR /code
 # Expose useful ports
 EXPOSE 5678 8070 8071 8072 8073 8074
 
-# Install Odoo Toolkit before startin the shell (to always have the latest version)
-CMD ["sh", "-c", "pipx install --force odoo-toolkit && otk --install-completion && exec bash"]
+# Set Tini as the entrypoint
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Start socat to forward port 25 to mailpit:1025
+# Install latest Odoo Toolkit and set up completion
+# Keep the server running
+CMD ["sh", "-c", "socat TCP-LISTEN:25,fork TCP:mailpit:1025 & \
+                  pipx install --force odoo-toolkit && \
+                  otk --install-completion && \
+                  tail -f /dev/null"]
