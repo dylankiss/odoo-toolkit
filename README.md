@@ -2,10 +2,14 @@
 
 This toolkit contains a few useful tools for Odoo development. The tools are primarily aimed at Odoo employees.
 
-The quickest way to get started is to install the tools using:
+The quickest way to get started is to install the tools using either [PyPI](https://pypi.org/project/odoo-toolkit/):
 
 ```console
 $ pipx install odoo-toolkit
+```
+or the [GitHub repository](https://github.com/dylankiss/odoo-toolkit) directly
+```console
+$ pipx install --force git+https://github.com/dylankiss/odoo-toolkit.git
 ```
 
 > [!TIP]
