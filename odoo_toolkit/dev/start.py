@@ -65,7 +65,7 @@ def start(
 
     try:
         with TransientProgress() as progress:
-            if rebuild or not DOCKER.image.exists(f"localhost/odoo-dev:{ubuntu_version.value}"):
+            if rebuild or not DOCKER.image.exists(f"localhost/odoo-{ubuntu_version.value}:dev"):
                 progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
                 # Build Docker image if it wasn't already or when forced.
                 output_generator = DOCKER.compose.build(

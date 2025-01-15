@@ -290,6 +290,6 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 # Install latest Odoo Toolkit and set up completion
 # Keep the server running
 CMD ["sh", "-c", "socat TCP-LISTEN:25,fork TCP:mailpit:1025 & \
-                  pipx install --force odoo-toolkit && \
+                  pipx install --force git+https://github.com/dylankiss/odoo-toolkit.git && \
                   otk --install-completion && \
                   tail -f /dev/null"]

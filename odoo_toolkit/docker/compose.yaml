@@ -3,25 +3,25 @@ name: odoo-dev
 services:
   odoo-noble:
     build:
-      context: .
-      dockerfile: ./noble.Dockerfile
+      context: ./odoo
+      dockerfile: noble.Dockerfile
       platforms:
         - linux/amd64
-    image: localhost/odoo-dev:noble
+    image: localhost/odoo-noble:dev
     container_name: odoo-noble
     hostname: odoo-noble
     platform: linux/amd64
     depends_on:
-      - db
+      - postgres
       - mailpit
+      - pgadmin
     volumes:
       - ${ODOO_WORKSPACE_DIR:-~}:/code
       - odoo-filestore:/home/odoo/.local/share/Odoo
-      - ./otk:/home/odoo/bin/otk
       - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - ./.bash_aliases:/home/odoo/.bash_aliases
-      - ./starship.toml:/home/odoo/.config/starship.toml
-      - odoo-db-sockets:/var/run/postgresql
+      - ./odoo/.bash_aliases:/home/odoo/.bash_aliases
+      - ./odoo/starship.toml:/home/odoo/.config/starship.toml
+      - odoo-postgres-sockets:/var/run/postgresql
     ports:
       - 5679:5678
       - 8075:8075
@@ -35,25 +35,25 @@ services:
 
   odoo-jammy:
     build:
-      context: .
-      dockerfile: ./jammy.Dockerfile
+      context: ./odoo
+      dockerfile: jammy.Dockerfile
       platforms:
         - linux/amd64
-    image: localhost/odoo-dev:jammy
+    image: localhost/odoo-jammy:dev
     container_name: odoo-jammy
     hostname: odoo-jammy
     platform: linux/amd64
     depends_on:
-      - db
+      - postgres
       - mailpit
+      - pgadmin
     volumes:
       - ${ODOO_WORKSPACE_DIR:-~}:/code
       - odoo-filestore:/home/odoo/.local/share/Odoo
-      - ./otk:/home/odoo/bin/otk
       - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
-      - ./.bash_aliases:/home/odoo/.bash_aliases
-      - ./starship.toml:/home/odoo/.config/starship.toml
-      - odoo-db-sockets:/var/run/postgresql
+      - ./odoo/.bash_aliases:/home/odoo/.bash_aliases
+      - ./odoo/starship.toml:/home/odoo/.config/starship.toml
+      - odoo-postgres-sockets:/var/run/postgresql
     ports:
       - 5678:5678
       - 8070:8070
@@ -65,18 +65,19 @@ services:
     stdin_open: true
     tty: true
 
-  db:
+  postgres:
     image: postgres:16
-    container_name: db
+    container_name: postgres
     environment:
       POSTGRES_DB: postgres
       POSTGRES_PASSWORD: odoo
       POSTGRES_USER: odoo
+      POSTGRES_HOST_AUTH_METHOD: trust
       PGDATA: /var/lib/postgresql/data/pgdata
       PGHOST: /var/run/postgresql
     volumes:
-      - odoo-db-data:/var/lib/postgresql/data
-      - odoo-db-sockets:/var/run/postgresql
+      - odoo-postgres-data:/var/lib/postgresql/data
+      - odoo-postgres-sockets:/var/run/postgresql
     ports:
       - ${DB_PORT:-5432}:5432
 
@@ -94,19 +95,37 @@ services:
       - 1025:1025
       - 8025:8025
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: pgadmin4@pgadmin.org
+      PGADMIN_DEFAULT_PASSWORD: pgadmin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    depends_on:
+      - postgres
+    volumes:
+      - ./pgadmin/servers.json:/pgadmin4/servers.json
+      - odoo-pgadmin-data:/var/lib/pgadmin
+    ports:
+      - 5050:80
+
 volumes:
   odoo-bash-history-data-jammy:
     name: odoo-bash-history-data-jammy
   odoo-bash-history-data-noble:
     name: odoo-bash-history-data-noble
-  odoo-db-data:
-    name: odoo-db-data
-  odoo-db-sockets:
-    name: odoo-db-sockets
+  odoo-postgres-data:
+    name: odoo-postgres-data
+  odoo-postgres-sockets:
+    name: odoo-postgres-sockets
   odoo-filestore:
     name: odoo-filestore
   odoo-mailpit-data:
     name: odoo-mailpit-data
+  odoo-pgadmin-data:
+    name: odoo-pgadmin-data
 
 networks:
   default:

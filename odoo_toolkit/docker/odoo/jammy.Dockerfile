@@ -220,7 +220,7 @@ RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wk
         /tmp/wkhtmltox.deb
 
 # Cleanup
-RUN rm -rf ./chrome.deb ./wkhtmltox.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN rm -rf ./chrome.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install Node dependencies
 RUN npm install -g \
@@ -287,6 +287,6 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 # Install latest Odoo Toolkit and set up completion
 # Keep the server running
 CMD ["sh", "-c", "socat TCP-LISTEN:25,fork TCP:mailpit:1025 & \
-                  pipx install --force odoo-toolkit && \
+                  pipx install --force git+https://github.com/dylankiss/odoo-toolkit.git && \
                   otk --install-completion && \
                   tail -f /dev/null"]

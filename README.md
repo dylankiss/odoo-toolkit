@@ -294,7 +294,7 @@ The Docker container is configured to resemble Odoo's CI or production servers a
 
 **Start an Odoo Development Server using Docker and launch a terminal session into it.**
 
-This command will start both a PostgreSQL container and an Odoo container containing your source code, located on your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the location `/code` and allows live code updates during local development.
+This command will start both PostgreSQL, Mailhog, and pgAdmin containers, and an Odoo container containing your source code, located on your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the location `/code` and allows live code updates during local development.
 
 You can choose to launch a container using Ubuntu 24.04 [`-u noble`] (default, recommended starting from version 18.0) or 22.04 [`-u jammy`] (for earlier versions).
 
@@ -310,19 +310,23 @@ This allows you to run up to 5 different servers per Docker container, all acces
 
 ### PostgreSQL Container
 
-The command starts a separate [PostgreSQL](https://www.postgresql.org/) container that you can access from your host machine at `localhost:5432` by default, using `odoo` as username and password. Inside your other Docker container, the hostname of this server is `db`. It is exposed to the Odoo containers via a socket as well in the `/var/run/postgresql` directory.
+The command starts a separate [PostgreSQL](https://www.postgresql.org/) container that you can access from your host machine at `localhost:5432` by default, using `odoo` as username and no password. Inside your other Docker containers, the hostname of this server is `postgres`. It is exposed to the Odoo containers via a socket as well in the `/var/run/postgresql` directory.
 
 ### Mailpit Container
 
-The command also starts a [Mailpit](https://mailpit.axllent.org/) container that is used for intercepting outgoing email messages from any of your Odoo instances. The application can be accessed from your local machine by going to http://localhost:8025. It allows you to view any sent email with its attachments and all possible related information. You can download them in `.eml` format, `.html` format, and even `.png` format as a screenshot.
+The command starts a [Mailpit](https://mailpit.axllent.org/) container that is used for intercepting outgoing email messages from any of your Odoo instances. The application can be accessed from your local machine by going to http://localhost:8025. It allows you to view any sent email with its attachments and all possible related information. You can download them in `.eml` format, `.html` format, and even `.png` format as a screenshot.
 
 ![Mailpit Interface](images/mailpit.png)
 
 The container uses a persistent storage (on the `odoo-mailpit-storage` volume) that saves up to 5000 messages. The oldest messages will be deleted after that. When the volume is deleted, all messages will be gone as well.
 
+### pgAdmin Container
+
+The command starts a [pgAdmin](https://www.pgadmin.org/) container that you can use to inspect and interact with the databases in the PostgreSQL container. The application can be accessed from your local machine by going to http://localhost:5050. When you connect to the PostgreSQL server for the first time, pgAdmin will ask for a password. You can just leave this empty.
+
 ### Aliases
 
-The container contains some helpful aliases that you can use to run and debug Odoo from your workspace (*either `/code` or `/code/<branch>` if you're using the multiverse setup*). They contain the right configuration to connect to the PostgreSQL database and set very high time limits by default (useful for debugging). You can check them in [`.bash_aliases`](odoo_toolkit/docker/.bash_aliases).
+The container contains some helpful aliases that you can use to run and debug Odoo from your workspace (*either `/code` or `/code/<branch>` if you're using the multiverse setup*). They contain some default configuration and set very high time limits by default (useful for debugging). You can check them in [`.bash_aliases`](odoo_toolkit/docker/.bash_aliases).
 
 **Running Odoo** (from within the workspace folder)
 - `o-bin` can be used instead of `odoo/odoo-bin` with the same arguments.
@@ -349,9 +353,9 @@ The most common PostgreSQL commands have also been aliased to use the right data
 
 ### Docker Configuration
 
-The configuration for the Docker containers is located in the `odoo_toolkit/docker` folder in this repository. The [`compose.yaml`](odoo_toolkit/docker/compose.yaml) file defines an `odoo-noble` and `odoo-jammy` service that run the development containers with the right configuration and file mounts, and a `db` service that runs the PostgreSQL server.
+The configuration for the Docker containers is located in the `odoo_toolkit/docker` folder in this repository. The [`compose.yaml`](odoo_toolkit/docker/compose.yaml) file defines an `odoo-noble` and `odoo-jammy` service that run the development containers with the right configuration and file mounts, and a `postgres`, `mailpit`, and `pgadmin` service that run the PostgreSQL server, the Mailpit server, and the pgAdmin server respectively.
 
-The development container configuration is laid out in [`noble.Dockerfile`](odoo_toolkit/docker/noble.Dockerfile) and [`jammy.Dockerfile`](odoo_toolkit/docker/jammy.Dockerfile).
+The development container configuration is laid out in [`noble.Dockerfile`](odoo_toolkit/docker/odoo/noble.Dockerfile) and [`jammy.Dockerfile`](odoo_toolkit/docker/odoo/jammy.Dockerfile).
 
 ### Usage
 
