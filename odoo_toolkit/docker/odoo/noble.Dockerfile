@@ -34,6 +34,7 @@ RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wk
         #==============================================
         file \
         gettext \
+        git \
         nano \
         postgresql-client \
         sed \
