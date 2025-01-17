@@ -39,8 +39,8 @@ def start(
             "--db-port", "-p", help="Specify the port on your local machine the PostgreSQL database should listen on.",
         ),
     ] = 5432,
-    rebuild: Annotated[
-        bool, Option("--rebuild", help="Rebuild the Docker image to get the latest dependencies."),
+    build: Annotated[
+        bool, Option("--build", help="Build the Docker image locally instead of pulling it from DockerHub."),
     ] = False,
 ) -> None:
     """Start an Odoo Development Server using Docker and launch a terminal session into it.
@@ -65,7 +65,7 @@ def start(
 
     try:
         with TransientProgress() as progress:
-            if rebuild or not DOCKER.image.exists(f"localhost/odoo-{ubuntu_version.value}:dev"):
+            if build:
                 progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
                 # Build Docker image if it wasn't already or when forced.
                 output_generator = DOCKER.compose.build(

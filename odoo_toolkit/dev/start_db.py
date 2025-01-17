@@ -42,14 +42,14 @@ def start_db(
         with TransientProgress() as progress:
             progress_task = progress.add_task("Starting PostgreSQL container ...", total=None)
             # Start the PostgreSQL container in the background.
-            DOCKER.compose.up(["db"], detach=True, quiet=True)
+            DOCKER.compose.up(["postgres"], detach=True, quiet=True)
             progress.update(progress_task, total=1, completed=1)
             print_success("PostgreSQL container started\n")
             print_panel(
                 f"Host: [b]localhost[/b]\n"
                 f"Port: [b]{port}[/b]\n"
                 f"User: [b]odoo[/b]\n"
-                f"Password: [b]odoo[/b]",
+                f"Password:",
                 "Connection Details",
             )
     except DockerException as e:

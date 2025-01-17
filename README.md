@@ -372,7 +372,7 @@ $ otk dev start -u jammy
 * `-w, --workspace PATH`: Specify the path to your development workspace that will be mounted in the container's `/code` directory.  [default: `~/code/odoo`]
 * `-u, --ubuntu-version [noble|jammy]`: Specify the Ubuntu version to run in this container.  [default: `noble`]
 * `-p, --db-port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
-* `--rebuild`: Rebuild the Docker image to get the latest dependencies.
+* `--build`: Build the Docker image locally instead of pulling it from DockerHub.
 * `--help`: Show this message and exit.
 
 

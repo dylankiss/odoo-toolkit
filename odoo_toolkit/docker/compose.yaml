@@ -7,7 +7,7 @@ services:
       dockerfile: noble.Dockerfile
       platforms:
         - linux/amd64
-    image: localhost/odoo-noble:dev
+    image: dylankiss/odoo-noble:dev
     container_name: odoo-noble
     hostname: odoo-noble
     platform: linux/amd64
@@ -40,7 +40,7 @@ services:
       dockerfile: jammy.Dockerfile
       platforms:
         - linux/amd64
-    image: localhost/odoo-jammy:dev
+    image: dylankiss/odoo-jammy:dev
     container_name: odoo-jammy
     hostname: odoo-jammy
     platform: linux/amd64
