@@ -251,7 +251,7 @@ RUN --mount=type=bind,source=append.bashrc,target=/tmp/append.bashrc \
 USER odoo
 
 # Set the right path for the installed tools
-ENV PATH="/home/odoo/bin:/home/odoo/.local/bin:$PATH"
+ENV PATH="/home/odoo/.local/bin:$PATH"
 
 # Install Python dependencies via pip for packages not available via apt
 RUN pip install --no-cache-dir \
@@ -284,10 +284,7 @@ EXPOSE 5678 8070 8071 8072 8073 8074
 # Set Tini as the entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# Start socat to forward port 25 to mailpit:1025
-# Install latest Odoo Toolkit and set up completion
-# Keep the server running
-CMD ["sh", "-c", "socat TCP-LISTEN:25,fork TCP:mailpit:1025 & \
-                  pipx install --force git+https://github.com/dylankiss/odoo-toolkit.git && \
-                  otk --install-completion && \
-                  tail -f /dev/null"]
+# Start socat to forward port 25 to mailpit:1025,
+# install latest Odoo Toolkit and set up completion,
+# and keep the server running
+CMD ["sh", "-c", "/home/odoo/.local/bin/startup.sh"]

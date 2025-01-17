@@ -22,6 +22,7 @@ services:
       - ./odoo/.bash_aliases:/home/odoo/.bash_aliases
       - ./odoo/starship.toml:/home/odoo/.config/starship.toml
       - odoo-postgres-sockets:/var/run/postgresql
+      - ./odoo/startup.sh:/home/odoo/.local/bin/startup.sh
     ports:
       - 5679:5678
       - 8075:8075
@@ -54,6 +55,7 @@ services:
       - ./odoo/.bash_aliases:/home/odoo/.bash_aliases
       - ./odoo/starship.toml:/home/odoo/.config/starship.toml
       - odoo-postgres-sockets:/var/run/postgresql
+      - ./odoo/startup.sh:/home/odoo/.local/bin/startup.sh
     ports:
       - 5678:5678
       - 8070:8070
