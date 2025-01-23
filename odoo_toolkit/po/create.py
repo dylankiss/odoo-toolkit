@@ -127,6 +127,10 @@ def _create_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[boo
     :return: A tuple containing `True` if the creation succeeded and `False` if it didn't, and the message to render.
     :rtype: tuple[bool, :class:`rich.console.RenderableType`]
     """
+    po_file = module_path / "i18n" / f"{lang.value}.po"
+    if po_file.is_file():
+        return True, f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] (Already exists)"
+
     po = POFile()
     po.header = pot.header
     po.metadata = pot.metadata.copy()
@@ -135,7 +139,6 @@ def _create_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[boo
     for entry in pot:
         # Just add all entries in the .pot to the .po file.
         po.append(entry)
-    po_file = module_path / "i18n" / f"{lang.value}.po"
     try:
         po.save(po_file)
     except (OSError, ValueError) as e:
