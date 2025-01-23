@@ -8,6 +8,7 @@ from rich.tree import Tree
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
+    EMPTY_LIST,
     Status,
     TransientProgress,
     get_error_log_panel,
@@ -51,6 +52,14 @@ def create(
             help="Specify the path to your Odoo Enterprise repository.",
         ),
     ] = Path("enterprise"),
+    extra_addons_paths: Annotated[
+        list[Path],
+        Option(
+            "--addons-path",
+            "-a",
+            help="Specify extra addons paths if your modules are not in Community or Enterprise.",
+        ),
+    ] = EMPTY_LIST,
 ) -> None:
     """Create Odoo translation files (.po) according to their .pot files.
 
@@ -67,6 +76,7 @@ def create(
         modules=modules,
         com_path=com_path,
         ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
     )
 
     if not module_to_path:

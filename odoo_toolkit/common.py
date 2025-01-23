@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterable
 from enum import Enum
 from fnmatch import fnmatch
 from pathlib import Path
@@ -126,26 +126,26 @@ def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
 
 
 def get_valid_modules_to_path_mapping(
-    modules: list[str],
+    modules: Collection[str],
     com_path: Path,
     ent_path: Path,
-    extra_addons_paths: list[Path] = EMPTY_LIST,
-    filter_fn: Callable[[str], bool] = lambda _m: True,
+    extra_addons_paths: Iterable[Path] = EMPTY_LIST,
+    filter_fn: Callable[[str], bool] | None = None,
 ) -> dict[str, Path]:
     """Determine the valid modules and their directories.
 
-    :param modules: The requested list of modules, or `all`, `community`, or `enterprise`.
-    :type modules: list[str]
+    :param modules: The requested modules, or `all`, `community`, or `enterprise`.
+    :type modules: Collection[str]
     :param com_path: The Odoo Community repository.
     :type com_path: :class:`pathlib.Path`
     :param ent_path: The Odoo Enterprise repository.
     :type ent_path: :class:`pathlib.Path`
-    :param extra_addons_paths: An optional list of extra directories containing Odoo modules, defaults to `[]`.
-    :type extra_addons_paths: list[:class:`pathlib.Path`], optional
+    :param extra_addons_paths: Optional extra directories containing Odoo modules, defaults to `[]`.
+    :type extra_addons_paths: Iterable[:class:`pathlib.Path`], optional
     :param filter_fn: A function to filter the modules when using `all`, `community`, or `enterprise`,
-        defaults to `lambda _m: True`.
-    :type filter_fn: Callable[[str], bool], optional
-    :return: A tuple containing the valid modules, and the mapping to their directory.
+        defaults to `None`.
+    :type filter_fn: Callable[[str], bool] | None, optional
+    :return: A mapping from all valid modules to their directories.
     :rtype: dict[str, :class:`pathlib.Path`]
     """
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
@@ -170,11 +170,11 @@ def get_valid_modules_to_path_mapping(
     if len(modules) == 1:
         match modules[0]:
             case "all":
-                modules_to_consider = {m for m in all_modules if filter_fn(m)}
+                modules_to_consider = {m for m in all_modules if not filter_fn or filter_fn(m)}
             case "community":
-                modules_to_consider = {m for m in {"base"} | com_modules if filter_fn(m)}
+                modules_to_consider = {m for m in {"base"} | com_modules if not filter_fn or filter_fn(m)}
             case "enterprise":
-                modules_to_consider = {m for m in ent_modules if filter_fn(m)}
+                modules_to_consider = {m for m in ent_modules if not filter_fn or filter_fn(m)}
             case _:
                 modules = modules[0].split(",")
                 modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}

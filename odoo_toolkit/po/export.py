@@ -1,3 +1,4 @@
+import ast
 import contextlib
 import os
 import re
@@ -5,6 +6,7 @@ import subprocess
 import xmlrpc.client
 from base64 import b64decode
 from collections import defaultdict
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from operator import itemgetter
@@ -19,6 +21,7 @@ from rich.table import Table
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
+    EMPTY_LIST,
     TransientProgress,
     get_valid_modules_to_path_mapping,
     print,
@@ -39,6 +42,7 @@ class _ServerType(str, Enum):
     ENT = "Enterprise"
     ENT_L10N = "Enterprise Localizations"
     FULL_BASE = "Full Base"
+    CUSTOM = "Custom"
 
 
 @dataclass
@@ -73,6 +77,10 @@ def export(
         bool,
         Option("--full-install", help="Install every available Odoo module.", rich_help_panel="Odoo Server Options"),
     ] = False,
+    quick_install: Annotated[
+        bool,
+        Option("--quick-install", help="Install only the modules to export.", rich_help_panel="Odoo Server Options"),
+    ] = False,
     com_path: Annotated[
         Path,
         Option(
@@ -91,6 +99,14 @@ def export(
             rich_help_panel="Odoo Server Options",
         ),
     ] = Path("enterprise"),
+    extra_addons_paths: Annotated[
+        list[Path],
+        Option(
+            "--addons-path",
+            "-a",
+            help="Specify extra addons paths if your modules are not in Community or Enterprise.",
+        ),
+    ] = EMPTY_LIST,
     username: Annotated[
         str,
         Option(
@@ -167,6 +183,7 @@ def export(
         modules=modules,
         com_path=com_path,
         ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
         filter_fn=_is_exportable_to_transifex,
     )
     valid_modules_to_export = module_to_path.keys()
@@ -180,9 +197,10 @@ def export(
         com_path=com_path,
         ent_path=ent_path,
         full_install=full_install,
+        quick_install=quick_install,
     )
 
-    print(f"Modules to export: [b]{'[/b], [b]'.join(sorted(valid_modules_to_export))}[/b]\n")
+    print(f"All modules to export: [b]{'[/b], [b]'.join(sorted(valid_modules_to_export))}[/b]\n")
 
     # Determine the URL to connect to our Odoo server.
     host = "localhost" if start_server else host
@@ -198,15 +216,19 @@ def export(
         odoo_bin_path = com_path.expanduser().resolve() / "odoo-bin"
         com_modules_path = com_path.expanduser().resolve() / "addons"
         ent_modules_path = ent_path.expanduser().resolve()
+        extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
 
         for server_type, (modules_to_export, modules_to_install) in modules_per_server_type.items():
             if not modules_to_export:
                 continue
 
-            if server_type in (_ServerType.ENT, _ServerType.ENT_L10N, _ServerType.FULL_BASE):
-                addons_path = f"{ent_modules_path},{com_modules_path}"
+            if server_type == _ServerType.CUSTOM:
+                addons_path = [*extra_modules_paths, ent_modules_path, com_modules_path]
+            elif server_type in (_ServerType.ENT, _ServerType.ENT_L10N, _ServerType.FULL_BASE):
+                addons_path = [ent_modules_path, com_modules_path]
             else:
-                addons_path = str(com_modules_path)
+                addons_path = [com_modules_path]
+            addons_path = ",".join(str(p) for p in addons_path)
 
             cmd_env = os.environ | {"PYTHONUNBUFFERED": "1"}
             odoo_cmd = [
@@ -254,25 +276,25 @@ def export(
 
 def _run_server_and_export_terms(
     server_type: _ServerType,
-    odoo_cmd: list[str],
-    dropdb_cmd: list[str],
-    env: dict[str, str],
+    odoo_cmd: Iterable[str],
+    dropdb_cmd: Iterable[str],
+    env: Mapping[str, str],
     url: str,
     database: str,
     username: str,
     password: str,
-    module_to_path: dict[str, Path],
+    module_to_path: Mapping[str, Path],
 ) -> None:
     """Start an Odoo server and export .pot files for the given modules.
 
     :param server_type: The server type to run.
     :type server_type: :class:`_ServerType`
     :param odoo_cmd: The command to start the Odoo server.
-    :type odoo_cmd: list[str]
+    :type odoo_cmd: Iterable[str]
     :param dropdb_cmd: The command to drop the database.
-    :type dropdb_cmd: list[str]
+    :type dropdb_cmd: Iterable[str]
     :param env: The environment variables to run the commands with.
-    :type env: dict[str, str]
+    :type env: Mapping[str, str]
     :param url: The Odoo server URL.
     :type url: str
     :param database: The database name.
@@ -282,9 +304,10 @@ def _run_server_and_export_terms(
     :param password: The Odoo password.
     :type password: str
     :param module_to_path: The modules to export mapped to their directories.
-    :type module_to_path: dict[str, :class:`pathlib.Path`]
+    :type module_to_path: Mapping[str, :class:`pathlib.Path`]
     """
     print_header(f":rocket: Start Odoo Server ({server_type.value})")
+    print(f"Modules to export: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
 
     data = _LogLineData(
         progress=None,
@@ -355,15 +378,13 @@ def _run_server_and_export_terms(
             )
 
 
-
-
 def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     """Process an Odoo server log line and update the passed data.
 
     :param log_line: The log line to process.
     :type log_line: str
     :param data: The data needed to process the line and to be updated by this function.
-    :type data: _LogLineData
+    :type data: :class:`_LogLineData`
     :return: `True` if the server is ready to export, `False` if not.
     :rtype: bool
     """
@@ -403,7 +424,7 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
 
 
 def _export_module_terms(
-    module_to_path: dict[str, Path],
+    module_to_path: Mapping[str, Path],
     url: str,
     database: str,
     username: str,
@@ -412,7 +433,7 @@ def _export_module_terms(
     """Export .pot files for the given modules.
 
     :param module_to_path: A mapping from each module to its directory.
-    :type module_to_path: dict[str, Path]
+    :type module_to_path: Mapping[str, Path]
     :param url: The Odoo server URL to connect to.
     :type url: str
     :param database: The database name.
@@ -436,7 +457,7 @@ def _export_module_terms(
         return
 
     # Export the terms.
-    modules_to_export = sorted(
+    modules_to_export: list[Mapping] = sorted(
         models.execute_kw(
             database,
             uid,
@@ -553,52 +574,81 @@ def _is_pot_file_empty(contents: bytes) -> bool:
 
 
 def _get_modules_per_server_type(
-    module_to_path: dict[str, Path],
+    module_to_path: Mapping[str, Path],
     com_path: Path,
     ent_path: Path,
+    extra_addons_paths: Iterable[Path] = EMPTY_LIST,
     full_install: bool = False,
+    quick_install: bool = False,
 ) -> dict[_ServerType, tuple[set[str], set[str]]]:
     """Get all modules to export and install per server type.
 
     :param module_to_path: The modules to export, mapped to their directories.
-    :type module_to_path: dict[str, :class:`pathlib.Path`]
+    :type module_to_path: Mapping[str, :class:`pathlib.Path`]
     :param com_path: The path to the Odoo Community repository.
     :type com_path: :class:`pathlib.Path`
     :param ent_path: The path to the Odoo Enterprise repository.
     :type ent_path: :class:`pathlib.Path`
+    :param extra_addons_paths: An optional list of extra directories containing Odoo modules, defaults to `[]`.
+    :type extra_addons_paths: Iterable[:class:`pathlib.Path`], optional
     :param full_install: Whether we want to install all modules before exporting, defaults to `False`.
     :type full_install: bool, optional
+    :param quick_install: Whether we only want to install the modules to export before exporting, defaults to `False`.
+    :type quick_install: bool, optional
     :return: A mapping from each server type to a tuple containing the set of modules to export,
         and the set of modules to install.
     :rtype: dict[:class:`_ServerType`, tuple[set[str], set[str]]]
     """
     com_modules_path = com_path.expanduser().resolve() / "addons"
     ent_modules_path = ent_path.expanduser().resolve()
+    extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
 
-    modules_to_export = defaultdict(set)
-    modules_to_install = defaultdict(set)
+    modules_to_export = defaultdict(set[str])
+    modules_to_install = defaultdict(set[str])
+    paths_and_filter_per_server_type = {
+        _ServerType.COM: ([com_modules_path], lambda m: _is_exportable(m) and not _is_l10n_module(m)),
+        _ServerType.COM_L10N: ([com_modules_path], _is_exportable),
+        _ServerType.ENT: (
+            [com_modules_path, ent_modules_path],
+            lambda m: _is_exportable(m) and not _is_l10n_module(m),
+        ),
+        _ServerType.ENT_L10N: ([com_modules_path, ent_modules_path], _is_exportable),
+        _ServerType.FULL_BASE: ([com_modules_path], _is_exportable),
+        _ServerType.CUSTOM: (extra_modules_paths, None),
+    }
 
     # Determine all modules to export per server type.
     for m, p in module_to_path.items():
         if m == "base":
             modules_to_export[_ServerType.FULL_BASE].add(m)
+            modules_to_install[_ServerType.FULL_BASE].add(m)
         elif p.is_relative_to(ent_modules_path):
             modules_to_export[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
+            modules_to_install[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
         elif p.is_relative_to(com_modules_path):
             modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
+            modules_to_install[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
+        elif any(p.is_relative_to(emp) for emp in extra_modules_paths):
+            modules_to_export[_ServerType.CUSTOM].add(m)
+            modules_to_install[_ServerType.CUSTOM].add(m)
 
     # Determine all modules to install per server type.
     if full_install:
-        modules_to_install = _get_full_install_modules_per_server_type(com_modules_path, ent_modules_path)
-    else:
-        # Some modules' .pot files contain terms generated by other modules.
-        # In order to keep them, we define which modules contribute to the terms of another.
-        contributors_per_module = {
-            "account": {"account", "account_avatax", "point_of_sale", "pos_restaurant", "stock_account"},
-        }
+        modules_to_install = _get_full_install_modules_per_server_type(
+            com_modules_path=com_modules_path,
+            ent_modules_path=ent_modules_path,
+            extra_modules_paths=extra_modules_paths,
+        )
+    elif not quick_install:
+        # Some modules' .pot files contain terms generated by other dependent modules.
+        # In order to keep them, we add the modules that (indirectly) depend on the installable modules.
         for server_type in _ServerType:
+            dependents = _get_recursive_dependents(
+                addons_paths=paths_and_filter_per_server_type[server_type][0],
+                filter_fn=paths_and_filter_per_server_type[server_type][1],
+            )
             modules_to_install[server_type].update(
-                c for m in modules_to_export[server_type] for c in contributors_per_module.get(m, {m})
+                d for m in modules_to_export[server_type] for d in dependents[m]
             )
 
     return {
@@ -606,9 +656,57 @@ def _get_modules_per_server_type(
     }
 
 
+def _get_recursive_dependents(
+    addons_paths: Iterable[Path],
+    filter_fn: Callable[[str], bool] | None = None,
+) -> dict[str, set[str]]:
+    """Find all modules that depend directly or indirectly on each of the modules in `addons_paths`.
+
+    The dependent modules must be in one of the given `addons_paths` and pass the `filter_fn`.
+
+    :param addons_paths: The addons paths to search for dependent modules.
+    :type addons_paths: Iterable[:class:`pathlib.Path`]
+    :param filter_fn: A function to filter the dependent modules, defaults to `None`.
+    :type filter_fn: Callable[[str], bool] | None, optional
+    :return: A mapping from each given module to the set of (in)direct dependent modules.
+    :rtype: dict[str, set[str]]
+    """
+    dependents_mapping = defaultdict(lambda: {"base"})
+
+    for addons_path in addons_paths:
+        for manifest_file in addons_path.glob("*/__manifest__.py"):
+            dependent_module = manifest_file.parent.name
+            # Skip filtered out modules.
+            if filter_fn and not filter_fn(dependent_module):
+                continue
+            try:
+                # Try reading and parsing the manifest file to get the dependent modules.
+                with manifest_file.open() as f:
+                    manifest_content = f.read()
+                manifest = ast.literal_eval(manifest_content)
+            except (OSError, ValueError):
+                continue
+
+            for dependency in manifest.get("depends", []):
+                # Skip filtered out dependencies.
+                if filter_fn and not filter_fn(dependency):
+                    continue
+                # Add the current module as a dependent of its dependency.
+                dependents_mapping[dependency].add(dependent_module)
+                # For all dependents we already have in our dependents mapping, we check whether the current dependency
+                # is in there. If so, we add the current dependency's dependent module to that mapping.
+                # That way we will get all indirect dependents in the end as well.
+                for module, dependents in dependents_mapping.items():
+                    if dependency in dependents:
+                        dependents_mapping[module].add(dependent_module)
+
+    return dict(dependents_mapping)
+
+
 def _get_full_install_modules_per_server_type(
     com_modules_path: Path,
     ent_modules_path: Path,
+    extra_modules_paths: Iterable[Path] = EMPTY_LIST,
 ) -> dict[_ServerType, set[str]]:
     """Get all modules to install per server type for .pot export with `full_install = True`."""
     modules = defaultdict(set)
@@ -619,7 +717,7 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.COM_L10N].add(m)
         else:
             modules[_ServerType.COM].add(m)
-        if _is_needed_for_base_export(m):
+        if _is_exportable(m):
             modules[_ServerType.FULL_BASE].add(m)
 
     for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
@@ -628,10 +726,16 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.ENT_L10N].add(m)
         else:
             modules[_ServerType.ENT].add(m)
-        if _is_needed_for_base_export(m):
+        if _is_exportable(m):
             modules[_ServerType.FULL_BASE].add(m)
 
+    # Add the base module.
     modules[_ServerType.FULL_BASE].add("base")
+
+    # Add all custom modules.
+    modules[_ServerType.CUSTOM].update(
+        f.parent.name for p in extra_modules_paths for f in p.glob("*/__manifest__.py")
+    )
 
     return modules
 
@@ -647,8 +751,8 @@ def _is_exportable_to_transifex(module: str) -> bool:
     )
 
 
-def _is_needed_for_base_export(module: str) -> bool:
-    """Determine if the given module should be installed to export base terms."""
+def _is_exportable(module: str) -> bool:
+    """Determine if the given module should be exportable at all."""
     return "hw_" not in module and "test" not in module
 
 

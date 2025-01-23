@@ -76,7 +76,7 @@ The following commands allow you to export `.pot` files for Odoo modules, create
 
 **Export Odoo translation files (.pot) to each module's i18n folder.**
 
-This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server will be started for Community, Community (Localizations), Enterprise, and Enterprise (Localizations) modules with only the modules installed to be exported in that version.
+This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server will be started for Community, Community (Localizations), Enterprise, Enterprise (Localizations), and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent modules that might contribute terms to the modules to be exported.
 
 When exporting the translations for `base`, we install all possible modules to ensure all terms added in by other modules get exported in the `base.pot` files as well.
 
@@ -108,8 +108,10 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 * `--start-server / --own-server`: Start an Odoo server automatically or connect to your own server.  [default: `start-server`]
 * `--full-install`: Install every available Odoo module.
+* `--quick-install`: Install only the modules to export.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
 * `-u, --username TEXT`: Specify the username to log in to Odoo.  [default: `admin`]
 * `-p, --password TEXT`: Specify the password to log in to Odoo.  [default: `admin`]
 * `--host TEXT`: Specify the hostname of your Odoo server.  [default: `localhost`]
@@ -156,6 +158,7 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 * [`-l, --languages LANG`](#available-languages): Create .po files for these languages, or `all`.  [default: None] **[required]**
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
 * `--help`: Show this message and exit.
 
 
@@ -187,6 +190,7 @@ $ otk po update -l nl -l fr account account_accountant
 * [`-l, --languages LANG`](#available-languages): Update .po files for these languages, or `all`.  [default: `all`]
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
 * `--help`: Show this message and exit.
 
 
