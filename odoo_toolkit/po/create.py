@@ -94,17 +94,21 @@ def create(
     languages = sorted(languages)
 
     status = None
-    for module in TransientProgress().track(modules, description="Creating .po files ..."):
-        module_tree = Tree(f"[b]{module}[/b]")
-        create_status = update_module_po(
-            action=_create_po_for_lang,
-            module=module,
-            languages=languages,
-            module_path=module_to_path[module],
-            module_tree=module_tree,
-        )
-        print(module_tree, "")
-        status = Status.PARTIAL if status and status != create_status else create_status
+    with TransientProgress() as progress:
+        progress_task = progress.add_task("Creating .po files", total=len(modules))
+        for module in modules:
+            progress.update(progress_task, description=f"Creating .po files for [b]{module}[/b]")
+            module_tree = Tree(f"[b]{module}[/b]")
+            create_status = update_module_po(
+                action=_create_po_for_lang,
+                module=module,
+                languages=languages,
+                module_path=module_to_path[module],
+                module_tree=module_tree,
+            )
+            print(module_tree, "")
+            status = Status.PARTIAL if status and status != create_status else create_status
+            progress.advance(progress_task, 1)
 
     match status:
         case Status.FAILURE:

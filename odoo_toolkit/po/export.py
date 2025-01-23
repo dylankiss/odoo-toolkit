@@ -475,84 +475,87 @@ def _export_module_terms(
 
     export_table = Table(box=None, pad_edge=False)
 
-    for module in TransientProgress().track(modules_to_export, description="Exporting terms ..."):
-        # Create the export wizard with the current module.
-        export_id = models.execute_kw(
-            database,
-            uid,
-            password,
-            "base.language.export",
-            "create",
-            [
-                {
-                    "lang": "__new__",
-                    "format": "po",
-                    "modules": [(6, False, [module["id"]])],
-                    "state": "choose",
-                },
-            ],
-        )
-        # Export the .pot file.
-        models.execute_kw(
-            database,
-            uid,
-            password,
-            "base.language.export",
-            "act_getfile",
-            [[export_id]],
-        )
-        # Get the exported .pot file.
-        pot_file = models.execute_kw(
-            database,
-            uid,
-            password,
-            "base.language.export",
-            "read",
-            [[export_id], ["data"], {"bin_size": False}],
-        )
-        pot_file_content = b64decode(pot_file[0]["data"])
+    with TransientProgress() as progress:
+        progress_task = progress.add_task("Exporting terms", total=len(modules_to_export))
+        for module in modules_to_export:
+            progress.update(progress_task, description=f"Exporting terms for [b]{module['name']}[/b]")
+            # Create the export wizard with the current module.
+            export_id = models.execute_kw(
+                database,
+                uid,
+                password,
+                "base.language.export",
+                "create",
+                [
+                    {
+                        "lang": "__new__",
+                        "format": "po",
+                        "modules": [(6, False, [module["id"]])],
+                        "state": "choose",
+                    },
+                ],
+            )
+            # Export the .pot file.
+            models.execute_kw(
+                database,
+                uid,
+                password,
+                "base.language.export",
+                "act_getfile",
+                [[export_id]],
+            )
+            # Get the exported .pot file.
+            pot_file = models.execute_kw(
+                database,
+                uid,
+                password,
+                "base.language.export",
+                "read",
+                [[export_id], ["data"], {"bin_size": False}],
+            )
+            pot_file_content = b64decode(pot_file[0]["data"])
 
-        module_name: str = module["name"]
-        i18n_path = module_to_path[module_name] / "i18n"
-        if not i18n_path.exists():
-            i18n_path.mkdir()
-        pot_path = i18n_path / f"{module_name}.pot"
+            module_name: str = module["name"]
+            i18n_path = module_to_path[module_name] / "i18n"
+            if not i18n_path.exists():
+                i18n_path.mkdir()
+            pot_path = i18n_path / f"{module_name}.pot"
 
-        if _is_pot_file_empty(pot_file_content):
-            if pot_path.is_file():
-                # Remove empty .pot files.
-                pot_path.unlink()
+            if _is_pot_file_empty(pot_file_content):
+                if pot_path.is_file():
+                    # Remove empty .pot files.
+                    pot_path.unlink()
+                    export_table.add_row(
+                        f"[b]{module_name}[/b]",
+                        f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
+                    )
+                    continue
+
                 export_table.add_row(
                     f"[b]{module_name}[/b]",
-                    f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
+                    "[d]No terms to translate[/d] :negative_squared_cross_mark:",
                 )
                 continue
 
-            export_table.add_row(
-                f"[b]{module_name}[/b]",
-                "[d]No terms to translate[/d] :negative_squared_cross_mark:",
-            )
-            continue
-
-        pot_metadata = None
-        with contextlib.suppress(OSError, ValueError):
-            pot_metadata = pofile(str(pot_path)).metadata
-        try:
-            pot = pofile(pot_file_content.decode())
-            if pot_metadata:
-                pot.metadata = pot_metadata
-            pot.save(str(pot_path))
-        except (OSError, ValueError):
-            export_table.add_row(
-                f"[b]{module_name}[/b]",
-                f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:",
-            )
-            continue
-
-        export_table.add_row(
-            f"[b]{module_name}[/b]",
-            f"[d]{i18n_path}{os.sep}[/d][b]{module_name}.pot[/b] :white_check_mark: ({len(pot)} terms)",
-        )
+            pot_metadata = None
+            with contextlib.suppress(OSError, ValueError):
+                pot_metadata = pofile(str(pot_path)).metadata
+            try:
+                pot = pofile(pot_file_content.decode())
+                if pot_metadata:
+                    pot.metadata = pot_metadata
+                pot.save(str(pot_path))
+            except (OSError, ValueError):
+                export_table.add_row(
+                    f"[b]{module_name}[/b]",
+                    f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:",
+                )
+            else:
+                export_table.add_row(
+                    f"[b]{module_name}[/b]",
+                    f"[d]{i18n_path}{os.sep}[/d][b]{module_name}.pot[/b] :white_check_mark: ({len(pot)} terms)",
+                )
+            progress.advance(progress_task, 1)
 
     print(export_table, "")
     print("Terms have been exported :white_check_mark:\n")
@@ -675,11 +678,14 @@ def _get_recursive_dependents(
     :return: A mapping from each given module to the set of (in)direct dependent modules.
     :rtype: dict[str, set[str]]
     """
-    dependents_mapping = defaultdict(set[str])
+    dependents_mapping: Mapping[str, set[str]] = defaultdict(set[str])
+    l10n_multilang = False
 
     for addons_path in addons_paths:
         for manifest_file in addons_path.glob("*/__manifest__.py"):
             dependent_module = manifest_file.parent.name
+            if dependent_module == "l10n_multilang":
+                l10n_multilang = True
             # Skip filtered out modules.
             if filter_fn and not filter_fn(dependent_module):
                 continue
@@ -703,6 +709,12 @@ def _get_recursive_dependents(
                 for module, dependents in dependents_mapping.items():
                     if dependency in dependents:
                         dependents_mapping[module].add(dependent_module)
+
+    # Add `l10n_multilang` to all l10n modules, to have all translatable fields exported.
+    if l10n_multilang:
+        for dependency in dependents_mapping:
+            if "l10n_" in dependency and dependency != "l10n_multilang":
+                dependents_mapping[dependency].add("l10n_multilang")
 
     return dict(dependents_mapping)
 
@@ -761,8 +773,8 @@ def _is_exportable(module: str) -> bool:
 
 
 def _is_l10n_module(module: str) -> bool:
-    """Determine if the given module is a localization module."""
-    return "l10n_" in module and module != "l10n_multilang"
+    """Determine if the given module is a localization related module."""
+    return "l10n_" in module
 
 
 def _free_port(host: str, start_port: int) -> int:

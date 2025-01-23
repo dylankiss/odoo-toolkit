@@ -93,20 +93,24 @@ def update(
     languages = sorted(languages)
 
     status = None
-    for module in TransientProgress().track(modules, description="Updating .po files ..."):
-        module_languages = [
-            lang for lang in languages if (module_to_path[module] / "i18n" / f"{lang.value}.po").is_file()
-        ]
-        module_tree = Tree(f"[b]{module}[/b]")
-        update_status = update_module_po(
-            action=_update_po_for_lang,
-            module=module,
-            languages=module_languages,
-            module_path=module_to_path[module],
-            module_tree=module_tree,
-        )
-        print(module_tree, "")
-        status = Status.PARTIAL if status and status != update_status else update_status
+    with TransientProgress() as progress:
+        progress_task = progress.add_task("Updating .po files", total=len(modules))
+        for module in modules:
+            progress.update(progress_task, description=f"Updating .po files for [b]{module}[/b]")
+            module_languages = [
+                lang for lang in languages if (module_to_path[module] / "i18n" / f"{lang.value}.po").is_file()
+            ]
+            module_tree = Tree(f"[b]{module}[/b]")
+            update_status = update_module_po(
+                action=_update_po_for_lang,
+                module=module,
+                languages=module_languages,
+                module_path=module_to_path[module],
+                module_tree=module_tree,
+            )
+            print(module_tree, "")
+            status = Status.PARTIAL if status and status != update_status else update_status
+            progress.advance(progress_task, 1)
 
     match status:
         case Status.FAILURE:

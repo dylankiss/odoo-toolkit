@@ -45,11 +45,14 @@ def merge(
 
     merged_po = POFile()
     try:
-        for po_file in TransientProgress().track(po_files, description="Merging .po files ..."):
-            po = pofile(po_file)
-            if po.metadata and (not merged_po.metadata or overwrite):
-                merged_po.metadata = po.metadata
-            merged_po = _merge_second_po_into_first(merged_po, po)
+        with TransientProgress() as progress:
+            progress_task = progress.add_task("Merging .po files", total=len(po_files))
+            for po_file in po_files:
+                po = pofile(po_file)
+                if po.metadata and (not merged_po.metadata or overwrite):
+                    merged_po.metadata = po.metadata
+                merged_po = _merge_second_po_into_first(merged_po, po)
+                progress.advance(progress_task, 1)
 
         merged_po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
         merged_po.save(output_file)
