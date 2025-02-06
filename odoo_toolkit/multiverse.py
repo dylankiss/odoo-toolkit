@@ -40,7 +40,7 @@ class OdooRepo(str, Enum):
     UPGRADE_UTIL = "upgrade-util"
 
 
-DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.2", "saas-17.4", "18.0", "master"]
+DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.2", "saas-17.4", "18.0", "saas-18.1", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
     OdooRepo.ENTERPRISE,
@@ -202,7 +202,7 @@ def multiverse(
         raise Exit from e
 
 
-def _clone_bare_multi_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:  # noqa: PLR0915
+def _clone_bare_multi_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:  # noqa: C901, PLR0915
     """Clone an Odoo repository as a bare repository to create worktrees from later.
 
     :param repo: The repository name.

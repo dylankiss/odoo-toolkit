@@ -149,7 +149,7 @@ def _update_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[boo
     except (OSError, ValueError) as e:
         return False, get_error_log_panel(str(e), f"Updating {po_file.name} failed!")
     else:
-        color = "orange" if po.untranslated_entries() else "green"
+        color = "orange1" if po.untranslated_entries() else "green"
         return (
             True,
             f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark: "
