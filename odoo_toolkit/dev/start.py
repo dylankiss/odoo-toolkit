@@ -59,7 +59,7 @@ def start(
 
     # Set the environment variables to be used by Docker Compose.
     os.environ["DB_PORT"] = str(db_port)
-    os.environ["ODOO_WORKSPACE_DIR"] = str(workspace)
+    os.environ["ODOO_WORKSPACE_DIR"] = str(workspace.expanduser().resolve())
 
     print_header(":rocket: Start Odoo Development Server")
 
