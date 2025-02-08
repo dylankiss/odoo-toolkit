@@ -5,6 +5,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from rich.console import Console
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from typer import Typer
@@ -49,7 +50,7 @@ def print_command_title(title: str) -> None:
     :param title: The title to render
     :type title: str
     """
-    print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
+    print(Panel.fit(title, style="bold magenta3", border_style="bold magenta3"), "")
 
 
 def print_header(header: str) -> None:
@@ -58,7 +59,7 @@ def print_header(header: str) -> None:
     :param header: The header text to render
     :type header: str
     """
-    print(Panel.fit(header, style="bold"), "")
+    print(Panel.fit(header, style="bold dark_sea_green", border_style="bold dark_sea_green"), "")
 
 
 def print_subheader(header: str) -> None:
@@ -99,6 +100,17 @@ def print_success(success_msg: str) -> None:
     :type success_msg: str
     """
     print(f":white_check_mark: {success_msg}", style="green")
+
+
+def print_indent(content: str, indentation: int = 1) -> None:
+    """Print indented content.
+
+    :param content: The content to render with indentation
+    :type content: str
+    :param indentation: The number of characters to indent
+    :type indentation: int, optional
+    """
+    print(Padding(content, (0, 0, 0, indentation)))
 
 
 def print_panel(content: str, title: str | None = None) -> None:

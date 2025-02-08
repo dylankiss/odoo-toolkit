@@ -78,8 +78,6 @@ The following commands allow you to export `.pot` files for Odoo modules, create
 
 This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server will be started for Community, Community (Localizations), Enterprise, Enterprise (Localizations), and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent modules that might contribute terms to the modules to be exported.
 
-When exporting the translations for `base`, we install all possible modules to ensure all terms added in by other modules get exported in the `base.pot` files as well.
-
 You can also export terms from your own running server using the `--own-server` option and optionally passing the correct arguments to reach your Odoo server.
 
 > [!NOTE]
@@ -290,6 +288,35 @@ The following commands allow you to automatically start and stop a fully configu
 
 > [!IMPORTANT]
 > These tools require [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be installed on your system.
+> For Mac and Windows there are convenient installers.
+> For Linux there are specific instructions for installation. Below you can find the instructions for Debian-based AMD-64 systems.
+
+```console
+# Prerequisite
+sudo apt install gnome-terminal
+
+# Add official Docker GPG key
+sudo apt-get update
+sudo apt-get install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# Add the repository to Apt sources
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+
+# Download Docker Desktop package and install
+curl -SL https://desktop.docker.com/linux/main/amd64/docker-desktop-amd64.deb -o docker-desktop-amd64.deb
+sudo apt-get install ./docker-desktop-amd64.deb
+rm docker-desktop-amd64.deb
+
+# (Optional) Auto-start Docker Desktop on startup
+systemctl --user enable docker-desktop
+```
 
 The Docker container is configured to resemble Odoo's CI or production servers and thus tries to eliminate discrepancies between your local system and the CI or production server.
 

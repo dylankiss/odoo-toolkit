@@ -28,6 +28,7 @@ from odoo_toolkit.common import (
     print_command_title,
     print_error,
     print_header,
+    print_indent,
     print_warning,
 )
 
@@ -41,7 +42,6 @@ class _ServerType(str, Enum):
     COM_L10N = "Community Localizations"
     ENT = "Enterprise"
     ENT_L10N = "Enterprise Localizations"
-    FULL_BASE = "Full Base"
     CUSTOM = "Custom"
 
 
@@ -166,9 +166,6 @@ def export(
     and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent
     modules that might contribute terms to the modules to be exported.\n
     \n
-    When exporting the translations for `base`, we install all possible modules to ensure all terms added in by other
-    modules get exported in the `base.pot` files as well.\n
-    \n
     You can also export terms from your own running server using the `--no-start-server` option and optionally passing
     the correct arguments to reach your Odoo server.\n
     \n
@@ -201,7 +198,9 @@ def export(
         quick_install=quick_install,
     )
 
-    print(f"All modules to export: [b]{'[/b], [b]'.join(sorted(valid_modules_to_export))}[/b]\n")
+    print("[b]All modules to export[b]")
+    print_indent(", ".join(sorted(valid_modules_to_export)))
+    print()
 
     # Determine the URL to connect to our Odoo server.
     host = "localhost" if start_server else host
@@ -225,7 +224,7 @@ def export(
 
             if server_type == _ServerType.CUSTOM:
                 addons_path = [*extra_modules_paths, ent_modules_path, com_modules_path]
-            elif server_type in (_ServerType.ENT, _ServerType.ENT_L10N, _ServerType.FULL_BASE):
+            elif server_type in (_ServerType.ENT, _ServerType.ENT_L10N):
                 addons_path = [ent_modules_path, com_modules_path]
             else:
                 addons_path = [com_modules_path]
@@ -251,6 +250,10 @@ def export(
                 dropdb_cmd.extend(["--username", db_username])
             if db_password:
                 cmd_env |= {"PGPASSWORD": db_password}
+
+            print(f"[b]Modules to install for {server_type.value}[/b] (and their dependencies)")
+            print_indent(", ".join(sorted(modules_to_install)))
+            print()
 
             _run_server_and_export_terms(
                 server_type=server_type,
@@ -308,7 +311,9 @@ def _run_server_and_export_terms(
     :type module_to_path: Mapping[str, :class:`pathlib.Path`]
     """
     print_header(f":rocket: Start Odoo Server ({server_type.value})")
-    print(f"Modules to export: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
+    print("[b]Modules to export[/b]")
+    print_indent(", ".join(sorted(module_to_path.keys())))
+    print()
 
     data = _LogLineData(
         progress=None,
@@ -563,18 +568,11 @@ def _export_module_terms(
 
 def _is_pot_file_empty(contents: bytes) -> bool:
     """Determine if the given .pot file's contents doesn't contain translatable terms."""
-    in_msgid = False
-    for line in map(str.strip, contents.decode().splitlines()):
-        if line.startswith("msgid"):
-            in_msgid = True
-            if line != 'msgid ""':
-                return False
-        elif in_msgid:
-            if line.startswith('"') and line != '""':
-                return False
-            in_msgid = False
-
-    return True
+    try:
+        pot = pofile(contents.decode())
+        return not any(entry for entry in pot if entry.msgid)
+    except (OSError, ValueError):
+        return False
 
 
 def _get_modules_per_server_type(
@@ -617,21 +615,17 @@ def _get_modules_per_server_type(
             lambda m: _is_exportable(m) and not _is_l10n_module(m),
         ),
         _ServerType.ENT_L10N: ([com_modules_path, ent_modules_path], _is_exportable),
-        _ServerType.FULL_BASE: ([com_modules_path], _is_exportable),
         _ServerType.CUSTOM: (extra_modules_paths, None),
     }
 
     # Determine all modules to export per server type.
     for m, p in module_to_path.items():
-        if m == "base":
-            modules_to_export[_ServerType.FULL_BASE].add(m)
-            modules_to_install[_ServerType.FULL_BASE].add(m)
+        if p.is_relative_to(com_modules_path) or m == "base":
+            modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
+            modules_to_install[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
         elif p.is_relative_to(ent_modules_path):
             modules_to_export[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
             modules_to_install[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
-        elif p.is_relative_to(com_modules_path):
-            modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
-            modules_to_install[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
         elif any(p.is_relative_to(emp) for emp in extra_modules_paths):
             modules_to_export[_ServerType.CUSTOM].add(m)
             modules_to_install[_ServerType.CUSTOM].add(m)
@@ -649,7 +643,7 @@ def _get_modules_per_server_type(
         for server_type in _ServerType:
             if not modules_to_export[server_type]:
                 continue
-            dependents = _get_recursive_dependents(
+            dependents = _find_all_dependents(
                 addons_paths=paths_and_filter_per_server_type[server_type][0],
                 filter_fn=paths_and_filter_per_server_type[server_type][1],
             )
@@ -663,22 +657,24 @@ def _get_modules_per_server_type(
     }
 
 
-def _get_recursive_dependents(
+def _find_all_dependents(
     addons_paths: Iterable[Path],
     filter_fn: Callable[[str], bool] | None = None,
-) -> dict[str, set[str]]:
-    """Find all modules that depend directly or indirectly on each of the modules in `addons_paths`.
+) -> Mapping[str, set[str]]:
+    """Find all direct and indirect dependents for each module in the given addons paths.
 
-    The dependent modules must be in one of the given `addons_paths` and pass the `filter_fn`.
-
-    :param addons_paths: The addons paths to search for dependent modules.
+    :param addons_paths: A list of paths to directories containing Odoo module folders.
     :type addons_paths: Iterable[:class:`pathlib.Path`]
-    :param filter_fn: A function to filter the dependent modules, defaults to `None`.
+    :param filter_fn: An optional function to filter modules based on their name.
+        If provided, it should return True if the module should be included, False otherwise.
     :type filter_fn: Callable[[str], bool] | None, optional
-    :return: A mapping from each given module to the set of (in)direct dependent modules.
-    :rtype: dict[str, set[str]]
+    :return: A mapping where keys are module names and values are sets of their direct and indirect dependents.
+        Includes all modules found, even those without any dependencies.
+    :rtype: Mapping[str, set[str]]
     """
-    dependents_mapping: Mapping[str, set[str]] = defaultdict(set[str])
+    # Maps modules to its direct dependents.
+    dependents_mapping: Mapping[str, set[str]] = defaultdict(set)
+    all_modules: set[str] = set()
     l10n_multilang = False
 
     for addons_path in addons_paths:
@@ -686,37 +682,59 @@ def _get_recursive_dependents(
             dependent_module = manifest_file.parent.name
             if dependent_module == "l10n_multilang":
                 l10n_multilang = True
-            # Skip filtered out modules.
+            all_modules.add(dependent_module)
+
             if filter_fn and not filter_fn(dependent_module):
+                # Skip module if it doesn't pass the filter.
                 continue
+
             try:
-                # Try reading and parsing the manifest file to get the dependent modules.
                 with manifest_file.open() as f:
                     manifest_content = f.read()
+                # Parse the manifest file.
                 manifest = ast.literal_eval(manifest_content)
             except (OSError, ValueError):
+                # Skip if the manifest file is invalid.
                 continue
 
             for dependency in manifest.get("depends", []):
-                # Skip filtered out dependencies.
                 if filter_fn and not filter_fn(dependency):
+                    # Skip dependency if it doesn't pass the filter.
                     continue
-                # Add the current module as a dependent of its dependency.
+                # Add direct dependent.
                 dependents_mapping[dependency].add(dependent_module)
-                # For all dependents we already have in our dependents mapping, we check whether the current dependency
-                # is in there. If so, we add the current dependency's dependent module to that mapping.
-                # That way we will get all indirect dependents in the end as well.
-                for module, dependents in dependents_mapping.items():
-                    if dependency in dependents:
-                        dependents_mapping[module].add(dependent_module)
+                all_modules.add(dependency)
 
-    # Add `l10n_multilang` to all l10n modules, to have all translatable fields exported.
-    if l10n_multilang:
-        for dependency in dependents_mapping:
-            if "l10n_" in dependency and dependency != "l10n_multilang":
-                dependents_mapping[dependency].add("l10n_multilang")
+    all_dependents_mapping: Mapping[str, set[str]] = {}
 
-    return dict(dependents_mapping)
+    def _find_all_dependents_recursive(module: str, visited: set[str]) -> set[str]:
+        """Recursively find all dependents (direct and indirect) of a given module.
+
+        :param module: The module to find dependents for.
+        :type module: str
+        :param visited: A set of modules already visited during the current recursive call
+            (used to prevent infinite loops due to circular dependencies).
+        :type visited: set[str]
+        :return: A set of all dependents of the given module.
+        :rtype: set[str]
+        """
+        all_dependents: set[str] = set()
+        for dependent in dependents_mapping[module]:
+            if dependent in visited:
+                # Avoid infinite recursion due to circular dependencies.
+                continue
+            all_dependents.add(dependent)
+            all_dependents.update(_find_all_dependents_recursive(dependent, visited | {dependent}))
+        return all_dependents
+
+    # Find all dependents for each module.
+    for module in all_modules:
+        all_dependents_mapping[module] = _find_all_dependents_recursive(module, set())
+        if l10n_multilang and _is_l10n_module(module):
+            # Add `l10n_multilang` to all l10n modules, to have all translatable fields exported.
+            all_dependents_mapping[module].add("l10n_multilang")
+
+    return all_dependents_mapping
 
 
 def _get_full_install_modules_per_server_type(
@@ -733,8 +751,6 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.COM_L10N].add(m)
         else:
             modules[_ServerType.COM].add(m)
-        if _is_exportable(m):
-            modules[_ServerType.FULL_BASE].add(m)
 
     for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
         # Add each Enterprise module to the right server types.
@@ -742,11 +758,9 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.ENT_L10N].add(m)
         else:
             modules[_ServerType.ENT].add(m)
-        if _is_exportable(m):
-            modules[_ServerType.FULL_BASE].add(m)
 
     # Add the base module.
-    modules[_ServerType.FULL_BASE].add("base")
+    modules[_ServerType.COM].add("base")
 
     # Add all custom modules.
     modules[_ServerType.CUSTOM].update(
@@ -774,7 +788,7 @@ def _is_exportable(module: str) -> bool:
 
 def _is_l10n_module(module: str) -> bool:
     """Determine if the given module is a localization related module."""
-    return "l10n_" in module
+    return "l10n_" in module and module != "l10n_multilang"
 
 
 def _free_port(host: str, start_port: int) -> int:
