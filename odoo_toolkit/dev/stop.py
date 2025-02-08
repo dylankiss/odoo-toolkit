@@ -19,7 +19,10 @@ def stop() -> None:
     container won't be able to mount the configuration files.
     """
     print_command_title(":computer: Odoo Development Server")
+    _stop()
 
+
+def _stop() -> None:
     try:
         with TransientProgress() as progress:
             progress_task = progress.add_task("Stopping containers ...", total=None)

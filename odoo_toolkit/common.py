@@ -8,8 +8,9 @@ from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
-from typer import Typer
+from typer import Typer, get_app_dir
 
+APP_DIR = Path(get_app_dir("odoo-toolkit"))
 EMPTY_LIST = []
 
 # The main app to register all the commands on

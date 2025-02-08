@@ -1,5 +1,4 @@
 import ast
-import contextlib
 import os
 import re
 import subprocess
@@ -7,6 +6,7 @@ import xmlrpc.client
 from base64 import b64decode
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from operator import itemgetter
@@ -543,7 +543,7 @@ def _export_module_terms(
                 continue
 
             pot_metadata = None
-            with contextlib.suppress(OSError, ValueError):
+            with suppress(OSError, ValueError):
                 pot_metadata = pofile(str(pot_path)).metadata
             try:
                 pot = pofile(pot_file_content.decode())

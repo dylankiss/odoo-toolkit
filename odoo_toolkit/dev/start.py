@@ -1,14 +1,26 @@
 import os
 import re
+from contextlib import suppress
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Annotated
 
 from python_on_whales import DockerException
 from typer import Exit, Option, Typer
 
-from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_header, print_success
+from odoo_toolkit.common import (
+    APP_DIR,
+    TransientProgress,
+    print,
+    print_command_title,
+    print_error,
+    print_header,
+    print_success,
+)
 
 from .common import DOCKER, UbuntuVersion
+from .stop import _stop
 
 app = Typer()
 
@@ -57,6 +69,21 @@ def start(
     """
     print_command_title(":computer: Odoo Development Server")
 
+    with suppress(OSError, PackageNotFoundError):
+        # Check if we updated the package after the last start.
+        # If so, first stop the containers to make sure all volumes are correctly mapped.
+        current_version = package_version("odoo-toolkit")
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+        version_file = APP_DIR / ".last_dev_version"
+        if version_file.is_file():
+            last_version = version_file.read_text()
+            if current_version != last_version:
+                _stop()
+        else:
+            _stop()
+        version_file.unlink(missing_ok=True)
+        version_file.write_text(current_version)
+
     # Set the environment variables to be used by Docker Compose.
     os.environ["DB_PORT"] = str(db_port)
     os.environ["ODOO_WORKSPACE_DIR"] = str(workspace.expanduser().resolve())
@@ -91,6 +118,12 @@ def start(
                         progress.update(progress_task, advance=0.0002)
                 progress.update(progress_task, description="Building Docker image :coffee: ...", total=1, completed=1)
                 print_success("Docker image built")
+
+            if not DOCKER.image.exists(f"dylankiss/odoo-{ubuntu_version.value}:dev"):
+                progress_task = progress.add_task("Pulling Docker image :coffee: ...", total=None)
+                DOCKER.image.pull([f"dylankiss/odoo-{ubuntu_version.value}:dev"], quiet=True, platform="linux/amd64")
+                progress.update(progress_task, total=1, completed=1)
+                print_success("Docker image pulled")
 
             progress_task = progress.add_task("Starting containers ...", total=None)
             # Start the container in the background.
