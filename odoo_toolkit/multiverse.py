@@ -8,7 +8,7 @@ from subprocess import CalledProcessError
 from typing import Annotated
 from venv import EnvBuilder
 
-from git import BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
+from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from typer import Exit, Option, Typer
 
 from .common import (
@@ -223,6 +223,7 @@ def _clone_bare_multi_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:  
     with TransientProgress() as progress:
         try:
             bare_repo = Repo(bare_dir)
+            bare_repo.git.worktree("prune")
             print_success(f"Bare repository for [b]{repo.value}[/b] already exists.\n")
         except InvalidGitRepositoryError as e:
             print_error(
@@ -395,7 +396,7 @@ def _configure_worktree_for_branch(repo: OdooRepo, branch: str, bare_repo_dir: P
     try:
         bare_repo = Repo(bare_repo_dir)
         bare_repo.rev_parse(f"origin/{branch}")
-    except BadObject:
+    except (BadName, BadObject):
         print_warning(f"The [b]{repo.value}[/b] branch [b]{branch}[/b] does not exist. Skipping ...\n")
         return
 
