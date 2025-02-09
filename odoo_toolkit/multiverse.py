@@ -482,15 +482,15 @@ def _setup_config_in_branch_dir(branch_dir: Path, reset_config: bool, vscode: bo
     branch = branch_dir.name
     with TransientProgress() as progress:
         # Copy Ruff configuration.
-        if not (branch_dir / "pyproject.toml").exists() or reset_config:
+        if not (branch_dir / "ruff.toml").exists() or reset_config:
             progress_task = progress.add_task(
                 f"Setting up Ruff configuration for worktree [b]{branch}[/b] ...",
                 total=None,
             )
             try:
-                shutil.copyfile(MULTIVERSE_CONFIG_DIR / "pyproject.toml", branch_dir / "pyproject.toml")
+                shutil.copyfile(MULTIVERSE_CONFIG_DIR / "ruff.toml", branch_dir / "ruff.toml")
             except OSError as e:
-                print_error(f"Copying [b]pyproject.toml[/b] to branch [b]{branch}[/b] failed.", e.strerror)
+                print_error(f"Copying [b]ruff.toml[/b] to branch [b]{branch}[/b] failed.", e.strerror)
             progress.update(progress_task, total=1, completed=1)
 
         # Copy Visual Studio Code configuration.

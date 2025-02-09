@@ -7,10 +7,10 @@
         "ms-python.debugpy",
         "ms-python.python",
         "njpwerner.autodocstring",
+        "odoo.odoo",
         "odoo.owl-vision",
         "pkief.material-icon-theme",
         "redhat.vscode-xml",
         "streetsidesoftware.code-spell-checker",
-        "trinhanhngoc.vscode-odoo",
     ]
 }

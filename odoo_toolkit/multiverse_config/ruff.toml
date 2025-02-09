@@ -1,8 +1,7 @@
-[tool.ruff]
 line-length = 120
 target-version = "py310"
 
-[tool.ruff.lint]
+[lint]
 preview = true
 select = ["ALL"]
 ignore = [
@@ -75,12 +74,12 @@ ignore = [
     "FA102",    # (future-required-type-annotation)
 ]
 
-[tool.ruff.lint.per-file-ignores]
+[lint.per-file-ignores]
 "__init__.py" = [
     "E402",     # (module-import-not-at-top-of-file)
     "F401",     # (unused-import)
     "F403",     # (undefined-local-with-import-star)
 ]
 
-[tool.ruff.format]
+[format]
 quote-style = "preserve"
