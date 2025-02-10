@@ -2,7 +2,6 @@ import os
 import re
 import shutil
 import subprocess
-from enum import Enum
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Annotated
@@ -11,7 +10,7 @@ from venv import EnvBuilder
 from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from typer import Exit, Option, Typer
 
-from .common import (
+from odoo_toolkit.common import (
     TransientProgress,
     print,
     print_command_title,
@@ -22,45 +21,18 @@ from .common import (
     print_warning,
 )
 
+from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
+
 app = Typer()
 
 
-class OdooRepo(str, Enum):
-    """Odoo repositories available for cloning."""
-
-    DESIGN_THEMES = "design-themes"
-    DOCUMENTATION = "documentation"
-    ENTERPRISE = "enterprise"
-    INDUSTRY = "industry"
-    INTERNAL = "internal"
-    ODOO = "odoo"
-    ODOOFIN = "odoofin"
-    O_SPREADSHEET = "o-spreadsheet"
-    UPGRADE = "upgrade"
-    UPGRADE_UTIL = "upgrade-util"
-
-
-DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.2", "saas-17.4", "18.0", "saas-18.1", "master"]
+DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.4", "18.0", "saas-18.1", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
     OdooRepo.ENTERPRISE,
     OdooRepo.DESIGN_THEMES,
     OdooRepo.UPGRADE,
     OdooRepo.UPGRADE_UTIL,
-]
-MULTI_BRANCH_REPOS = [
-    OdooRepo.ODOO,
-    OdooRepo.ENTERPRISE,
-    OdooRepo.DESIGN_THEMES,
-    OdooRepo.DOCUMENTATION,
-    OdooRepo.INDUSTRY,
-    OdooRepo.O_SPREADSHEET,
-]
-SINGLE_BRANCH_REPOS = [
-    OdooRepo.ODOOFIN,
-    OdooRepo.UPGRADE,
-    OdooRepo.UPGRADE_UTIL,
-    OdooRepo.INTERNAL,
 ]
 MULTIVERSE_CONFIG_DIR = Path(__file__).parent / "multiverse_config"
 CWD = Path.cwd()
@@ -69,7 +41,7 @@ JS_TOOLING_NEW_VERSION = 16.1
 
 
 @app.command()
-def multiverse(
+def setup(
     branches: Annotated[
         list[str],
         Option(
@@ -128,7 +100,7 @@ def multiverse(
     configuration to each branch folder. It contains recommended plugins, plugin configurations and debug configurations
     (that also work with the Docker container started via `otk dev start`).
     """
-    print_command_title(":ringed_planet: Odoo Multiverse")
+    print_command_title(":ringed_planet: Odoo Multiverse Setup")
 
     try:
         # Ensure the multiverse directory exists.
