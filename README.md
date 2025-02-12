@@ -58,11 +58,12 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | --------------------------- | ----------------------------------------- |
 | [`otk tx add`](#otk-tx-add) | Add modules to the Transifex config file. |
 
-### [Other Commands](#other-commands-1)
+### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
-| Command                             | Purpose                                                                                        |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [`otk multiverse`](#otk-multiverse) | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
+| Command                         | Purpose                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`otk mv setup`](#otk-mv-setup) | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
+| [`otk mv reset`](#otk-mv-reset) | Reset the repositories inside a branch directory of an Odoo Multiverse environment.            |
 
 
 ## Odoo Translations (`otk po`)
@@ -486,10 +487,13 @@ $ otk tx add -p odoo-18 -a design-themes theme_*
 * `--help`: Show this message and exit.
 
 
-## Other Commands
+## Odoo Multiverse (`otk mv`)
 
+**Work with an Odoo Multiverse environment.**
 
-## `otk multiverse`
+The following commands allow you to set up and Odoo Multiverse environment and perform several useful actions inside the environment.
+
+## `otk mv setup`
 
 **Set up an Odoo Multiverse environment, having different branches checked out at the same time.**
 
@@ -558,11 +562,11 @@ After all that is done, your directory structure should look like this with the 
 ### Usage
 
 ```console
-$ otk multiverse [OPTIONS]
+$ otk mv setup [OPTIONS]
 ```
 e.g.
 ```console
-$ otk multiverse -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgrade-util --vscode
+$ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgrade-util --vscode
 ```
 
 ### Options
@@ -587,3 +591,22 @@ $ otk multiverse -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upg
 - [`industry`](https://github.com/odoo/industry)
 - [`o-spreadsheet`](https://github.com/odoo/o-spreadsheet)
 - [`internal`](https://github.com/odoo/internal)
+
+
+## `otk mv reset`
+
+**Reset the repositories inside a branch directory of an Odoo Multiverse environment.**
+
+You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through all repositories inside the directory and reset them to their original branch.
+
+Meanwhile, it will pull the latest changes from `origin` so you're ready to start with a clean slate.
+
+### Usage
+
+```console
+$ otk mv reset [OPTIONS]
+```
+
+### Options
+
+* `--help`: Show this message and exit.
