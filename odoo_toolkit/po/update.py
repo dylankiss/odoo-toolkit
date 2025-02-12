@@ -113,12 +113,12 @@ def update(
             progress.advance(progress_task, 1)
 
     match status:
-        case Status.FAILURE:
-            print_error("No translation files were updated!\n")
-        case Status.PARTIAL:
-            print_warning("Some translation files were updated correctly, while others weren't!\n")
         case Status.SUCCESS:
             print_success("All translation files were updated correctly!\n")
+        case Status.PARTIAL:
+            print_warning("Some translation files were updated correctly, while others weren't!\n")
+        case _:
+            print_error("No translation files were updated!\n")
 
 
 def _update_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[bool, RenderableType]:

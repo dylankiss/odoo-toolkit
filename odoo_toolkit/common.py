@@ -29,6 +29,21 @@ class Status(Enum):
     PARTIAL = 3
 
 
+class StickyProgress(Progress):
+    """Render auto-updating sticky progress bars using opinionated styling."""
+
+    def __init__(self) -> None:
+        """Initialize the :class:`rich.progress.Progress` instance with a specific styling."""
+        super().__init__(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        )
+
+
 class TransientProgress(Progress):
     """Render auto-updating transient progress bars using opinionated styling."""
 
@@ -51,7 +66,7 @@ def print_command_title(title: str) -> None:
     :param title: The title to render
     :type title: str
     """
-    print(Panel.fit(title, style="bold magenta3", border_style="bold magenta3"), "")
+    print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
 
 
 def print_header(header: str) -> None:
@@ -60,7 +75,7 @@ def print_header(header: str) -> None:
     :param header: The header text to render
     :type header: str
     """
-    print(Panel.fit(header, style="bold dark_sea_green", border_style="bold dark_sea_green"), "")
+    print(Panel.fit(header, style="bold cyan", border_style="bold cyan"), "")
 
 
 def print_subheader(header: str) -> None:

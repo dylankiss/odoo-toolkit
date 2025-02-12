@@ -1,9 +1,11 @@
 from typer import Typer
 
+from .reset import app as reset_app
 from .setup import app as setup_app
 
 app = Typer(no_args_is_help=True)
 app.add_typer(setup_app)
+app.add_typer(reset_app)
 
 
 @app.callback()

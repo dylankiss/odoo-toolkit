@@ -25,7 +25,6 @@ from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
 
 app = Typer()
 
-
 DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.4", "18.0", "saas-18.1", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
