@@ -571,28 +571,13 @@ def _add_worktree_for_branch(
 
     try:
         # Checkout the worktree for the specified branch.
-        ProgressUpdate.update_in_dict(progress_updates, repo, total=4)
+        ProgressUpdate.update_in_dict(progress_updates, repo, total=2)
         bare_repo.git.worktree("add", str(repo_worktree_dir), branch)
         ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
         # Make sure the worktree references the right upstream branch.
         worktree_repo = Repo(repo_worktree_dir)
         worktree_repo.git.branch("--set-upstream-to", f"origin/{branch}", branch)
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-        # Make link in .git to git worktree relative.
-        with (repo_worktree_dir / ".git").open("r", encoding="utf-8") as git_file:
-            absolute_gitdir = Path(git_file.read()[len("gitdir: ") :].strip())
-        relative_gitdir = os.path.relpath(absolute_gitdir, repo_worktree_dir)
-        with (repo_worktree_dir / ".git").open("w", encoding="utf-8") as git_file:
-            git_file.write(f"gitdir: {relative_gitdir}\n")
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-        # Make link in git worktree gitdir to checked out repo relative.
-        with (absolute_gitdir / "gitdir").open("r", encoding="utf-8") as gitdir_file:
-            relative_git = os.path.relpath(Path(gitdir_file.read().strip()), absolute_gitdir)
-        with (absolute_gitdir / "gitdir").open("w", encoding="utf-8") as gitdir_file:
-            gitdir_file.write(f"{relative_git}\n")
         ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
     except GitCommandError as e:
