@@ -29,7 +29,7 @@ from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
 app = Typer()
 
 CWD = Path.cwd()
-DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.4", "18.0", "saas-18.1", "master"]
+DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.4", "18.0", "saas-18.1", "saas-18.2", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
     OdooRepo.ENTERPRISE,
