@@ -1,17 +1,28 @@
 import re
+import time
 from collections.abc import Callable, Collection, Iterable
+from concurrent.futures import Future
+from dataclasses import dataclass
 from enum import Enum
 from fnmatch import fnmatch
+from multiprocessing.managers import Namespace
 from pathlib import Path
+from typing import Any, TypeVar
 
 from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from typer import Typer, get_app_dir
 
 APP_DIR = Path(get_app_dir("odoo-toolkit"))
 EMPTY_LIST = []
+T = TypeVar("T")
+
+
+class NoUpdate:
+    """Indicates data does not need to be updated."""
+NO_UPDATE = NoUpdate()
 
 # The main app to register all the commands on
 app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
@@ -27,6 +38,65 @@ class Status(Enum):
     SUCCESS = 1
     FAILURE = 2
     PARTIAL = 3
+
+
+@dataclass
+class ProgressUpdate:
+    """Update information for :class:`rich.progress.Progress` instances."""
+
+    task_id: TaskID
+    description: str
+    completed: float = 0
+    total: float | None = None
+    status: Status | None = None
+    message: str | None = None
+    stacktrace: str | None = None
+
+    @classmethod
+    def update_in_dict(
+        cls,
+        progress_updates: dict[T, "ProgressUpdate"],
+        key: T,
+        *,
+        description: str | NoUpdate = NO_UPDATE,
+        completed: float | NoUpdate = NO_UPDATE,
+        total: float | None | NoUpdate = NO_UPDATE,
+        advance: float | NoUpdate = NO_UPDATE,
+        status: Status | None | NoUpdate = NO_UPDATE,
+        message: str | None | NoUpdate = NO_UPDATE,
+        stacktrace: str | None | NoUpdate = NO_UPDATE,
+    ) -> None:
+        """Update :class:`odoo_toolkit.common.ProgressUpdate` information in the given dictionary.
+
+        :param progress_updates: The dictionary to update the progress information in.
+        :type progress_updates: dict[T, :class:`odoo_toolkit.common.ProgressUpdate`]
+        :param key: The key of the dictionary item to update.
+        :type key: T
+        :param description: The description value to update, defaults to `NO_UPDATE`
+        :type description: str, optional
+        :param completed: The completed value to update, defaults to `NO_UPDATE`
+        :type completed: float, optional
+        :param total: The total value to update, defaults to `NO_UPDATE`
+        :type total: float | None, optional
+        :param advance: The number to advance the completed value, defaults to `NO_UPDATE`
+        :type advance: float, optional
+        """
+        update = progress_updates[key]
+        if description is not NO_UPDATE:
+            update.description = description
+        if completed is not NO_UPDATE:
+            update.completed = completed
+        elif advance is not NO_UPDATE:
+            update.completed += advance
+        if total is not NO_UPDATE:
+            update.total = total
+        if status is not NO_UPDATE:
+            update.status = status
+        if message is not NO_UPDATE:
+            update.message = message
+        if stacktrace is not NO_UPDATE:
+            update.stacktrace = stacktrace
+        progress_updates[key] = update
 
 
 class StickyProgress(Progress):
@@ -219,3 +289,45 @@ def get_valid_modules_to_path_mapping(
         for modules, path in modules_path_tuples
         for module in modules & modules_to_consider
     }
+
+
+def update_remote_progress(
+    progress: Progress,
+    progress_updates: dict[Any, ProgressUpdate],
+    futures: dict[Future, Any],
+) -> None:
+    """Update tasks in a :class:`rich.progress.Progress` instance by methods running in multiple threads or processes.
+
+    :param progress: The progress instance containing the tasks.
+    :type progress: :class:`rich.progress.Progress`
+    :param progress_updates: A shared mapping to progress update information.
+    :type progress_updates: dict[Any, :class:`odoo_toolkit.common.ProgressUpdate`]
+    :param futures: The remote threads/processes information.
+    :type futures: dict[:class:`concurrent.futures.Future`, Any]
+    """
+    def update_progress_internal() -> None:
+        for key, value in progress_updates.items():
+            progress.update(
+                value.task_id,
+                description=value.description,
+                completed=value.completed,
+                total=value.total,
+            )
+
+            if value.status and value.message:
+                # Print error, warning, or success messages.
+                if value.status == Status.FAILURE:
+                    print_error(value.message, value.stacktrace)
+                elif value.status == Status.PARTIAL:
+                    print_warning(value.message)
+                elif value.status == Status.SUCCESS:
+                    print_success(value.message)
+                ProgressUpdate.update_in_dict(progress_updates, key, status=None, message=None, stacktrace=None)
+
+
+    while any(not task.done() for task in futures):
+        update_progress_internal()
+        # Reduce CPU usage by only checking every 0.5 seconds.
+        time.sleep(0.5)
+
+    update_progress_internal()

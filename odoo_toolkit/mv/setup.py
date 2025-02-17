@@ -2,6 +2,9 @@ import os
 import re
 import shutil
 import subprocess
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from itertools import chain
+from multiprocessing import Manager
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Annotated
@@ -11,20 +14,21 @@ from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, 
 from typer import Exit, Option, Typer
 
 from odoo_toolkit.common import (
+    ProgressUpdate,
+    Status,
     TransientProgress,
     print,
     print_command_title,
     print_error,
     print_header,
-    print_subheader,
-    print_success,
-    print_warning,
+    update_remote_progress,
 )
 
 from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
 
 app = Typer()
 
+CWD = Path.cwd()
 DEFAULT_BRANCHES = ["16.0", "17.0", "saas-17.4", "18.0", "saas-18.1", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
@@ -33,10 +37,9 @@ DEFAULT_REPOS = [
     OdooRepo.UPGRADE,
     OdooRepo.UPGRADE_UTIL,
 ]
-MULTIVERSE_CONFIG_DIR = Path(__file__).parent / "multiverse_config"
-CWD = Path.cwd()
 JS_TOOLING_MIN_VERSION = 14.5
 JS_TOOLING_NEW_VERSION = 16.1
+MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
 
 
 @app.command()
@@ -101,6 +104,9 @@ def setup(
     """
     print_command_title(":ringed_planet: Odoo Multiverse Setup")
 
+    # Filter out empty branch names
+    branches = list(filter(bool, branches))
+
     try:
         # Ensure the multiverse directory exists.
         multiverse_dir.mkdir(parents=True, exist_ok=True)
@@ -114,52 +120,117 @@ def setup(
         multi_branch_repos = [repo for repo in MULTI_BRANCH_REPOS if repo in repositories]
         single_branch_repos = [repo for repo in SINGLE_BRANCH_REPOS if repo in repositories]
 
-        # Clone all bare repositories of the multi-branch ones.
-        if multi_branch_repos:
-            print_header(":honey_pot: Clone Bare Multi-Branch Repositories")
-            for repo in multi_branch_repos:
-                _clone_bare_multi_branch_repo(repo=repo, repo_src_dir=worktree_src_dir / repo.value)
+        # Clone all source repositories (as bare ones for the multi-branch repos).
+        with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
+            # Set up progress trackers for the clone operations.
+            progress_updates = manager.dict({
+                repo: ProgressUpdate(
+                    task_id=progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None),
+                    description=f"Cloning [b]{repo.value}[/b]",
+                    completed=0,
+                    total=None,
+                )
+                for repo in chain(multi_branch_repos, single_branch_repos)
+            })
 
-        # Clone all single-branch repositories.
-        if single_branch_repos:
-            print_header(":honey_pot: Clone Single-Branch Repositories")
-            for repo in single_branch_repos:
-                _clone_single_branch_repo(repo=repo, repo_src_dir=multiverse_dir / repo.value)
+            print_header(":honey_pot: Clone Repositories")
 
-        # Add a git worktree for every branch.
-        print_header(":deciduous_tree: Configure Worktrees")
+            # Run the clone operations in multiple processes simultaneously to speed things up.
+            futures = {
+                executor.submit(
+                    _clone_bare_multi_branch_repo if repo in multi_branch_repos else _clone_single_branch_repo,
+                    repo=repo,
+                    repo_src_dir=(worktree_src_dir if repo in multi_branch_repos else multiverse_dir) / repo.value,
+                    progress_updates=progress_updates,
+                ): repo for repo in chain(multi_branch_repos, single_branch_repos)
+            }
+
+            # Run the progress updater until everything is finished.
+            update_remote_progress(progress=progress, progress_updates=progress_updates, futures=futures)
+
+            # Check for any exceptions.
+            for future in as_completed(futures):
+                future.result()
+            print()
+
+        # Create the folders for the worktrees.
         for branch in branches:
-            if not branch:
-                continue
+            (multiverse_dir / branch).mkdir(parents=True, exist_ok=True)
 
-            print_subheader(f":gear: Configure Worktrees for [b]{branch}[/b]")
+        # Add the worktrees for each repo in each branch and link the single-branch repos.
+        for branch in branches:
+            with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
+                # Set up progress trackers for the worktree and symlink operations.
+                progress_updates = manager.dict({
+                    repo: ProgressUpdate(
+                        task_id=progress.add_task(f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]", total=None)
+                            if repo in multi_branch_repos
+                            else progress.add_task(
+                                f"Adding symlink for [b]{repo.value}[/b] to [b]{branch}[/b]", total=1,
+                            ),
+                        description=f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]"
+                            if repo in multi_branch_repos
+                            else f"Adding symlink for [b]{repo.value}[/b] to [b]{branch}[/b]",
+                        completed=0,
+                        total=None if repo in multi_branch_repos else 1,
+                    )
+                    for repo in chain(multi_branch_repos, single_branch_repos)
+                })
 
-            # Ensure the branch directory exists.
-            branch_dir = multiverse_dir / branch
-            branch_dir.mkdir(parents=True, exist_ok=True)
+                print_header(f":deciduous_tree: Setup Branch {branch}")
 
-            # Add worktrees for the multi-branch repositories.
-            for repo in multi_branch_repos:
-                _configure_worktree_for_branch(
-                    repo=repo,
-                    branch=branch,
-                    bare_repo_dir=worktree_src_dir / repo.value,
-                    worktree_dir=branch_dir / repo.value,
-                )
+                # Run the worktree and symlink operations in multiple processes simultaneously to speed things up.
+                futures = {
+                    executor.submit(
+                        _add_worktree_for_branch if repo in multi_branch_repos else _link_repo_to_branch_dir,
+                        repo=repo,
+                        branch=branch,
+                        repo_src_dir=(worktree_src_dir if repo in multi_branch_repos else multiverse_dir) / repo.value,
+                        repo_worktree_dir=multiverse_dir / branch / repo.value,
+                        progress_updates=progress_updates,
+                    ): repo for repo in chain(multi_branch_repos, single_branch_repos)
+                }
 
-            # Link single-branch repositories to the branch directories.
-            for repo in single_branch_repos:
-                _link_repo_to_branch_dir(
-                    repo=repo,
-                    repo_src_dir=multiverse_dir / repo.value,
-                    repo_branch_dir=branch_dir / repo.value,
-                )
+                # Run the progress updater until everything is finished.
+                update_remote_progress(progress=progress, progress_updates=progress_updates, futures=futures)
 
-            # Configure tools and dependencies for the branch directory.
-            print(f"Finishing configuration for branch [b]{branch}[/b] ...")
-            _setup_config_in_branch_dir(branch_dir=branch_dir, reset_config=reset_config, vscode=vscode)
-            _configure_python_env_for_branch(branch_dir=branch_dir, reset_config=reset_config)
-            print_success(f"Finished configuration for branch [b]{branch}[/b]\n")
+                # Check for any exceptions.
+                for future in as_completed(futures):
+                    future.result()
+                print()
+
+        # Configure tools and dependencies for each branch directory.
+        with ThreadPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
+            # Set up progress trackers for the configuration operations.
+            progress_updates = manager.dict({
+                branch: ProgressUpdate(
+                    task_id=progress.add_task(f"Configuring tools and dependencies for [b]{branch}[/b]", total=None),
+                    description=f"Configuring tools and dependencies for [b]{branch}[/b]",
+                    completed=0,
+                    total=None,
+                ) for branch in branches
+            })
+
+            print_header(":gear: Configure Tools and Dependencies for Branches")
+
+            # Run the configurations in multiple threads simultaneously to speed things up.
+            futures = {
+                executor.submit(
+                    _setup_tools_and_deps_in_branch_dir,
+                    branch_dir=multiverse_dir / branch,
+                    reset_config=reset_config,
+                    vscode=vscode,
+                    progress_updates=progress_updates,
+                ): branch for branch in branches
+            }
+
+            # Run the progress updater until everything is finished.
+            update_remote_progress(progress=progress, progress_updates=progress_updates, futures=futures)
+
+            # Check for any exceptions.
+            for future in as_completed(futures):
+                future.result()
+            print()
 
         print_header(":muscle: Great! You're now ready to work on multiple versions of Odoo")
 
@@ -168,138 +239,226 @@ def setup(
             f"Setting up the multiverse environment failed during file handling ([b]{e.errno}[/b]):\n"
             f"\t{e.filename}\n"
             f"\t{e.filename2}",
-            e.strerror,
+            str(e),
         )
         raise Exit from e
 
 
-def _clone_bare_multi_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:  # noqa: C901, PLR0915
+def _clone_bare_multi_branch_repo(  # noqa: C901, PLR0915
+    repo: OdooRepo,
+    repo_src_dir: Path,
+    progress_updates: dict[OdooRepo, ProgressUpdate],
+) -> None:
     """Clone an Odoo repository as a bare repository to create worktrees from later.
 
     :param repo: The repository name.
-    :type repo: :class:`OdooRepo`
     :param repo_src_dir: The source directory for the repository.
-    :type repo_src_dir: :class:`pathlib.Path`
+    :param progress_updates: The progress update information per repository.
     :raises Exit: In case the command needs to be stopped.
     """
-    print(f"Setting up bare repository for [b]{repo.value}[/b] ...")
-
     # Ensure the repo source directory exists.
     if repo_src_dir.is_file():
-        print_error(f"The [b]{repo.value}[/b] source path [u]{repo_src_dir}[/u] is not a directory. Aborting ...\n")
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"The [b]{repo.value}[/b] source path [u]{repo_src_dir}[/u] is not a directory. Aborting ...",
+        )
         raise Exit
     repo_src_dir.mkdir(parents=True, exist_ok=True)
     bare_dir = repo_src_dir / ".bare"
 
-    with TransientProgress() as progress:
-        try:
-            bare_repo = Repo(bare_dir)
-            bare_repo.git.worktree("prune")
-            print_success(f"Bare repository for [b]{repo.value}[/b] already exists.\n")
-        except InvalidGitRepositoryError as e:
-            print_error(
-                f"The [b]{repo.value}[/b] path [u]{bare_dir}[/u] is not a Git repository. Aborting ...\n",
-            )
-            raise Exit from e
-        except NoSuchPathError:
-            progress_task = progress.add_task(f"Cloning bare repository [b]{repo.value}[/b] ...", total=None)
-            try:
-                bare_repo = Repo.clone_from(
-                    url=f"git@github.com:odoo/{repo.value}.git",
-                    to_path=bare_dir,
-                    progress=lambda _op_code, cur_count, max_count, _message: progress.update(
-                        progress_task, total=max_count, completed=cur_count,
-                    ),
-                    bare=True,
-                )
-            except GitCommandError as e:
-                print_error(
-                    f"Cloning the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
-                    f"The command that failed was:\n\n[b]{e.command}[/b]",
-                    e.stderr.strip(),
-                )
-                raise Exit from e
-            except OSError as e:
-                print_error(
-                    f"Cloning the bare repository for [b]{repo.value}[/b] failed during file handling.",
-                    e.strerror,
-                )
-                raise Exit from e
-        else:
-            return
-
-        # Explicitly set the remote origin fetch so we can fetch remote branches.
-        progress_task = progress.add_task(
-            f"Setting up origin fetch configuration for [b]{repo.value}[/b] ...",
-            total=None,
+    try:
+        bare_repo = Repo(bare_dir)
+        bare_repo.git.worktree("prune")
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.SUCCESS,
+            message=f"Bare repository for [b]{repo.value}[/b] already exists.",
         )
-        bare_repo.config_writer().set_value('remote "origin"', "fetch", "+refs/heads/*:refs/remotes/origin/*").release()
-        progress.update(progress_task, total=1, completed=1)
-
-        if repo not in (OdooRepo.DOCUMENTATION, OdooRepo.O_SPREADSHEET):
-            # Add the "odoo-dev" repository equivalent as a remote named "dev".
-            progress_task = progress.add_task("Adding [b]odoo-dev[/b] remote as [b]dev[/b] ...", total=2)
-            if not any(remote.name == "dev" for remote in bare_repo.remotes):
-                bare_repo.create_remote("dev", f"git@github.com:odoo-dev/{repo.value}.git")
-            progress.update(progress_task, advance=1)
-
-            # Make sure people can't push on the "origin" remote when there is a "dev" remote.
-            bare_repo.remote("origin").set_url("NO_PUSH_TRY_DEV_REPO", push=True)
-            progress.update(progress_task, advance=1)
-
-        # Create the ".git" file pointing to the ".bare" directory.
-        progress_task = progress.add_task("Finishing Git config ...", total=None)
-        with (repo_src_dir / ".git").open("x", encoding="utf-8") as git_file:
-            git_file.write("gitdir: ./.bare")
-        progress.update(progress_task, total=1, completed=1)
-
-    with TransientProgress() as progress:
+    except InvalidGitRepositoryError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"The [b]{repo.value}[/b] path [u]{bare_dir}[/u] is not a Git repository. Aborting ...",
+        )
+        raise Exit from e
+    except NoSuchPathError:
         try:
-            # Fetch all remote branches to create the worktrees off later.
-            progress_task = progress.add_task("Fetching all branches ...", total=None)
-            bare_repo.remote("origin").fetch()
-            progress.update(progress_task, total=1, completed=1)
-
-            # Prune worktrees that were manually deleted before, so Git doesn't get confused.
-            progress_task = progress.add_task("Pruning non-existing worktrees ...", total=None)
-            bare_repo.git.worktree("prune")
-            progress.update(progress_task, total=1, completed=1)
-
+            bare_repo = Repo.clone_from(
+                url=f"git@github.com:odoo/{repo.value}.git",
+                to_path=bare_dir,
+                progress=lambda _op_code, cur_count, max_count, _message: ProgressUpdate.update_in_dict(
+                    progress_updates,
+                    repo,
+                    description=f"Cloning bare repository [b]{repo.value}[/b]",
+                    completed=cur_count,
+                    total=max_count,
+                ),
+                bare=True,
+            )
         except GitCommandError as e:
-            print_error(
-                f"Setting up the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
-                f"The command that failed was:\n\n[b]{e.command}[/b]",
-                e.stderr.strip(),
+            ProgressUpdate.update_in_dict(
+                progress_updates,
+                repo,
+                completed=1,
+                total=1,
+                status=Status.FAILURE,
+                message=f"Cloning the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
+                    f"The command that failed was:\n\n[b]{e.command}[/b]",
+                stacktrace=e.stderr.strip(),
             )
             raise Exit from e
         except OSError as e:
-            print_error(
-                f"Setting up the bare repository for [b]{repo.value}[/b] failed during file handling.",
-                e.strerror,
+            ProgressUpdate.update_in_dict(
+                progress_updates,
+                repo,
+                completed=1,
+                total=1,
+                status=Status.FAILURE,
+                message=f"Cloning the bare repository for [b]{repo.value}[/b] failed during file handling.",
+                stacktrace=str(e),
             )
             raise Exit from e
+    else:
+        return
 
-    print_success(f"Set up bare repository for [b]{repo.value}[/b].\n")
+    # Explicitly set the remote origin fetch so we can fetch remote branches.
+    ProgressUpdate.update_in_dict(
+        progress_updates,
+        repo,
+        description=f"Setting up origin fetch configuration for [b]{repo.value}[/b]",
+        completed=0,
+        total=1,
+    )
+    bare_repo.config_writer().set_value('remote "origin"', "fetch", "+refs/heads/*:refs/remotes/origin/*").release()
+    ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
+
+    if repo not in (OdooRepo.DOCUMENTATION, OdooRepo.O_SPREADSHEET):
+        # Add the "odoo-dev" repository equivalent as a remote named "dev".
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            description=f"Adding [b]odoo-dev[/b] remote as [b]dev[/b] to [b]{repo.value}[/b]",
+            completed=0,
+            total=2,
+        )
+        if not any(remote.name == "dev" for remote in bare_repo.remotes):
+            bare_repo.create_remote("dev", f"git@github.com:odoo-dev/{repo.value}.git")
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
+
+        # Make sure people can't push on the "origin" remote when there is a "dev" remote.
+        bare_repo.remote("origin").set_url("NO_PUSH_TRY_DEV_REPO", push=True)
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
+
+    # Create the ".git" file pointing to the ".bare" directory.
+    ProgressUpdate.update_in_dict(
+        progress_updates,
+        repo,
+        description=f"Finishing git config for [b]{repo.value}[/b]",
+        completed=0,
+        total=1,
+    )
+    with (repo_src_dir / ".git").open("x", encoding="utf-8") as git_file:
+        git_file.write("gitdir: ./.bare")
+    ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
+
+    try:
+        # Fetch all remote branches to create the worktrees off later.
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            description=f"Fetching all branches for [b]{repo.value}[/b]",
+            completed=0,
+            total=1,
+        )
+        bare_repo.remote("origin").fetch()
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
+
+        # Prune worktrees that were manually deleted before, so git doesn't get confused.
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            description=f"Pruning non-existing worktrees for [b]{repo.value}[/b]",
+            completed=0,
+            total=1,
+        )
+        bare_repo.git.worktree("prune")
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
+
+    except GitCommandError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Setting up the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
+                f"The command that failed was:\n\n[b]{e.command}[/b]",
+            stacktrace=e.stderr.strip(),
+        )
+        raise Exit from e
+    except OSError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Setting up the bare repository for [b]{repo.value}[/b] failed during file handling.",
+            stacktrace=str(e),
+        )
+        raise Exit from e
+
+    ProgressUpdate.update_in_dict(
+        progress_updates,
+        repo,
+        completed=1,
+        total=1,
+        status=Status.SUCCESS,
+        message=f"Set up bare repository for [b]{repo.value}[/b]",
+    )
 
 
-def _clone_single_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:
+def _clone_single_branch_repo(
+    repo: OdooRepo,
+    repo_src_dir: Path,
+    progress_updates: dict[OdooRepo, ProgressUpdate],
+) -> None:
     """Clone an Odoo repository to the given directory.
 
     :param repo: The repository name.
-    :type repo: :class:`OdooRepo`
     :param repo_src_dir: The source directory for the repository.
-    :type repo_src_dir: :class:`pathlib.Path`
+    :param progress_updates: The progress update information per repository.
     :raises Exit: In case the command needs to be stopped.
     """
-    print(f"Setting up repository for [bold]{repo.value}[/bold] ...")
-
     # Check if the repo source directory already exists.
     try:
         Repo(repo_src_dir)
-        print_success(f"Repository for [b]{repo.value}[/b] already exists.\n")
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.SUCCESS,
+            message=f"Repository for [b]{repo.value}[/b] already exists.",
+        )
     except InvalidGitRepositoryError as e:
-        print_error(
-            f"The [b]{repo.value}[/b] path [u]{repo_src_dir}[/u] is not a Git repository. Aborting ...\n",
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"The [b]{repo.value}[/b] path [u]{repo_src_dir}[/u] is not a Git repository. Aborting ...",
         )
         raise Exit from e
     except NoSuchPathError:
@@ -307,55 +466,87 @@ def _clone_single_branch_repo(repo: OdooRepo, repo_src_dir: Path) -> None:
     else:
         return
 
-    with TransientProgress() as progress:
-        # Clone the repository.
-        progress_task = progress.add_task(f"Cloning repository [b]{repo.value}[/b] ...", total=None)
-        try:
-            Repo.clone_from(
-                url=f"git@github.com:odoo/{repo.value}.git",
-                to_path=repo_src_dir,
-                progress=lambda _op_code, cur_count, max_count, _message: progress.update(
-                    progress_task, total=max_count, completed=cur_count,
-                ),
-            )
-        except GitCommandError as e:
-            print_error(
-                f"Cloning the repository [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
+    # Clone the repository.
+    try:
+        Repo.clone_from(
+            url=f"git@github.com:odoo/{repo.value}.git",
+            to_path=repo_src_dir,
+            progress=lambda _op_code, cur_count, max_count, _message: ProgressUpdate.update_in_dict(
+                progress_updates,
+                repo,
+                description=f"Cloning repository [b]{repo.value}[/b]",
+                completed=cur_count,
+                total=max_count,
+            ),
+        )
+    except GitCommandError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Cloning the repository [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
                 f"The command that failed was:\n\n[b]{e.command}[/b]",
-                e.stderr.strip(),
-            )
-            raise Exit from e
-        except OSError as e:
-            print_error(
-                f"Cloning the repository [b]{repo.value}[/b] failed during file handling.",
-                e.strerror,
-            )
-            raise Exit from e
+            stacktrace=e.stderr.strip(),
+        )
+        raise Exit from e
+    except OSError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Cloning the repository [b]{repo.value}[/b] failed during file handling.",
+            stacktrace=str(e),
+        )
+        raise Exit from e
 
-    print_success(f"Set up repository [b]{repo.value}[/b]\n")
+    ProgressUpdate.update_in_dict(
+        progress_updates,
+        repo,
+        completed=1,
+        total=1,
+        status=Status.SUCCESS,
+        message=f"Set up repository [b]{repo.value}[/b].",
+    )
 
 
-def _configure_worktree_for_branch(repo: OdooRepo, branch: str, bare_repo_dir: Path, worktree_dir: Path) -> None:
+def _add_worktree_for_branch(
+    repo: OdooRepo,
+    branch: str,
+    repo_src_dir: Path,
+    repo_worktree_dir: Path,
+    progress_updates: dict[OdooRepo, ProgressUpdate],
+) -> None:
     """Add and configure a worktree for a specific branch in the given repository.
 
     :param repo: The repository for which we need to add a worktree.
-    :type repo: :class:`OdooRepo`
     :param branch: The branch we need to add as a worktree.
-    :type branch: str
-    :param bare_repo_dir: The directory containing the bare repository.
-    :type bare_repo_dir: :class:`pathlib.Path`
-    :param worktree_dir: The directory to contain the worktree.
-    :type worktree_dir: :class:`pathlib.Path`
+    :param repo_src_dir: The directory containing the bare repository.
+    :param repo_worktree_dir: The directory to contain the worktree.
+    :param progress_updates: The progress update information per repository.
     """
-    print(f"Adding worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] ...")
-
     # Check if the worktree repo already exists.
     try:
-        Repo(worktree_dir)
-        print_success(f"The [b]{repo.value}[/b] worktree [u]{worktree_dir}[/u] already exists.\n")
+        Repo(repo_worktree_dir)
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.SUCCESS,
+            message=f"The worktree at [u]{repo_worktree_dir}[/u] already exists.",
+        )
     except InvalidGitRepositoryError:
-        print_warning(
-            f"The [b]{repo.value}[/b] worktree [u]{worktree_dir}[/u] is not a Git repository. Skipping ...\n",
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.PARTIAL,
+            message=f"The path [u]{repo_worktree_dir}[/u] is not a Git repository. Skipping ...",
         )
         return
     except NoSuchPathError:
@@ -365,145 +556,212 @@ def _configure_worktree_for_branch(repo: OdooRepo, branch: str, bare_repo_dir: P
 
     # Check whether the branch we want to add exists on the remote.
     try:
-        bare_repo = Repo(bare_repo_dir)
+        bare_repo = Repo(repo_src_dir)
         bare_repo.rev_parse(f"origin/{branch}")
     except (BadName, BadObject):
-        print_warning(f"The [b]{repo.value}[/b] branch [b]{branch}[/b] does not exist. Skipping ...\n")
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.PARTIAL,
+            message=f"The [b]{repo.value}[/b] branch [b]{branch}[/b] does not exist. Skipping ...",
+        )
         return
 
-    with TransientProgress() as progress:
-        try:
-            # Checkout the worktree for the specified branch.
-            progress_task = progress.add_task(f"Adding worktree [b]{branch}[/b] ...", total=4)
-            bare_repo.git.worktree("add", str(worktree_dir), branch)
-            progress.update(progress_task, advance=1)
+    try:
+        # Checkout the worktree for the specified branch.
+        ProgressUpdate.update_in_dict(progress_updates, repo, total=4)
+        bare_repo.git.worktree("add", str(repo_worktree_dir), branch)
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
-            # Make sure the worktree references the right upstream branch.
-            worktree_repo = Repo(worktree_dir)
-            worktree_repo.git.branch("--set-upstream-to", f"origin/{branch}", branch)
-            progress.update(progress_task, advance=1)
+        # Make sure the worktree references the right upstream branch.
+        worktree_repo = Repo(repo_worktree_dir)
+        worktree_repo.git.branch("--set-upstream-to", f"origin/{branch}", branch)
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
-            # Make link in .git to git worktree relative.
-            with (worktree_dir / ".git").open("r", encoding="utf-8") as git_file:
-                absolute_gitdir = Path(git_file.read()[len("gitdir: ") :].strip())
-            relative_gitdir = os.path.relpath(absolute_gitdir, worktree_dir)
-            with (worktree_dir / ".git").open("w", encoding="utf-8") as git_file:
-                git_file.write(f"gitdir: {relative_gitdir}\n")
-            progress.update(progress_task, advance=1)
+        # Make link in .git to git worktree relative.
+        with (repo_worktree_dir / ".git").open("r", encoding="utf-8") as git_file:
+            absolute_gitdir = Path(git_file.read()[len("gitdir: ") :].strip())
+        relative_gitdir = os.path.relpath(absolute_gitdir, repo_worktree_dir)
+        with (repo_worktree_dir / ".git").open("w", encoding="utf-8") as git_file:
+            git_file.write(f"gitdir: {relative_gitdir}\n")
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
-            # Make link in git worktree gitdir to checked out repo relative.
-            with (absolute_gitdir / "gitdir").open("r", encoding="utf-8") as gitdir_file:
-                relative_git = os.path.relpath(Path(gitdir_file.read().strip()), absolute_gitdir)
-            with (absolute_gitdir / "gitdir").open("w", encoding="utf-8") as gitdir_file:
-                gitdir_file.write(f"{relative_git}\n")
-            progress.update(progress_task, advance=1)
+        # Make link in git worktree gitdir to checked out repo relative.
+        with (absolute_gitdir / "gitdir").open("r", encoding="utf-8") as gitdir_file:
+            relative_git = os.path.relpath(Path(gitdir_file.read().strip()), absolute_gitdir)
+        with (absolute_gitdir / "gitdir").open("w", encoding="utf-8") as gitdir_file:
+            gitdir_file.write(f"{relative_git}\n")
+        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
-        except GitCommandError as e:
-            print_error(
-                f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
-                f"The command that failed was:\n\n[b]{e.command}[/b]",
-                e.stderr.strip(),
-            )
-            return
-        except OSError as e:
-            print_error(
-                f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed "
-                "during file handling.",
-                e.strerror,
-            )
-            return
+    except GitCommandError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed: {e.status}. "
+            f"The command that failed was:\n\n[b]{e.command}[/b]",
+            stacktrace=e.stderr.strip(),
+        )
+        return
+    except OSError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed during "
+                "file handling.",
+            stacktrace=str(e),
+        )
+        return
 
-    print_success(f"Added worktree [b]{branch}[/b] for repository [b]{repo.value}[/b].\n")
+    ProgressUpdate.update_in_dict(
+        progress_updates,
+        repo,
+        completed=1,
+        total=1,
+        status=Status.SUCCESS,
+        message=f"Added [b]{repo.value}[/b] worktree [b]{branch}[/b]",
+    )
 
 
-def _link_repo_to_branch_dir(repo: OdooRepo, repo_src_dir: Path, repo_branch_dir: Path) -> None:
+def _link_repo_to_branch_dir(
+    repo: OdooRepo,
+    branch: str,
+    repo_src_dir: Path,
+    repo_worktree_dir: Path,
+    progress_updates: dict[OdooRepo, ProgressUpdate],
+) -> None:
     """Create a symlink from a single-branch repository to a branch directory.
 
     :param repo: The repository to symlink.
-    :type repo: :class:`OdooRepo`
+    :param branch: The branch where we need to add the symlink for.
     :param repo_src_dir: The repository's source directory.
-    :type repo_src_dir: :class:`pathlib.Path`
-    :param repo_branch_dir: The branch directory in which the symlink needs to be created.
-    :type repo_branch_dir: :class:`pathlib.Path`
+    :param repo_worktree_dir: The directory to contain be symlinked to the source repository.
+    :param progress_updates: The progress update information per repository.
     """
-    print(f"Linking repository [b]{repo.value}[/b] to worktree ...")
-
     try:
-        Repo(repo_branch_dir)
-        print_success(f"The [b]{repo.value}[/b] repository link [u]{repo_branch_dir}[/u] already exists.\n")
-    except InvalidGitRepositoryError as e:
-        print_warning(
-            f"The [b]{repo.value}[/b] path [u]{repo_branch_dir}[/u] is not a Git repository. Skipping ...\n",
+        Repo(repo_worktree_dir)
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.SUCCESS,
+            message=f"The [b]{repo.value}[/b] symlink at [u]{repo_worktree_dir}[/u] already exists.",
+        )
+    except InvalidGitRepositoryError:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.PARTIAL,
+            message=f"The path [u]{repo_worktree_dir}[/u] is not a Git repository. Skipping ...",
         )
         return
     except NoSuchPathError:
-        repo_branch_dir.symlink_to(repo_src_dir, target_is_directory=True)
-        print_success(f"Added symlink for repository [b]{repo.value}[/b] to worktree.\n")
+        repo_worktree_dir.symlink_to(repo_src_dir, target_is_directory=True)
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            repo,
+            completed=1,
+            total=1,
+            status=Status.SUCCESS,
+            message=f"Added symlink for [b]{repo.value}[/b] to [b]{branch}[/b]",
+        )
 
 
-def _setup_config_in_branch_dir(branch_dir: Path, reset_config: bool, vscode: bool) -> None:
-    """Set up all configuration files in the given branch directory.
+def _setup_tools_and_deps_in_branch_dir(
+    branch_dir: Path,
+    reset_config: bool,
+    vscode: bool,
+    progress_updates: dict[str, ProgressUpdate],
+) -> None:
+    """Set up all tooling and dependencies in the given branch directory.
 
-    :param branch_dir: The branch directory in which to set up the configurations.
-    :type branch_dir: :class:`pathlib.Path`
+    :param branch_dir: The branch directory in which to set up the tooling and dependencies.
     :param reset_config: Whether we want the reset existing configuration files.
-    :type reset_config: bool
     :param vscode: Whether we want configuration files for Visual Studio Code.
-    :type vscode: bool
+    :param progress_updates: The progress update information per branch.
     """
     branch = branch_dir.name
-    with TransientProgress() as progress:
-        # Copy Ruff configuration.
-        if not (branch_dir / "ruff.toml").exists() or reset_config:
-            progress_task = progress.add_task(
-                f"Setting up Ruff configuration for worktree [b]{branch}[/b] ...",
-                total=None,
+    ProgressUpdate.update_in_dict(progress_updates, branch, total=5)
+
+    # Copy Ruff configuration.
+    if not (branch_dir / "ruff.toml").exists() or reset_config:
+        try:
+            shutil.copyfile(MULTIVERSE_CONFIG_DIR / "ruff.toml", branch_dir / "ruff.toml")
+        except OSError as e:
+            ProgressUpdate.update_in_dict(
+                progress_updates,
+                branch,
+                status=Status.FAILURE,
+                message=f"Copying [b]ruff.toml[/b] to branch [b]{branch}[/b] failed.",
+                stacktrace=str(e),
             )
-            try:
-                shutil.copyfile(MULTIVERSE_CONFIG_DIR / "ruff.toml", branch_dir / "ruff.toml")
-            except OSError as e:
-                print_error(f"Copying [b]ruff.toml[/b] to branch [b]{branch}[/b] failed.", e.strerror)
-            progress.update(progress_task, total=1, completed=1)
 
-        # Copy Visual Studio Code configuration.
-        if vscode and (not (branch_dir / ".vscode").exists() or reset_config):
-            progress_task = progress.add_task(
-                f"Copying Visual Studio Code configuration to branch [b]{branch}[/b] ...",
-                total=None,
+    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
+
+    # Copy Visual Studio Code configuration.
+    if vscode and (not (branch_dir / ".vscode").exists() or reset_config):
+        try:
+            shutil.copytree(MULTIVERSE_CONFIG_DIR / ".vscode", branch_dir / ".vscode", dirs_exist_ok=True)
+        except shutil.Error as e:
+            ProgressUpdate.update_in_dict(
+                progress_updates,
+                branch,
+                status=Status.FAILURE,
+                message=f"Copying the [b].vscode[/b] settings directory to branch [b]{branch}[/b] failed.",
+                stacktrace=str(e),
             )
-            try:
-                shutil.copytree(MULTIVERSE_CONFIG_DIR / ".vscode", branch_dir / ".vscode", dirs_exist_ok=True)
-            except shutil.Error as e:
-                print_error(
-                    f"Copying the [b].vscode[/b] settings directory to branch [b]{branch}[/b] failed.",
-                    e.strerror,
-                )
-            progress.update(progress_task, total=1, completed=1)
 
-        # Copy optional Python requirements.
-        if not (branch_dir / "requirements.txt").exists() or reset_config:
-            progress_task = progress.add_task(
-                f"Copying optional Python requirements to worktree [b]{branch}[/b] ...",
-                total=None,
+    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
+
+    # Copy optional Python requirements.
+    if not (branch_dir / "requirements.txt").exists() or reset_config:
+        try:
+            shutil.copyfile(MULTIVERSE_CONFIG_DIR / "requirements.txt", branch_dir / "requirements.txt")
+        except OSError as e:
+            ProgressUpdate.update_in_dict(
+                progress_updates,
+                branch,
+                status=Status.FAILURE,
+                message=f"Copying [b]requirements.txt[/b] to branch [b]{branch}[/b] failed.",
+                stacktrace=str(e),
             )
-            try:
-                shutil.copyfile(MULTIVERSE_CONFIG_DIR / "requirements.txt", branch_dir / "requirements.txt")
-            except OSError as e:
-                print_error(f"Copying [b]requirements.txt[/b] to branch [b]{branch}[/b] failed.", e.strerror)
-            progress.update(progress_task, total=1, completed=1)
 
-        # Set up Javascript tooling.
-        if _get_version_number(branch) >= JS_TOOLING_MIN_VERSION:
-            progress_task = progress.add_task(
-                f"Setting up Javascript tooling for branch [b]{branch}[/b] ...",
-                total=None,
-            )
-            _disable_js_tooling(branch_dir)
-            _enable_js_tooling(branch_dir)
-            progress.update(progress_task, total=1, completed=1)
+    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
+
+    # Set up Javascript tooling.
+    if _get_version_number(branch) >= JS_TOOLING_MIN_VERSION:
+        _disable_js_tooling(branch_dir)
+        _enable_js_tooling(branch_dir, progress_updates=progress_updates, branch=branch)
+
+    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
+
+    _configure_python_env_for_branch(branch_dir, reset_config=reset_config, progress_updates=progress_updates)
+
+    ProgressUpdate.update_in_dict(
+        progress_updates,
+        branch,
+        completed=1,
+        total=1,
+        status=Status.SUCCESS,
+        message=f"Configured tools and dependencies for [b]{branch}[/b].",
+    )
 
 
-def _configure_python_env_for_branch(branch_dir: Path, reset_config: bool) -> None:
+def _configure_python_env_for_branch(
+    branch_dir: Path,
+    reset_config: bool,
+    progress_updates: dict[str, ProgressUpdate],
+) -> None:
     """Configure a virtual Python environment with all dependencies for a branch.
 
     :param branch_dir: The directory in which to create the virtual environment.
@@ -512,78 +770,64 @@ def _configure_python_env_for_branch(branch_dir: Path, reset_config: bool) -> No
     :type reset_config: bool
     """
     branch = branch_dir.name
-    with TransientProgress() as progress:
-        # Configure Python virtual environment.
-        venv_path = branch_dir / ".venv"
-        if venv_path.is_file():
-            print_warning(f"The path [u]{venv_path}[/u] is not a directory. Skipping ...\n")
-            return
-
-        if venv_path.is_dir() and reset_config:
-            progress_task = progress.add_task(
-                f"Removing existing virtual environment for branch [b]{branch}[/b] ...",
-                total=None,
-            )
-            shutil.rmtree(venv_path)
-            progress.update(progress_task, total=1, completed=1)
-
-        progress_task = progress.add_task(
-            f"Configuring Python virtual environment for branch [b]{branch}[/b] ...",
-            total=None,
+    # Configure Python virtual environment.
+    venv_path = branch_dir / ".venv"
+    if venv_path.is_file():
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            branch,
+            completed=1,
+            total=1,
+            status=Status.PARTIAL,
+            message=f"The path [u]{venv_path}[/u] is not a directory. Skipping ...",
         )
-        EnvBuilder(with_pip=True, symlinks=True, upgrade=not reset_config, upgrade_deps=True).create(venv_path)
-        progress.update(progress_task, total=1, completed=1)
+        return
 
-        # Locate the Python executable in the virtual environment.
-        python = venv_path / "bin" / "python"  # Linux and MacOS
-        if not python.exists():
-            python = venv_path / "Scripts" / "python.exe"  # Windows
+    if venv_path.is_dir() and reset_config:
+        shutil.rmtree(venv_path)
 
-        # Install Python dependencies using pip.
-        try:
-            # Try upgrading pip.
-            cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
+    EnvBuilder(with_pip=True, symlinks=True, upgrade=not reset_config, upgrade_deps=True).create(venv_path)
+
+    # Locate the Python executable in the virtual environment.
+    python = venv_path / "bin" / "python"  # Linux and MacOS
+    if not python.exists():
+        python = venv_path / "Scripts" / "python.exe"  # Windows
+
+    # Install Python dependencies using pip.
+    try:
+        # Try upgrading pip.
+        cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
+        subprocess.run(cmd, capture_output=True, check=True)
+
+        # Install "odoo" requirements.
+        requirements = branch_dir / "odoo" / "requirements.txt"
+        if requirements.is_file():
+            cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
             subprocess.run(cmd, capture_output=True, check=True)
 
-            # Install "odoo" requirements.
-            requirements = branch_dir / "odoo" / "requirements.txt"
-            if requirements.is_file():
-                progress_task = progress.add_task(
-                    f"Installing [b]odoo[/b] dependencies for branch [b]{branch}[/b] ...",
-                    total=None,
-                )
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-                subprocess.run(cmd, capture_output=True, check=True)
-                progress.update(progress_task, total=1, completed=1)
+        # Install "documentation" requirements.
+        requirements = branch_dir / "documentation" / "requirements.txt"
+        if requirements.is_file():
+            cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
+            subprocess.run(cmd, capture_output=True, check=True)
 
-            # Install "documentation" requirements.
-            requirements = branch_dir / "documentation" / "requirements.txt"
-            if requirements.is_file():
-                progress_task = progress.add_task(
-                    f"Installing [b]documentation[/b] dependencies for branch [b]{branch}[/b] ...",
-                    total=None,
-                )
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-                subprocess.run(cmd, capture_output=True, check=True)
-                progress.update(progress_task, total=1, completed=1)
+        # Install optional requirements.
+        requirements = branch_dir / "requirements.txt"
+        if requirements.is_file():
+            cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
+            subprocess.run(cmd, capture_output=True, check=True)
 
-            # Install optional requirements.
-            requirements = branch_dir / "requirements.txt"
-            if requirements.is_file():
-                progress_task = progress.add_task(
-                    f"Installing optional dependencies for branch [b]{branch}[/b] ...",
-                    total=None,
-                )
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-                subprocess.run(cmd, capture_output=True, check=True)
-                progress.update(progress_task, total=1, completed=1)
-
-        except CalledProcessError as e:
-            progress.update(progress_task, total=1, completed=1)
-            print_error(
-                f"Installing Python dependencies failed. The command that failed was:\n\n[b]{' '.join(cmd)}[/b]",
-                e.stderr.strip(),
-            )
+    except CalledProcessError as e:
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            branch,
+            completed=1,
+            total=1,
+            status=Status.FAILURE,
+            message=f"Installing Python dependencies for [b]{branch}[/b] failed.\nThe command that failed was:\n\n"
+                f"[b]{' '.join(cmd)}[/b]",
+            stacktrace=e.stderr.strip(),
+        )
 
 
 def _get_version_number(branch_name: str) -> float:
@@ -594,13 +838,15 @@ def _get_version_number(branch_name: str) -> float:
     :return: The version number as a float.
     :rtype: float
     """
+    if branch_name == "master":
+        return 1000.0
     match = re.search(r"(\d+.\d)", branch_name)
     if match:
         return float(match.group(0))
     return 0.0
 
 
-def _enable_js_tooling(root_dir: Path) -> None:
+def _enable_js_tooling(root_dir: Path, progress_updates: dict[str, ProgressUpdate], branch: str) -> None:
     """Enable Javascript tooling in the Community and Enterprise repositories.
 
     :param root_dir: The parent directory of the `odoo` and `enterprise` repositories.
@@ -623,10 +869,13 @@ def _enable_js_tooling(root_dir: Path) -> None:
         cmd = ["npm", "install"]
         subprocess.run(cmd, capture_output=True, check=True, cwd=com_dir, text=True)
     except CalledProcessError as e:
-        print_error(
-            f"Installing Javascript tooling dependencies failed. The command that failed was:\n\n"
-            f"[b]{' '.join(cmd)}[/b]",
-            e.stderr.strip(),
+        ProgressUpdate.update_in_dict(
+            progress_updates,
+            branch,
+            status=Status.FAILURE,
+            message=f"Installing Javascript tooling dependencies failed in [b]{branch}[/b].\n"
+                f"The command that failed was:\n\n[b]{' '.join(cmd)}[/b]",
+            stacktrace=e.stderr.strip(),
         )
         return
 
@@ -649,7 +898,13 @@ def _enable_js_tooling(root_dir: Path) -> None:
             with (ent_dir / "jsconfig.json").open("w", encoding="utf-8") as jsconfig_file:
                 jsconfig_file.write(jsconfig_content)
         except OSError as e:
-            print_error("Modifying the jsconfig.json file to use relative paths failed.", e.strerror)
+            ProgressUpdate.update_in_dict(
+                progress_updates,
+                branch,
+                status=Status.FAILURE,
+                message=f"Modifying the jsconfig.json file in [b]{branch}[/b] to use relative paths failed.",
+                stacktrace=str(e),
+            )
             return
     # Copy over node_modules and package-lock.json to avoid "npm install" twice.
     shutil.copyfile(com_dir / "package-lock.json", ent_dir / "package-lock.json")
