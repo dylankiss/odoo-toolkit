@@ -19,12 +19,10 @@ from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS
 
 app = Typer()
 
-SINGLE_BRANCH_NAME = "master"
-
 
 @app.command()
 def reset() -> None:
-    """Reset :arrows_counterclockwise: the repositories inside a branch directory of an Odoo Multiverse environment.
+    """Reset :arrows_counterclockwise: the repositories inside an Odoo Multiverse branch directory.
 
     You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through
     all repositories inside the directory and reset them to their original branch.\n
@@ -46,7 +44,7 @@ def reset() -> None:
     # Run the Git operations in parallel to speed things up.
     with ThreadPoolExecutor() as executor, StickyProgress() as progress:
         future_to_repo = {
-            executor.submit(_reset_repo, repo_dir, repo_branch, progress): repo_dir
+            executor.submit(_reset_repo, repo_dir=repo_dir, repo_branch=repo_branch, progress=progress): repo_dir
             for repo_dir, repo_branch in repo_dirs
         }
 
@@ -70,11 +68,9 @@ def reset() -> None:
             print_error("No repositories were reset!\n")
 
 
-def _reset_repo(repo_dir: Path, branch: str | None = None, progress: StickyProgress | None = None) -> Status:  # noqa: C901
+def _reset_repo(*, repo_dir: Path, branch: str | None = None, progress: StickyProgress) -> Status:
     status = Status.FAILURE
-
-    if progress:
-        progress_task = progress.add_task(f"Resetting [u]{repo_dir}[/u]", total=3)
+    progress_task = progress.add_task(f"Resetting [u]{repo_dir}[/u]", total=3)
 
     try:
         repo = Repo(repo_dir)
@@ -84,8 +80,7 @@ def _reset_repo(repo_dir: Path, branch: str | None = None, progress: StickyProgr
             repo.git.stash("push", "--include-untracked")
             print(f":arrows_counterclockwise: Stashed dirty changes in [u]{repo_dir}[/u] before resetting.")
 
-        if progress:
-            progress.advance(progress_task, 1)
+        progress.advance(progress_task, 1)
 
         if not branch:
             # If no branch is given, try to find the default branch or else default to "master".
@@ -94,29 +89,23 @@ def _reset_repo(repo_dir: Path, branch: str | None = None, progress: StickyProgr
             except GitCommandError:
                 branch = "master"
 
-        if progress:
-            progress.update(progress_task, description=f"Resetting [u]{repo_dir}[/u] to [b]{branch}[/b]", advance=1)
+        progress.update(progress_task, description=f"Resetting [u]{repo_dir}[/u] to [b]{branch}[/b]", advance=1)
 
         # Checkout the branch and pull the latest changes.
         repo.git.checkout(branch)
         repo.git.pull("origin", branch)
 
-        if progress:
-            progress.advance(progress_task, 1)
-
+        progress.advance(progress_task, 1)
         status = Status.SUCCESS
 
     except InvalidGitRepositoryError:
         print_warning(f"The directory [u]{repo_dir}[/u] is not a Git repository. Skipping ...\n")
 
     except GitCommandError as e:
-        print_warning(
+        print_error(
             f"Resetting the repository [u]{repo_dir}[/u] failed with [b]{e.status}[/b]. "
             f"The command that failed was:\n\n[b]{e.command}[/b]",
             e.stderr.strip(),
         )
-
-    if progress:
-        progress.update(progress_task, total=1, completed=1)
 
     return status
