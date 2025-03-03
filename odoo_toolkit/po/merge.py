@@ -11,13 +11,13 @@ app = Typer()
 
 @app.command()
 def merge(
-    po_files: Annotated[list[Path], Argument(help="Merge these .po files together.")],
-    output_file: Annotated[Path, Option("--output-file", "-o", help="Specify the output .po file.")] = Path(
+    po_files: Annotated[list[Path], Argument(help="Merge these `.po` files together.")],
+    output_file: Annotated[Path, Option("--output-file", "-o", help="Specify the output `.po` file.")] = Path(
         "merged.po",
     ),
     overwrite: Annotated[bool, Option("--overwrite", help="Overwrite existing translations.")] = False,
 ) -> None:
-    """Merge multiple translation files (.po) into one.
+    """Merge multiple translation files (`.po`) into one.
 
     The order of the files determines which translation takes priority. Empty translations in earlier files will be
     completed with translations from later files, taking the first one in the order they occur.\n
@@ -25,7 +25,7 @@ def merge(
     If the option `--overwrite` is active, existing translations in earlier files will always be overwritten by
     translations in later files. In that case the last file takes precedence.\n
     \n
-    The .po metadata is taken from the first file by default, or the last if `--overwrite` is active.
+    The `.po` metadata is taken from the first file by default, or the last if `--overwrite` is active.
     """
     print_command_title(":shuffle_tracks_button: Odoo PO Merge")
 

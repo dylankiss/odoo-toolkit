@@ -30,11 +30,11 @@ app = Typer()
 def create(
     modules: Annotated[
         list[str],
-        Argument(help='Create .po files for these Odoo modules, or either "all", "community", or "enterprise".'),
+        Argument(help="Create `.po` files for these Odoo modules, or either `all`, `community`, or `enterprise`."),
     ],
     languages: Annotated[
         list[Lang],
-        Option("--languages", "-l", help='Create .po files for these languages, or "all".', case_sensitive=False),
+        Option("--languages", "-l", help="Create `.po` files for these languages, or `all`.", case_sensitive=False),
     ],
     com_path: Annotated[
         Path,
@@ -61,11 +61,11 @@ def create(
         ),
     ] = EMPTY_LIST,
 ) -> None:
-    """Create Odoo translation files (.po) according to their .pot files.
+    """Create Odoo translation files (`.po`) according to their `.pot` files.
 
-    This command will provide you with a clean .po file per language you specified for the given modules. It basically
-    copies all entries from the .pot file in the module and completes the metadata with the right language information.
-    All generated .po files will be saved in the respective modules' `i18n` directories.\n
+    This command will provide you with a clean `.po` file per language you specified for the given modules. It basically
+    copies all entries from the `.pot` file in the module and completes the metadata with the right language
+    information. All generated `.po` files will be saved in the respective modules' `i18n` directories.\n
     \n
     > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
     and `enterprise` repositories are checked out with these names.

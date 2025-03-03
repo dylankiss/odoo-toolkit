@@ -61,8 +61,8 @@ def export(
     modules: Annotated[
         list[str],
         Argument(
-            help='Export .pot files for these Odoo modules (supports glob patterns), or either "all", "community",'
-                'or "enterprise".',
+            help="Export `.pot` files for these Odoo modules (supports glob patterns), or either `all`, `community`,"
+                "or `enterprise`.",
         ),
     ],
     start_server: Annotated[
@@ -159,15 +159,15 @@ def export(
         Option(help="Specify the PostgreSQL user's password.", rich_help_panel="Database Options"),
     ] = "",
 ) -> None:
-    """Export Odoo translation files (.pot) to each module's i18n folder.
+    """Export Odoo translation files (`.pot`) to each module's `i18n` folder.
 
     This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A
     separate server will be started for Community, Community (Localizations), Enterprise, Enterprise (Localizations),
     and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent
     modules that might contribute terms to the modules to be exported.\n
     \n
-    You can also export terms from your own running server using the `--no-start-server` option and optionally passing
-    the correct arguments to reach your Odoo server.\n
+    You can also export terms from your own running server using the `--own-server` option and optionally passing the
+    correct arguments to reach your Odoo server.\n
     \n
     > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
     and `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost`

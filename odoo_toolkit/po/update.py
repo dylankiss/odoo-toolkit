@@ -30,11 +30,11 @@ app = Typer()
 def update(
     modules: Annotated[
         list[str],
-        Argument(help='Update .po files for these Odoo modules, or either "all", "community", or "enterprise".'),
+        Argument(help="Update `.po` files for these Odoo modules, or either `all`, `community`, or `enterprise`."),
     ],
     languages: Annotated[
         list[Lang],
-        Option("--languages", "-l", help='Update .po files for these languages, or "all".', case_sensitive=False),
+        Option("--languages", "-l", help="Update `.po` files for these languages, or `all`.", case_sensitive=False),
     ] = [Lang.ALL],  # noqa: B006
     com_path: Annotated[
         Path,
@@ -61,10 +61,10 @@ def update(
         ),
     ] = EMPTY_LIST,
 ) -> None:
-    """Update Odoo translation files (.po) according to a new version of their .pot files.
+    """Update Odoo translation files (`.po`) according to a new version of their `.pot` files.
 
-    This command will update the .po files for the provided modules according to a new .pot file you might have exported
-    in their `i18n` directory.\n
+    This command will update the `.po` files for the provided modules according to a new `.pot` file you might have
+    exported in their `i18n` directory.\n
     \n
     > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
     and `enterprise` repositories are checked out with these names.
