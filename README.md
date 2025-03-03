@@ -34,7 +34,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ## Table of Contents
 
-### [Odoo Translations (`otk po`)](#odoo-translations-otk-po-1)
+### [Odoo Translation Files (`otk po`)](#odoo-translation-files-otk-po-1)
 
 | Command                           | Purpose                                                                             |
 | --------------------------------- | ----------------------------------------------------------------------------------- |
@@ -60,22 +60,23 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
-| Command                         | Purpose                                                                                        |
-| ------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [`otk mv setup`](#otk-mv-setup) | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
-| [`otk mv reset`](#otk-mv-reset) | Reset the repositories inside a branch directory of an Odoo Multiverse environment.            |
+| Command                           | Purpose                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`otk mv setup`](#otk-mv-setup)   | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
+| [`otk mv reset`](#otk-mv-reset)   | Reset the repositories inside an Odoo Multiverse branch directory.                             |
+| [`otk mv switch`](#otk-mv-switch) | Switch branches inside an Odoo Multiverse branch directory.                                    |
 
 
-## Odoo Translations (`otk po`)
+## Odoo Translation Files (`otk po`)
 
-**Work with Odoo Translations (.po and .pot files).**
+**Work with Odoo Translation Files (`.po` and `.pot` files).**
 
 The following commands allow you to export `.pot` files for Odoo modules, create or update `.po` files according to their (updated) `.pot` files, or merge multiple `.po` files into one.
 
 
 ## `otk po export`
 
-**Export Odoo translation files (.pot) to each module's i18n folder.**
+**Export Odoo translation files (`.pot`) to each module's `i18n` folder.**
 
 This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server will be started for Community, Community (Localizations), Enterprise, Enterprise (Localizations), and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent modules that might contribute terms to the modules to be exported.
 
@@ -130,9 +131,9 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 ## `otk po create`
 
-**Create Odoo translation files (.po) according to their .pot files.**
+**Create Odoo translation files (`.po`) according to their `.pot` files.**
 
-This command will provide you with a clean .po file per language you specified for the given modules. It basically copies all entries from the .pot file in the module and completes the metadata with the right language information. All generated .po files will be saved in the respective modules' `i18n` directories.
+This command will provide you with a clean `.po` file per language you specified for the given modules. It basically copies all entries from the `.pot` file in the module and completes the metadata with the right language information. All generated `.po` files will be saved in the respective modules' `i18n` directories.
 
 > [!NOTE]
 > Without any options specified, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names.
@@ -163,9 +164,9 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 
 ## `otk po update`
 
-**Update Odoo translation files (.po) according to a new version of their .pot files.**
+**Update Odoo translation files (`.po`) according to a new version of their `.pot` files.**
 
-This command will update the .po files for the provided modules according to a new .pot file you might have exported in their `i18n` directory.
+This command will update the `.po` files for the provided modules according to a new `.pot` file you might have exported in their `i18n` directory.
 
 > [!NOTE]
 > Without any options specified, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names.
@@ -195,7 +196,7 @@ $ otk po update -l nl -l fr account account_accountant
 
 ## `otk po merge`
 
-**Merge multiple translation files (.po) into one.**
+**Merge multiple translation files (`.po`) into one.**
 
 The order of the files determines which translation takes priority. Empty translations in earlier files will be completed with translations from later files, taking the first one in the order they occur.
 
@@ -290,7 +291,7 @@ The following commands allow you to automatically start and stop a fully configu
 > [!IMPORTANT]
 > These tools require [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be installed on your system.
 > For Mac and Windows there are convenient installers.
-> For Linux there are specific instructions for installation. Below you can find the instructions for Debian-based AMD-64 systems.
+> For Linux there are specific instructions for installation. Below you can find the instructions for Debian-based amd64 systems.
 
 ```console
 # Prerequisite
@@ -595,7 +596,7 @@ $ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgra
 
 ## `otk mv reset`
 
-**Reset the repositories inside a branch directory of an Odoo Multiverse environment.**
+**Reset the repositories inside an Odoo Multiverse branch directory.**
 
 You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through all repositories inside the directory and reset them to their original branch.
 
@@ -606,6 +607,33 @@ Meanwhile, it will pull the latest changes from `origin` so you're ready to star
 ```console
 $ otk mv reset [OPTIONS]
 ```
+
+### Options
+
+* `--help`: Show this message and exit.
+
+
+## `otk mv switch`
+
+**Switch branches inside an Odoo Multiverse branch directory.**
+
+This will try to pull the given branch for every repository inside the current branch directory and switch to it. If the given branch doesn't exist on the remote for a repository, we will just pull the current branch's latest changes.
+
+A common use-case is to switch to a specific task's branches.
+
+### Usage
+
+```console
+$ otk mv switch [OPTIONS] BRANCH
+```
+e.g.
+```console
+$ otk mv switch odoo-dev:master-fix-abc
+```
+
+### Arguments
+
+* `BRANCH`: Switch to this branch for all repositories having the branch on their remote. The branch can be prefixed with its GitHub owner, like `odoo-dev:master-fix-abc`.  **[required]**
 
 ### Options
 
