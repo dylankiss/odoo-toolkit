@@ -2,6 +2,11 @@
     "autoDocstring.docstringFormat": "sphinx",
     "autoDocstring.startOnNewLine": false,
     "cSpell.allowCompoundWords": true,
+    "csv-edit.fontFamilyInTable": "sameAsCodeEditor",
+    "csv-edit.fontSizeInPx": 0,
+    "csv-edit.quoteAllFields": true,
+    "csv-edit.quoteEmptyOrNullFields": "true",
+    "csv-edit.readOption_hasHeader": "true",
     "editor.quickSuggestions": {
         "strings": "on"
     },

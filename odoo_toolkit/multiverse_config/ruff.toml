@@ -3,83 +3,79 @@ target-version = "py310"
 
 [lint]
 preview = true
-select = ["ALL"]
+select = [
+    "BLE",        # flake8-blind-except
+    "C",          # flake8-comprehensions
+    "COM",        # flake8-commas
+    "E",          # pycodestyle Error
+    "EM",         # flake8-errmsg
+    "EXE",        # flake8-executable
+    "F",          # Pyflakes
+    "FA",         # flake8-future-annotations
+    "FLY",        # flynt
+    "G",          # flake8-logging-format
+    "I",          # isort
+    "ICN",        # flake8-import-conventions
+    "INT",        # flake8-gettext
+    "ISC",        # flake8-implicit-str-concat
+    "LOG",        # flake8-logging
+    "PGH",        # pygrep-hooks
+    "PIE",        # flake8-pie
+    "PLC",        # Pylint Convention
+    "PLE",        # Pylint Error
+    "PLW",        # Pylint Warning
+    "PYI",        # flake8-pyi
+    "RET",        # flake8-return
+    "RUF",        # Ruff-specific rules
+    "SIM",        # flake8-simplify
+    "SLOT",       # flake8-slots
+    "T",          # flake8-print
+    "TC",         # flake8-type-checking
+    "TID",        # flake8-tidy-imports
+    "TRY",        # tryceratops
+    "UP",         # pyupgrade
+    "W",          # pycodestyle Warning
+    "YTT",        # flake8-2020
+]
 ignore = [
-    "ANN",      # (flake8-annotations)
-    "B",        # (flake8-bugbear)
-    "C901",     # (complex-structure)
-    "COM812",   # (missing-trailing-comma)
-    "D",        # (pydocstyle)
-    "E501",     # (line-too-long)
-    "E741",     # (ambiguous-variable-name)
-    "EM101",    # (raw-string-in-exception)
-    "ERA001",   # (commented-out-code)
-    "FBT",      # (flake8-boolean-trap)
-    "I001",     # (unsorted-imports)
-    "N",        # (pep8-naming)
-    "PD",       # (pandas-vet)
-    "PERF",     # (Perflint)
-    "PIE790",   # (no-unnecessary-pass)
-    "PLR",      # (pylint-refactoring)
-    "PT",       # (flake8-pytest-style)
-    "Q",        # (flake8-quotes)
-    "RET502",   # (implicit-return-value)
-    "RET503",   # (implicit-return)
-    "RSE102",   # (unnecessary-paren-on-raise-exception)
-    "RUF001",   # (ambiguous-unicode-character-string)
-    "RUF012",   # (mutable-class-default)
-    "S",        # (flake8-bandit)
-    "SIM102",   # (collapsible-if)
-    "SIM108",   # (if-else-block-instead-of-if-exp)
-    "SLF001",   # (private-member-access)
-    "TID252",   # (relative-imports)
-    "UP031",    # (printf-string-formatting)
-    "TRY002",   # (raise-vanilla-class)
-    "TRY003",   # (raise-vanilla-args)
-    "TRY300",   # (try-consider-else)
-    "UP038",    # (non-pep604-isinstance)
-    "E713",     # (not-in-test)
-    "SIM117",   # ( multiple-with-statements)
-    "PGH003",   # (blanket-type-ignore)
-    "RUF005",   # (collection-literal-concatenation)
-    "RET",      # (flake8-return)
-    "DTZ",      # (datetime-now-without-tz-arg)
-    "FIX",      # (flake8-fixme)
-    "TD",       # (flake8-todos)
-    "ARG",      # (unused-arguments)
-    "TRY400",   # (error-instead-of-exception)
-    "B904",     # (reraise-no-cause)
-    "C408",     # (unnecessary-collection-call)
-    "PLW2901",  # (redefined-loop-name)
-    "PTH",      # (flake8-use-pathlib)
-    "FURB103",  # (write-whole-file)
-    "EM102",    # (f-string-in-exception)
-    "INP001",   # (implicit-namespace-package)
-    "CPY001",   # (flake8_copyright)
-    "UP006",    # (non-pep585-annotation)
-    "UP007",    # (non-pep604-annotation)
-    "E266",     # (multiple-leading-hashes-for-block-comment)
-    "PIE808",   # (unnecessary-range-start)
-    "PLC2701",  # (import-private-name)
-    "FURB101",  # (read-whole-file)
-    "RUF021",   # (parenthesize-chained-operators)
-    "FURB118",  # (reimplemented-operator)
-    "RUF100",   # (unused-noqa)
-    "FA100",    # (future-rewritable-type-annotation)
-    "FURB152",  # (math-constant)
-    "DOC",      # (docstring-missing-returns)
-    "C420",     # (unnecessary-dict-comprehension-for-iterable)
-    "A",        # (builtin-shadowing)
-    "FURB156",  # (hardcoded-string-charset)
-    "FA102",    # (future-required-type-annotation)
+    "C408",       # unnecessary-collection-call
+    "C420",       # unnecessary-dict-comprehension-for-iterable
+    "C901",       # complex-structure
+    "E266",       # multiple-leading-hashes-for-block-comment
+    "E501",       # line-too-long
+    "E713",       # not-in-test
+    "EM102",      # f-string-in-exception
+    "FA100",      # future-rewritable-type-annotation
+    "PGH003",     # blanket-type-ignore
+    "PIE790",     # unnecessary-placeholder
+    "PIE808",     # unnecessary-range-start
+    "PLC2701",    # import-private-name
+    "PLW2901",    # redefined-loop-name
+    "RUF001",     # ambiguous-unicode-character-string
+    "RUF005",     # collection-literal-concatenation
+    "RUF012",     # mutable-class-default
+    "RUF100",     # unused-noqa
+    "SIM102",     # collapsible-if
+    "SIM108",     # if-else-block-instead-of-if-exp
+    "SIM117",     # multiple-with-statements
+    "TID252",     # relative-imports
+    "TRY003",     # raise-vanilla-args
+    "TRY300",     # try-consider-else
+    "TRY400",     # error-instead-of-exception
+    "UP031",      # printf-string-formatting
+    "UP038",      # non-pep604-isinstance
 ]
 
 [lint.per-file-ignores]
-"__init__.py" = [
-    "E402",     # (module-import-not-at-top-of-file)
-    "F401",     # (unused-import)
-    "F403",     # (undefined-local-with-import-star)
+"**/__init__.py" = [
+    "F401",       # unused-import
 ]
+
+[lint.isort]
+# https://www.odoo.com/documentation/18.0/contributing/development/coding_guidelines.html#imports
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+known-first-party = ["odoo"]
+known-local-folder = ["odoo.addons"]
 
 [format]
 quote-style = "preserve"
