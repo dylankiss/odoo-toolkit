@@ -69,7 +69,7 @@ def switch(
             f"Repositories [b]{'[/b], [b]'.join(switched_repos)}[/b] were switched to branch [b]{branch}[/b].\n",
         )
     else:
-        print_success(f"Repository [b]{switched_repos[0]}[/b] was switched to branch [b]{branch}[/b].\n")
+        print_success(f"Repository [b]{next(iter(switched_repos))}[/b] was switched to branch [b]{branch}[/b].\n")
 
 
 def _switch_branch_for_repo(repo_dir: Path, branch: str, remote: str | None, progress: TransientProgress) -> bool:
@@ -102,7 +102,7 @@ def _switch_branch_for_repo(repo_dir: Path, branch: str, remote: str | None, pro
             repo.git.stash("push", "--include-untracked")
             print(f":arrows_counterclockwise: Stashed dirty changes in [u]{repo_dir}[/u] before resetting.")
         # Pull latest refs from the remote.
-        repo.remote(remote).fetch()
+        repo.remote(remote).fetch(branch)
         progress.advance(progress_task, 1)
         # Check if the branch exists locally
         if branch in repo.heads:
@@ -114,7 +114,6 @@ def _switch_branch_for_repo(repo_dir: Path, branch: str, remote: str | None, pro
         # Pull the latest changes
         repo.git.pull(remote, branch)
         progress.advance(progress_task, 1)
-    except (GitCommandError, InvalidGitRepositoryError) as e:
-        print(e)
+    except (GitCommandError, InvalidGitRepositoryError):
         return False
     return True

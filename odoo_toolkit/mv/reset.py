@@ -44,7 +44,7 @@ def reset() -> None:
     # Run the Git operations in parallel to speed things up.
     with ThreadPoolExecutor() as executor, StickyProgress() as progress:
         future_to_repo = {
-            executor.submit(_reset_repo, repo_dir=repo_dir, repo_branch=repo_branch, progress=progress): repo_dir
+            executor.submit(_reset_repo, repo_dir=repo_dir, branch=repo_branch, progress=progress): repo_dir
             for repo_dir, repo_branch in repo_dirs
         }
 
