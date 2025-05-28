@@ -19,10 +19,14 @@ def stop() -> None:
     container won't be able to mount the configuration files.
     """
     print_command_title(":computer: Odoo Development Server")
-    _stop()
+    stop_containers()
 
 
-def _stop() -> None:
+def stop_containers() -> None:
+    """Stop and delete all running containers of the Odoo Development Server.
+
+    :raises Exit: If an error occurs while tearing down the containers.
+    """
     try:
         with TransientProgress() as progress:
             progress_task = progress.add_task("Stopping containers ...", total=None)

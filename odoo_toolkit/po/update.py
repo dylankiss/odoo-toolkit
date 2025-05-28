@@ -125,16 +125,12 @@ def _update_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[boo
     """Update a .po file for the given language and .pot file.
 
     :param lang: The language to update the .po file for.
-    :type lang: :class:`odoo_toolkit.po.common.Lang`
     :param pot: The .pot file to get the terms from.
-    :type pot: :class:`polib.POFile`
     :param module_path: The path to the module.
-    :type module_path: :class:`pathlib.Path`
     :return: A tuple containing `True` if the update succeeded and `False` if it didn't, and the message to render.
-    :rtype: tuple[bool, :class:`rich.console.RenderableType`]
     """
+    po_file = module_path / "i18n" / f"{lang.value}.po"
     try:
-        po_file = module_path / "i18n" / f"{lang.value}.po"
         po = pofile(po_file)
         # Update the .po header and metadata.
         po.header = pot.header
@@ -149,7 +145,7 @@ def _update_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[boo
     except (OSError, ValueError) as e:
         return False, get_error_log_panel(str(e), f"Updating {po_file.name} failed!")
     else:
-        color = "orange1" if po.untranslated_entries() else "green"
+        color = "red" if not po.translated_entries() else "orange1" if po.untranslated_entries() else "green"
         return (
             True,
             f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark: "

@@ -27,6 +27,7 @@ ignore = [
     "D100",     # undocumented-public-module
     "D104",     # undocumented-public-package
     "D301",     # escape-sequence-in-docstring
+    "E501",     # line-too-long
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
     "PLR0913",  # too-many-arguments

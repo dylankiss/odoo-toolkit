@@ -238,21 +238,12 @@ def update_module_po(
 
     :param action: The action to perform on the .po files. A function that takes the language, the .pot file and the
         module's path as parameters, and that returns the success status and a message to render in the `module_tree`.
-    :type action: Callable[
-        [:class:`Lang`, :class:`polib.POFile`, :class:`pathlib.Path`],
-        tuple[bool, :class:`rich.console.RenderableType`],
-    ]
     :param module: The module whose .po files we're working with.
-    :type module: str
     :param languages: The languages of the .po files we're working with.
-    :type languages: list[:class:`Lang`]
     :param module_path: The path to the module's directory.
-    :type module_path: :class:`pathlib.Path`
     :param module_tree: The visual tree to render the action's messages, or error messages in.
-    :type module_tree: :class:`rich.tree.Tree`
     :return: `Status.SUCCESS` if the `action` succeeded for all .po files, `Status.FAILURE` if the `action` failed for
         every .po file, and `Status.PARTIAL` if the `action` succeeded for some .po files.
-    :rtype: :class:`odoo_toolkit.common.Status`
     """
     success = failure = False
     pot_file = module_path / "i18n" / f"{module}.pot"

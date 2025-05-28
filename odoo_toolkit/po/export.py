@@ -5,7 +5,7 @@ import subprocess
 import xmlrpc.client
 from base64 import b64decode
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
@@ -47,13 +47,13 @@ class _ServerType(str, Enum):
 
 @dataclass
 class _LogLineData:
-    progress: TransientProgress
-    progress_task: TaskID
+    progress: TransientProgress | None
+    progress_task: TaskID | None
     log_buffer: str
     database: str
     database_created: bool
     server_error: bool
-    error_msg: str
+    error_msg: str | None
 
 
 @app.command()
@@ -231,7 +231,7 @@ def export(
             addons_path = ",".join(str(p) for p in addons_path)
 
             cmd_env = os.environ | {"PYTHONUNBUFFERED": "1"}
-            odoo_cmd = [
+            odoo_cmd: list[str | Path] = [
                 "python3",       odoo_bin_path,
                 "--addons-path", addons_path,
                 "--database",    database,
@@ -280,8 +280,8 @@ def export(
 
 def _run_server_and_export_terms(
     server_type: _ServerType,
-    odoo_cmd: Iterable[str],
-    dropdb_cmd: Iterable[str],
+    odoo_cmd: Sequence[str | Path],
+    dropdb_cmd: Sequence[str | Path],
     env: Mapping[str, str],
     url: str,
     database: str,
@@ -292,23 +292,14 @@ def _run_server_and_export_terms(
     """Start an Odoo server and export .pot files for the given modules.
 
     :param server_type: The server type to run.
-    :type server_type: :class:`_ServerType`
     :param odoo_cmd: The command to start the Odoo server.
-    :type odoo_cmd: Iterable[str]
     :param dropdb_cmd: The command to drop the database.
-    :type dropdb_cmd: Iterable[str]
     :param env: The environment variables to run the commands with.
-    :type env: Mapping[str, str]
     :param url: The Odoo server URL.
-    :type url: str
     :param database: The database name.
-    :type database: str
     :param username: The Odoo username.
-    :type username: str
     :param password: The Odoo password.
-    :type password: str
     :param module_to_path: The modules to export mapped to their directories.
-    :type module_to_path: Mapping[str, :class:`pathlib.Path`]
     """
     print_header(f":rocket: Start Odoo Server ({server_type.value})")
     print("[b]Modules to export[/b]")
@@ -327,7 +318,7 @@ def _run_server_and_export_terms(
 
     with Popen(odoo_cmd, env=env, stderr=PIPE, text=True) as proc, TransientProgress() as progress:
         data.progress = progress
-        while proc.poll() is None:
+        while proc.poll() is None and proc.stderr:
             # As long as the process is still running ...
             log_line = proc.stderr.readline()
             data.log_buffer += log_line
@@ -339,7 +330,8 @@ def _run_server_and_export_terms(
                 proc.stderr.close()
 
                 # Stop the progress.
-                progress.update(data.progress_task, description="Installing modules")
+                if data.progress_task:
+                    progress.update(data.progress_task, description="Installing modules")
                 progress.stop()
                 print("Modules have been installed :white_check_mark:")
                 print("Odoo Server has started :white_check_mark:\n")
@@ -356,7 +348,7 @@ def _run_server_and_export_terms(
 
             if data.server_error:
                 # The server encountered an error.
-                print_error(data.error_msg, data.log_buffer.strip())
+                print_error(data.error_msg or "The server encountered an error.", data.log_buffer.strip())
                 break
 
         if proc.returncode:
@@ -388,11 +380,8 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     """Process an Odoo server log line and update the passed data.
 
     :param log_line: The log line to process.
-    :type log_line: str
     :param data: The data needed to process the line and to be updated by this function.
-    :type data: :class:`_LogLineData`
     :return: `True` if the server is ready to export, `False` if not.
-    :rtype: bool
     """
     if "Modules loaded." in log_line:
         return True
@@ -413,19 +402,21 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     match = re.search(r"loading (\d+) modules", log_line)
     if match:
         data.log_buffer = ""
-        if data.progress_task is None:
-            data.progress_task = data.progress.add_task("Installing modules", total=None)
-        else:
-            data.progress.update(data.progress_task, total=int(match.group(1)))
+        if data.progress:
+            if data.progress_task is None:
+                data.progress_task = data.progress.add_task("Installing modules", total=None)
+            else:
+                data.progress.update(data.progress_task, total=int(match.group(1)))
 
     match = re.search(r"Loading module (\w+) \(\d+/\d+\)", log_line)
     if match:
         data.log_buffer = ""
-        data.progress.update(
-            data.progress_task,
-            advance=1,
-            description=f"Installing module [b]{match.group(1)}[/b]",
-        )
+        if data.progress and data.progress_task:
+            data.progress.update(
+                data.progress_task,
+                advance=1,
+                description=f"Installing module [b]{match.group(1)}[/b]",
+            )
     return False
 
 
@@ -439,15 +430,10 @@ def _export_module_terms(
     """Export .pot files for the given modules.
 
     :param module_to_path: A mapping from each module to its directory.
-    :type module_to_path: Mapping[str, Path]
     :param url: The Odoo server URL to connect to.
-    :type url: str
     :param database: The database name.
-    :type database: str
     :param username: The Odoo username.
-    :type username: str
     :param password: The Odoo password.
-    :type password: str
     """
     print_header(":link: Access Odoo Server")
 
@@ -463,27 +449,29 @@ def _export_module_terms(
         return
 
     # Export the terms.
-    modules_to_export: list[Mapping] = sorted(
-        models.execute_kw(
-            database,
-            uid,
-            password,
-            "ir.module.module",
-            "search_read",
-            [
-                [["name", "in", modules], ["state", "=", "installed"]],
-                ["name"],
-            ],
-        ),
-        key=itemgetter("name"),
+    installed_modules = models.execute_kw(
+        database,
+        uid,
+        password,
+        "ir.module.module",
+        "search_read",
+        [
+            [["name", "in", modules], ["state", "=", "installed"]],
+            ["name"],
+        ],
     )
+    if not isinstance(installed_modules, list):
+        print_warning("No modules installed to export")
+        return
 
+    modules_to_export: list[Mapping[str, str]] = sorted(installed_modules, key=itemgetter("name"))
     export_table = Table(box=None, pad_edge=False)
 
     with TransientProgress() as progress:
         progress_task = progress.add_task("Exporting terms", total=len(modules_to_export))
         for module in modules_to_export:
-            progress.update(progress_task, description=f"Exporting terms for [b]{module['name']}[/b]")
+            module_name: str = module["name"]
+            progress.update(progress_task, description=f"Exporting terms for [b]{module_name}[/b]")
             # Create the export wizard with the current module.
             export_id = models.execute_kw(
                 database,
@@ -518,9 +506,13 @@ def _export_module_terms(
                 "read",
                 [[export_id], ["data"], {"bin_size": False}],
             )
+            if not isinstance(pot_file, list):
+                export_table.add_row(
+                    f"[b]{module_name}[/b]",
+                    "[d]Exporting the .pot file failed[/d] :negative_squared_cross_mark:",
+                )
+                continue
             pot_file_content = b64decode(pot_file[0]["data"])
-
-            module_name: str = module["name"]
             i18n_path = module_to_path[module_name] / "i18n"
             if not i18n_path.exists():
                 i18n_path.mkdir()
@@ -586,28 +578,21 @@ def _get_modules_per_server_type(
     """Get all modules to export and install per server type.
 
     :param module_to_path: The modules to export, mapped to their directories.
-    :type module_to_path: Mapping[str, :class:`pathlib.Path`]
     :param com_path: The path to the Odoo Community repository.
-    :type com_path: :class:`pathlib.Path`
     :param ent_path: The path to the Odoo Enterprise repository.
-    :type ent_path: :class:`pathlib.Path`
     :param extra_addons_paths: An optional list of extra directories containing Odoo modules, defaults to `[]`.
-    :type extra_addons_paths: Iterable[:class:`pathlib.Path`], optional
     :param full_install: Whether we want to install all modules before exporting, defaults to `False`.
-    :type full_install: bool, optional
     :param quick_install: Whether we only want to install the modules to export before exporting, defaults to `False`.
-    :type quick_install: bool, optional
     :return: A mapping from each server type to a tuple containing the set of modules to export,
         and the set of modules to install.
-    :rtype: dict[:class:`_ServerType`, tuple[set[str], set[str]]]
     """
     com_modules_path = com_path.expanduser().resolve() / "addons"
     ent_modules_path = ent_path.expanduser().resolve()
     extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
 
-    modules_to_export = defaultdict(set[str])
-    modules_to_install = defaultdict(set[str])
-    paths_and_filter_per_server_type = {
+    modules_to_export: dict[_ServerType, set[str]] = defaultdict(set[str])
+    modules_to_install: dict[_ServerType, set[str]] = defaultdict(set[str])
+    paths_and_filter_per_server_type: dict[_ServerType, tuple[list[Path], Callable[[str], bool] | None]] = {
         _ServerType.COM: ([com_modules_path], lambda m: _is_exportable(m) and not _is_l10n_module(m)),
         _ServerType.COM_L10N: ([com_modules_path], _is_exportable),
         _ServerType.ENT: (
@@ -647,10 +632,11 @@ def _get_modules_per_server_type(
                 addons_paths=paths_and_filter_per_server_type[server_type][0],
                 filter_fn=paths_and_filter_per_server_type[server_type][1],
             )
-            # The `calendar` and `rating` modules seem to add fields to a lot of models, so we always install them.
             modules_to_install[server_type].update(
-                d for m in modules_to_export[server_type] for d in [*dependents.get(m, []), "calendar", "rating"]
+                d for m in modules_to_export[server_type] for d in dependents.get(m, set[str]())
             )
+            # The `calendar` and `rating` modules seem to add fields to a lot of models, so we always install them.
+            modules_to_install[server_type].update("calendar", "rating")
 
     return {
         server_type: (modules_to_export[server_type], modules_to_install[server_type]) for server_type in _ServerType
@@ -664,13 +650,10 @@ def _find_all_dependents(
     """Find all direct and indirect dependents for each module in the given addons paths.
 
     :param addons_paths: A list of paths to directories containing Odoo module folders.
-    :type addons_paths: Iterable[:class:`pathlib.Path`]
     :param filter_fn: An optional function to filter modules based on their name.
         If provided, it should return True if the module should be included, False otherwise.
-    :type filter_fn: Callable[[str], bool] | None, optional
     :return: A mapping where keys are module names and values are sets of their direct and indirect dependents.
         Includes all modules found, even those without any dependencies.
-    :rtype: Mapping[str, set[str]]
     """
     # Maps modules to its direct dependents.
     dependents_mapping: Mapping[str, set[str]] = defaultdict(set)
@@ -711,12 +694,9 @@ def _find_all_dependents(
         """Recursively find all dependents (direct and indirect) of a given module.
 
         :param module: The module to find dependents for.
-        :type module: str
         :param visited: A set of modules already visited during the current recursive call
             (used to prevent infinite loops due to circular dependencies).
-        :type visited: set[str]
         :return: A set of all dependents of the given module.
-        :rtype: set[str]
         """
         all_dependents: set[str] = set()
         for dependent in dependents_mapping[module]:
@@ -743,7 +723,7 @@ def _get_full_install_modules_per_server_type(
     extra_modules_paths: Iterable[Path] = EMPTY_LIST,
 ) -> dict[_ServerType, set[str]]:
     """Get all modules to install per server type for .pot export with `full_install = True`."""
-    modules = defaultdict(set)
+    modules: dict[_ServerType, set[str]] = defaultdict(set)
 
     for m in (f.parent.name for f in com_modules_path.glob("*/__manifest__.py")):
         # Add each Community module to the right server types.
@@ -801,4 +781,4 @@ def _free_port(host: str, start_port: int) -> int:
                 continue
             else:
                 return port
-    return None
+    return 8069

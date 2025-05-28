@@ -5,7 +5,6 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from enum import Enum
 from fnmatch import fnmatch
-from multiprocessing.managers import Namespace
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -16,7 +15,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TaskProgre
 from typer import Typer, get_app_dir
 
 APP_DIR = Path(get_app_dir("odoo-toolkit"))
-EMPTY_LIST = []
+EMPTY_LIST: list[Any] = []
 T = TypeVar("T")
 
 
@@ -69,32 +68,26 @@ class ProgressUpdate:
         """Update :class:`odoo_toolkit.common.ProgressUpdate` information in the given dictionary.
 
         :param progress_updates: The dictionary to update the progress information in.
-        :type progress_updates: dict[T, :class:`odoo_toolkit.common.ProgressUpdate`]
         :param key: The key of the dictionary item to update.
-        :type key: T
         :param description: The description value to update, defaults to `NO_UPDATE`
-        :type description: str, optional
         :param completed: The completed value to update, defaults to `NO_UPDATE`
-        :type completed: float, optional
         :param total: The total value to update, defaults to `NO_UPDATE`
-        :type total: float | None, optional
         :param advance: The number to advance the completed value, defaults to `NO_UPDATE`
-        :type advance: float, optional
         """
         update = progress_updates[key]
-        if description is not NO_UPDATE:
+        if not isinstance(description, NoUpdate):
             update.description = description
-        if completed is not NO_UPDATE:
+        if not isinstance(completed, NoUpdate):
             update.completed = completed
-        elif advance is not NO_UPDATE:
+        elif not isinstance(advance, NoUpdate):
             update.completed += advance
-        if total is not NO_UPDATE:
+        if not isinstance(total, NoUpdate):
             update.total = total
-        if status is not NO_UPDATE:
+        if not isinstance(status, NoUpdate):
             update.status = status
-        if message is not NO_UPDATE:
+        if not isinstance(message, NoUpdate):
             update.message = message
-        if stacktrace is not NO_UPDATE:
+        if not isinstance(stacktrace, NoUpdate):
             update.stacktrace = stacktrace
         progress_updates[key] = update
 
@@ -134,7 +127,6 @@ def print_command_title(title: str) -> None:
     """Print a styled command title to the console using a fitted box and bold magenta text and box borders.
 
     :param title: The title to render
-    :type title: str
     """
     print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
 
@@ -143,7 +135,6 @@ def print_header(header: str) -> None:
     """Print a styled header to the console using a fitted box.
 
     :param header: The header text to render
-    :type header: str
     """
     print(Panel.fit(header, style="bold cyan", border_style="bold cyan"), "")
 
@@ -152,7 +143,6 @@ def print_subheader(header: str) -> None:
     """Print a styled header to the console using a fitted box.
 
     :param header: The header text to render
-    :type header: str
     """
     print(Panel.fit(header), "")
 
@@ -161,9 +151,7 @@ def print_error(error_msg: str, stacktrace: str | None = None) -> None:
     """Print a styled error message with optional stacktrace.
 
     :param error_msg: The error message to render
-    :type error_msg: str
     :param stacktrace: The stacktrace to render, defaults to None
-    :type stacktrace: str | None, optional
     """
     print(f":exclamation_mark: {error_msg}", style="red")
     if stacktrace:
@@ -174,7 +162,6 @@ def print_warning(warning_msg: str) -> None:
     """Print a styled warning message.
 
     :param warning_msg: The warning to render
-    :type warning_msg: str
     """
     print(f":warning: {warning_msg}", style="yellow")
 
@@ -183,7 +170,6 @@ def print_success(success_msg: str) -> None:
     """Print a styled success message.
 
     :param success_msg: The success message to render
-    :type success_msg: str
     """
     print(f":white_check_mark: {success_msg}", style="green")
 
@@ -192,9 +178,7 @@ def print_indent(content: str, indentation: int = 1) -> None:
     """Print indented content.
 
     :param content: The content to render with indentation
-    :type content: str
     :param indentation: The number of characters to indent
-    :type indentation: int, optional
     """
     print(Padding(content, (0, 0, 0, indentation)))
 
@@ -203,9 +187,7 @@ def print_panel(content: str, title: str | None = None) -> None:
     """Print a fitted panel with some content and an optional title.
 
     :param content: The content to render in the panel
-    :type content: str
     :param title: The title to render on the panel, defaults to None
-    :type title: str | None, optional
     """
     print(Panel.fit(content, title=title, title_align="left"))
 
@@ -214,11 +196,8 @@ def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
     """Return a :class:`rich.panel.Panel` containing the provided error log and title.
 
     :param error_logs: The error logs to render in the Panel
-    :type error_logs: str
     :param title: The title to use on the Panel, defaults to "Error"
-    :type title: str, optional
     :return: A Panel to be used in any rich objects for printing
-    :rtype: :class:`rich.panel.Panel`
     """
     return Panel(error_logs, title=title, title_align="left", style="red", border_style="bold red")
 
@@ -233,18 +212,12 @@ def get_valid_modules_to_path_mapping(
     """Determine the valid modules and their directories.
 
     :param modules: The requested modules, or `all`, `community`, or `enterprise`.
-    :type modules: Collection[str]
     :param com_path: The Odoo Community repository.
-    :type com_path: :class:`pathlib.Path`
     :param ent_path: The Odoo Enterprise repository.
-    :type ent_path: :class:`pathlib.Path`
     :param extra_addons_paths: Optional extra directories containing Odoo modules, defaults to `[]`.
-    :type extra_addons_paths: Iterable[:class:`pathlib.Path`], optional
     :param filter_fn: A function to filter the modules when using `all`, `community`, or `enterprise`,
         defaults to `None`.
-    :type filter_fn: Callable[[str], bool] | None, optional
     :return: A mapping from all valid modules to their directories.
-    :rtype: dict[str, :class:`pathlib.Path`]
     """
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
     com_modules_path = com_path.expanduser().resolve() / "addons"
@@ -266,7 +239,8 @@ def get_valid_modules_to_path_mapping(
 
     # Determine all modules to consider.
     if len(modules) == 1:
-        match modules[0]:
+        modules_text = next(iter(modules))
+        match modules_text:
             case "all":
                 modules_to_consider = {m for m in all_modules if not filter_fn or filter_fn(m)}
             case "community":
@@ -274,7 +248,7 @@ def get_valid_modules_to_path_mapping(
             case "enterprise":
                 modules_to_consider = {m for m in ent_modules if not filter_fn or filter_fn(m)}
             case _:
-                modules = modules[0].split(",")
+                modules = modules_text.split(",")
                 modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
     else:
         modules = {re.sub(r",", "", m) for m in modules}
@@ -294,16 +268,13 @@ def get_valid_modules_to_path_mapping(
 def update_remote_progress(
     progress: Progress,
     progress_updates: dict[Any, ProgressUpdate],
-    futures: dict[Future, Any],
+    futures: dict[Future[None], Any],
 ) -> None:
     """Update tasks in a :class:`rich.progress.Progress` instance by methods running in multiple threads or processes.
 
     :param progress: The progress instance containing the tasks.
-    :type progress: :class:`rich.progress.Progress`
     :param progress_updates: A shared mapping to progress update information.
-    :type progress_updates: dict[Any, :class:`odoo_toolkit.common.ProgressUpdate`]
     :param futures: The remote threads/processes information.
-    :type futures: dict[:class:`concurrent.futures.Future`, Any]
     """
     def update_progress_internal() -> None:
         for key, value in progress_updates.items():

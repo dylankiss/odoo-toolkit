@@ -55,7 +55,7 @@ def merge(
                 progress.advance(progress_task, 1)
 
         merged_po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
-        merged_po.save(output_file)
+        merged_po.save(str(output_file))
     except (OSError, ValueError) as e:
         print_error("Merging .po files failed.", str(e))
         raise Exit from e
@@ -69,13 +69,9 @@ def _merge_second_po_into_first(first_po: POFile, second_po: POFile, overwrite: 
     """Merge the second .po file into the first, without considering order.
 
     :param first_po: The first .po file, that will be modified by the second.
-    :type first_po: :class:`polib.POFile`
     :param second_po: The second .po file, that will be merged into the first.
-    :type second_po: :class:`polib.POFile`
     :param overwrite: Whether to overwrite translations in the first file by ones in the second, defaults to False.
-    :type overwrite: bool, optional
     :return: The merged .po file.
-    :rtype: :class:`polib.POFile`
     """
     for entry in second_po:
         if entry.obsolete or entry.fuzzy:

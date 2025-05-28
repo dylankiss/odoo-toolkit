@@ -117,19 +117,17 @@ def create(
             print_warning("Some translation files were created correctly, while others weren't!\n")
         case Status.SUCCESS:
             print_success("All translation files were created correctly!\n")
+        case _:
+            pass
 
 
 def _create_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[bool, RenderableType]:
     """Create a .po file for the given language and .pot file.
 
     :param lang: The language to create the .po file for.
-    :type lang: :class:`odoo_toolkit.po.common.Lang`
     :param pot: The .pot file to get the terms from.
-    :type pot: :class:`polib.POFile`
     :param module_path: The path to the module.
-    :type module_path: :class:`pathlib.Path`
     :return: A tuple containing `True` if the creation succeeded and `False` if it didn't, and the message to render.
-    :rtype: tuple[bool, :class:`rich.console.RenderableType`]
     """
     po_file = module_path / "i18n" / f"{lang.value}.po"
     if po_file.is_file():
@@ -144,7 +142,7 @@ def _create_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[boo
         # Just add all entries in the .pot to the .po file.
         po.append(entry)
     try:
-        po.save(po_file)
+        po.save(str(po_file))
     except (OSError, ValueError) as e:
         return False, get_error_log_panel(str(e), f"Creating {po_file.name} failed!")
     else:

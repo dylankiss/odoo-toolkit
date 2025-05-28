@@ -21,5 +21,6 @@
         "pofile",
         "rtype",
         "transifex"
-    ]
+    ],
+    "python.analysis.typeCheckingMode": "strict"
 }

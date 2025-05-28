@@ -76,7 +76,7 @@ def add(
     all_addons_paths = [p.expanduser().resolve() for p in [com_path, ent_path, *extra_addons_paths]]
 
     # Create a mapping from each addons path to the relevant containing modules.
-    addons_path_to_modules = defaultdict(list[str])
+    addons_path_to_modules: dict[Path, list[str]] = defaultdict(list[str])
     for module, module_path in module_to_path.items():
         addons_path = next((ap for ap in all_addons_paths if module_path.is_relative_to(ap)), None)
         if addons_path:

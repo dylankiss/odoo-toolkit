@@ -23,7 +23,6 @@ class TxConfig:
         """Initialize a TxConfig object.
 
         :param file_path: The file to load into the object or to save the new object to.
-        :type file_path: :class:`pathlib.Path`
         :raises TxConfigError: If the given file could not be loaded.
         """
         self.file_path = file_path
@@ -40,11 +39,8 @@ class TxConfig:
         """Add a module configuration to the Transifex config file.
 
         :param module_path: The path to the module to add.
-        :type module_path: :class:`pathlib.Path`
         :param project: The Transifex project name.
-        :type project: str
         :param organization: The Transifex organization name, defaults to "odoo".
-        :type organization: str, optional
         """
         module_name = module_path.name
         relative_module_path = module_path.relative_to(self.file_path.parent.parent)

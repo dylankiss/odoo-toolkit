@@ -1,6 +1,13 @@
 from enum import Enum
 
 
+class OdooRemote(str, Enum):
+    """Odoo remote names used locally."""
+
+    DEV = "dev"
+    ORIGIN = "origin"
+
+
 class OdooRepo(str, Enum):
     """Odoo repositories available for cloning."""
 
@@ -14,6 +21,7 @@ class OdooRepo(str, Enum):
     O_SPREADSHEET = "o-spreadsheet"
     UPGRADE = "upgrade"
     UPGRADE_UTIL = "upgrade-util"
+
 
 MULTI_BRANCH_REPOS = [
     OdooRepo.ODOO,

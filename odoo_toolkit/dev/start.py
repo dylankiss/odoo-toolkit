@@ -20,7 +20,7 @@ from odoo_toolkit.common import (
 )
 
 from .common import DOCKER, UbuntuVersion
-from .stop import _stop
+from .stop import stop_containers
 
 app = Typer()
 
@@ -78,9 +78,9 @@ def start(
         if version_file.is_file():
             last_version = version_file.read_text()
             if current_version != last_version:
-                _stop()
+                stop_containers()
         else:
-            _stop()
+            stop_containers()
         version_file.unlink(missing_ok=True)
         version_file.write_text(current_version)
 

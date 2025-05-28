@@ -7,7 +7,7 @@ from itertools import chain
 from multiprocessing import Manager
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Annotated
+from typing import Annotated, cast
 from venv import EnvBuilder
 
 from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
@@ -123,7 +123,7 @@ def setup(
         # Clone all source repositories (as bare ones for the multi-branch repos).
         with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
             # Set up progress trackers for the clone operations.
-            progress_updates = manager.dict({
+            progress_updates = cast("dict[OdooRepo, ProgressUpdate]", manager.dict({
                 repo: ProgressUpdate(
                     task_id=progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None),
                     description=f"Cloning [b]{repo.value}[/b]",
@@ -131,7 +131,7 @@ def setup(
                     total=None,
                 )
                 for repo in chain(multi_branch_repos, single_branch_repos)
-            })
+            }))
 
             print_header(":honey_pot: Clone Repositories")
 
@@ -161,7 +161,7 @@ def setup(
         for branch in branches:
             with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
                 # Set up progress trackers for the worktree and symlink operations.
-                progress_updates = manager.dict({
+                progress_updates = cast("dict[OdooRepo, ProgressUpdate]", manager.dict({
                     repo: ProgressUpdate(
                         task_id=progress.add_task(f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]", total=None)
                             if repo in multi_branch_repos
@@ -175,7 +175,7 @@ def setup(
                         total=None if repo in multi_branch_repos else 1,
                     )
                     for repo in chain(multi_branch_repos, single_branch_repos)
-                })
+                }))
 
                 print_header(f":deciduous_tree: Setup Branch {branch}")
 
@@ -202,14 +202,14 @@ def setup(
         # Configure tools and dependencies for each branch directory.
         with ThreadPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
             # Set up progress trackers for the configuration operations.
-            progress_updates = manager.dict({
+            progress_updates = cast("dict[str, ProgressUpdate]", manager.dict({
                 branch: ProgressUpdate(
                     task_id=progress.add_task(f"Configuring tools and dependencies for [b]{branch}[/b]", total=None),
                     description=f"Configuring tools and dependencies for [b]{branch}[/b]",
                     completed=0,
                     total=None,
                 ) for branch in branches
-            })
+            }))
 
             print_header(":gear: Configure Tools and Dependencies for Branches")
 
@@ -300,8 +300,8 @@ def _clone_bare_multi_branch_repo(  # noqa: C901, PLR0915
                     progress_updates,
                     repo,
                     description=f"Cloning bare repository [b]{repo.value}[/b]",
-                    completed=cur_count,
-                    total=max_count,
+                    completed=float(cur_count),
+                    total=float(max_count) if max_count else None,
                 ),
                 bare=True,
             )
@@ -475,8 +475,8 @@ def _clone_single_branch_repo(
                 progress_updates,
                 repo,
                 description=f"Cloning repository [b]{repo.value}[/b]",
-                completed=cur_count,
-                total=max_count,
+                completed=float(cur_count),
+                total=float(max_count) if max_count else None,
             ),
         )
     except GitCommandError as e:
@@ -750,9 +750,7 @@ def _configure_python_env_for_branch(
     """Configure a virtual Python environment with all dependencies for a branch.
 
     :param branch_dir: The directory in which to create the virtual environment.
-    :type branch_dir: :class:`pathlib.Path`
     :param reset_config: Whether we want to erase the existing virtual environment.
-    :type reset_config: bool
     """
     branch = branch_dir.name
     # Configure Python virtual environment.
@@ -779,6 +777,7 @@ def _configure_python_env_for_branch(
         python = venv_path / "Scripts" / "python.exe"  # Windows
 
     # Install Python dependencies using pip.
+    cmd = []
     try:
         # Try upgrading pip.
         cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
@@ -819,9 +818,7 @@ def _get_version_number(branch_name: str) -> float:
     """Get the Odoo version number as a float based on the branch name.
 
     :param branch_name: The Odoo branch name to get the version number from.
-    :type branch_name: str
     :return: The version number as a float.
-    :rtype: float
     """
     if branch_name == "master":
         return 1000.0
@@ -835,7 +832,6 @@ def _enable_js_tooling(root_dir: Path, progress_updates: dict[str, ProgressUpdat
     """Enable Javascript tooling in the Community and Enterprise repositories.
 
     :param root_dir: The parent directory of the `odoo` and `enterprise` repositories.
-    :type root_dir: :class:`pathlib.Path`
     """
     com_dir = root_dir / "odoo"
     ent_dir = root_dir / "enterprise"
@@ -850,8 +846,8 @@ def _enable_js_tooling(root_dir: Path, progress_updates: dict[str, ProgressUpdat
     if _get_version_number(root_dir.name) >= JS_TOOLING_NEW_VERSION:
         shutil.copyfile(tooling_dir / "_jsconfig.json", com_dir / "jsconfig.json")
     shutil.copyfile(tooling_dir / "_package.json", com_dir / "package.json")
+    cmd = ["npm", "install"]
     try:
-        cmd = ["npm", "install"]
         subprocess.run(cmd, capture_output=True, check=True, cwd=com_dir, text=True)
     except CalledProcessError as e:
         ProgressUpdate.update_in_dict(
@@ -900,7 +896,6 @@ def _disable_js_tooling(root_dir: Path) -> None:
     """Disable Javascript tooling in the Community and Enterprise repositories.
 
     :param root_dir: The parent directory of the "odoo" and "enterprise" repositories.
-    :type root_dir: :class:`pathlib.Path`
     """
     com_dir = root_dir / "odoo"
     ent_dir = root_dir / "enterprise"

@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Annotated
 
 from git import GitCommandError, InvalidGitRepositoryError, Repo
-from typer import Argument, Typer
+from typer import Argument, Option, Typer
 
 from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_success
 
-from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS
+from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRemote
 
 app = Typer()
 
@@ -20,9 +20,12 @@ def switch(
         str,
         Argument(
             help="Switch to this branch for all repositories having the branch on their remote. "
-                "The branch can be prefixed with its GitHub owner, like `odoo-dev:master-fix-abc`.",
+            "The branch can be prefixed with its GitHub owner, like `odoo-dev:master-fix-abc`.",
         ),
     ],
+    remote: Annotated[
+        OdooRemote | None, Option("--remote", "-r", help="Use this local remote for finding the given branch."),
+    ] = None,
 ) -> None:
     """Switch branches :twisted_rightwards_arrows: inside an Odoo Multiverse branch directory.
 
@@ -35,11 +38,9 @@ def switch(
     print_command_title(":inbox_tray: Switch Multiverse Branches")
 
     if branch.startswith("odoo-dev:"):
-        remote, branch = "dev", branch[9:]
+        remote, branch = OdooRemote.DEV, branch[9:]
     elif branch.startswith("odoo:"):
-        remote, branch = "origin", branch[5:]
-    else:
-        remote = None
+        remote, branch = OdooRemote.ORIGIN, branch[5:]
 
     branch_dir = Path.cwd()
     repo_dirs = [
@@ -47,12 +48,12 @@ def switch(
         for repo in chain(MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS)
         if (branch_dir / repo.value).is_dir()
     ]
-    switched_repos = set()
+    switched_repos = set[str]()
 
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
         progress_task = progress.add_task(f"Switching to branch [b]{branch}[/b]", total=len(repo_dirs))
         future_to_repo = {
-            executor.submit(_switch_branch_for_repo, repo_dir, branch, remote, progress): repo_dir.name
+            executor.submit(_switch_branch_for_repo, repo_dir, branch, remote and remote.value, progress): repo_dir.name
             for repo_dir in repo_dirs
         }
 
@@ -63,7 +64,12 @@ def switch(
             progress.advance(progress_task, 1)
 
     if not switched_repos:
-        print_error(f"The branch [b]{branch}[/b] could not be found on remote [b]{remote}[/b] for any repository.\n")
+        if remote:
+            print_error(
+                f"The branch [b]{branch}[/b] could not be found on remote [b]{remote.value}[/b] for any repository.\n",
+            )
+        else:
+            print_error(f"The branch [b]{branch}[/b] could not be found on any remote for any repository.\n")
     elif len(switched_repos) > 1:
         print_success(
             f"Repositories [b]{'[/b], [b]'.join(switched_repos)}[/b] were switched to branch [b]{branch}[/b].\n",
