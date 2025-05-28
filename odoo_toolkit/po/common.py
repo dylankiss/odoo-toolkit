@@ -12,219 +12,194 @@ from odoo_toolkit.common import Status, TransientProgress, get_error_log_panel
 class Lang(str, Enum):
     """Languages available in Odoo."""
 
-    ALL = "all"
-    AM_ET = "am"
-    AR_001 = "ar"
-    AR_SY = "ar_SY"
-    AZ_AZ = "az"
-    BE_BY = "be"
-    BG_BG = "bg"
-    BN_IN = "bn"
-    BS_BA = "bs"
-    CA_ES = "ca"
-    CS_CZ = "cs"
-    DA_DK = "da"
-    DE_DE = "de"
-    DE_CH = "de_CH"
-    EL_GR = "el"
-    EN_AU = "en_AU"
-    EN_CA = "en_CA"
-    EN_GB = "en_GB"
-    EN_IN = "en_IN"
-    EN_NZ = "en_NZ"
-    ES_ES = "es"
-    ES_419 = "es_419"
-    ES_AR = "es_AR"
-    ES_BO = "es_BO"
-    ES_CL = "es_CL"
-    ES_CO = "es_CO"
-    ES_CR = "es_CR"
-    ES_DO = "es_DO"
-    ES_EC = "es_EC"
-    ES_GT = "es_GT"
-    ES_MX = "es_MX"
-    ES_PA = "es_PA"
-    ES_PE = "es_PE"
-    ES_PY = "es_PY"
-    ES_UY = "es_UY"
-    ES_VE = "es_VE"
-    ET_EE = "et"
-    EU_ES = "eu"
-    FA_IR = "fa"
-    FI_FI = "fi"
-    FR_FR = "fr"
-    FR_BE = "fr_BE"
-    FR_CA = "fr_CA"
-    FR_CH = "fr_CH"
-    GL_ES = "gl"
-    GU_IN = "gu"
-    HE_IL = "he"
-    HI_IN = "hi"
-    HR_HR = "hr"
-    HU_HU = "hu"
-    ID_ID = "id"
-    IT_IT = "it"
-    JA_JP = "ja"
-    KA_GE = "ka"
-    KAB_DZ = "kab"
-    KM_KH = "km"
-    KO_KR = "ko"
-    KO_KP = "ko_KP"
-    LB_LU = "lb"
-    LO_LA = "lo"
-    LT_LT = "lt"
-    LV_LV = "lv"
-    MK_MK = "mk"
-    ML_IN = "ml"
-    MN_MN = "mn"
-    MS_MY = "ms"
-    MY_MM = "my"
-    NB_NO = "nb"
-    NL_NL = "nl"
-    NL_BE = "nl_BE"
-    PL_PL = "pl"
-    PT_PT = "pt"
-    PT_AO = "pt_AO"
-    PT_BR = "pt_BR"
-    RO_RO = "ro"
-    RU_RU = "ru"
-    SK_SK = "sk"
-    SL_SI = "sl"
-    SQ_AL = "sq"
-    SR_RS = "sr"
-    SR_LATIN = "sr@latin"
-    SV_SE = "sv"
-    SW = "sw"
-    TE_IN = "te"
-    TH_TH = "th"
-    TL_PH = "tl"
-    TR_TR = "tr"
-    UK_UA = "uk"
-    VI_VN = "vi"
-    ZH_CN = "zh_CN"
-    ZH_HK = "zh_HK"
-    ZH_TW = "zh_TW"
+    ALL     = "all"
+    AM_ET   = "am"          # Amharic (Ethiopia)
+    AR_001  = "ar"          # Arabic
+    AR_SY   = "ar_SY"       # Arabic (Syria)
+    AZ_AZ   = "az"          # Azerbaijani (Azerbaijan)
+    BE_BY   = "be"          # Belarusian (Belarus)
+    BG_BG   = "bg"          # Bulgarian (Bulgaria)
+    BN_IN   = "bn"          # Bengali (India)
+    BS_BA   = "bs"          # Bosnian (Bosnia)
+    CA_ES   = "ca"          # Catalan (Spain)
+    CS_CZ   = "cs"          # Czech (Czechia)
+    DA_DK   = "da"          # Danish (Denmark)
+    DE_DE   = "de"          # German (Germany)
+    DE_CH   = "de_CH"       # German (Switzerland)
+    EL_GR   = "el"          # Greek (Greece)
+    EN_AU   = "en_AU"       # English (Australia)
+    EN_CA   = "en_CA"       # English (Canada)
+    EN_GB   = "en_GB"       # English (United Kingdom)
+    EN_IN   = "en_IN"       # English (India)
+    EN_NZ   = "en_NZ"       # English (New Zealand)
+    ES_ES   = "es"          # Spanish (Spain)
+    ES_419  = "es_419"      # Spanish (Latin America)
+    ES_AR   = "es_AR"       # Spanish (Argentina)
+    ES_BO   = "es_BO"       # Spanish (Bolivia)
+    ES_CL   = "es_CL"       # Spanish (Chile)
+    ES_CO   = "es_CO"       # Spanish (Colombia)
+    ES_CR   = "es_CR"       # Spanish (Costa Rica)
+    ES_DO   = "es_DO"       # Spanish (Dominican Republic)
+    ES_EC   = "es_EC"       # Spanish (Ecuador)
+    ES_GT   = "es_GT"       # Spanish (Guatemala)
+    ES_MX   = "es_MX"       # Spanish (Mexico)
+    ES_PA   = "es_PA"       # Spanish (Panama)
+    ES_PE   = "es_PE"       # Spanish (Peru)
+    ES_PY   = "es_PY"       # Spanish (Paraguay)
+    ES_UY   = "es_UY"       # Spanish (Uruguay)
+    ES_VE   = "es_VE"       # Spanish (Venezuela)
+    ET_EE   = "et"          # Estonian (Estonia)
+    EU_ES   = "eu"          # Basque (Spain)
+    FA_IR   = "fa"          # Persian (Iran)
+    FI_FI   = "fi"          # Finnish (Finland)
+    FR_FR   = "fr"          # French (France)
+    FR_BE   = "fr_BE"       # French (Belgium)
+    FR_CA   = "fr_CA"       # French (Canada)
+    FR_CH   = "fr_CH"       # French (Switzerland)
+    GL_ES   = "gl"          # Galician (Spain)
+    GU_IN   = "gu"          # Gujarati (India)
+    HE_IL   = "he"          # Hebrew (Israel)
+    HI_IN   = "hi"          # Hindi (India)
+    HR_HR   = "hr"          # Croatian (Croatia)
+    HU_HU   = "hu"          # Hungarian (Hungary)
+    ID_ID   = "id"          # Indonesian (Indonesia)
+    IT_IT   = "it"          # Italian (Italy)
+    JA_JP   = "ja"          # Japanese (Japan)
+    KA_GE   = "ka"          # Georgian (Georgia)
+    KAB_DZ  = "kab"         # Kabyle (Algeria)
+    KM_KH   = "km"          # Khmer (Cambodia)
+    KO_KR   = "ko"          # Korean (South Korea)
+    KO_KP   = "ko_KP"       # Korean (North Korea)
+    LB_LU   = "lb"          # Luxembourgish (Luxembourg)
+    LO_LA   = "lo"          # Lao (Laos)
+    LT_LT   = "lt"          # Lithuanian (Lithuania)
+    LV_LV   = "lv"          # Latvian (Latvia)
+    MK_MK   = "mk"          # Macedonian (Macedonia)
+    ML_IN   = "ml"          # Malayalam (India)
+    MN_MN   = "mn"          # Mongolian (Mongolia)
+    MS_MY   = "ms"          # Malay (Malaysia)
+    MY_MM   = "my"          # Burmese (Myanmar)
+    NB_NO   = "nb"          # Norwegian Bokmål (Norway)
+    NL_NL   = "nl"          # Dutch (Netherlands)
+    NL_BE   = "nl_BE"       # Dutch (Belgium)
+    PL_PL   = "pl"          # Polish (Poland)
+    PT_PT   = "pt"          # Portuguese (Portugal)
+    PT_AO   = "pt_AO"       # Portuguese (Angola)
+    PT_BR   = "pt_BR"       # Portuguese (Brazil)
+    RO_RO   = "ro"          # Romanian (Romania)
+    RU_RU   = "ru"          # Russian (Russia)
+    SK_SK   = "sk"          # Slovak (Slovakia)
+    SL_SI   = "sl"          # Slovenian (Slovenia)
+    SQ_AL   = "sq"          # Albanian (Albania)
+    SR_RS   = "sr"          # Serbian (Cyrillic script, Serbia)
+    SR_LATN = "sr@latin"    # Serbian (Latin script, Serbia)
+    SV_SE   = "sv"          # Swedish (Sweden)
+    SW      = "sw"          # Swahili
+    TE_IN   = "te"          # Telugu (India)
+    TH_TH   = "th"          # Thai (Thailand)
+    TL_PH   = "tl"          # Tagalog (Philippines)
+    TR_TR   = "tr"          # Turkish (Türkiye)
+    UK_UA   = "uk"          # Ukrainian (Ukraine)
+    VI_VN   = "vi"          # Vietnamese (Vietnam)
+    ZH_CN   = "zh_CN"       # Chinese (Simplified Han script, China)
+    ZH_HK   = "zh_HK"       # Chinese (Traditional Han script, Hong Kong)
+    ZH_TW   = "zh_TW"       # Chinese (Traditional Han script, Taiwan)
 
 
-PLURAL_RULES_TO_LANGS = {
-    "nplurals=1; plural=0;": {
-        Lang.ID_ID,
-        Lang.JA_JP,
-        Lang.KA_GE,
-        Lang.KM_KH,
-        Lang.KO_KP,
-        Lang.KO_KR,
-        Lang.LO_LA,
-        Lang.MS_MY,
-        Lang.MY_MM,
-        Lang.TH_TH,
-        Lang.VI_VN,
-        Lang.ZH_CN,
-        Lang.ZH_HK,
-        Lang.ZH_TW,
-    },
-    "nplurals=2; plural=(n != 1);": {
-        Lang.AZ_AZ,
-        Lang.BG_BG,
-        Lang.BN_IN,
-        Lang.CA_ES,
-        Lang.DA_DK,
-        Lang.DE_DE,
-        Lang.DE_CH,
-        Lang.EL_GR,
-        Lang.EN_AU,
-        Lang.EN_CA,
-        Lang.EN_GB,
-        Lang.EN_IN,
-        Lang.EN_NZ,
-        Lang.ES_ES,
-        Lang.ES_419,
-        Lang.ES_AR,
-        Lang.ES_BO,
-        Lang.ES_CL,
-        Lang.ES_CO,
-        Lang.ES_CR,
-        Lang.ES_DO,
-        Lang.ES_EC,
-        Lang.ES_GT,
-        Lang.ES_MX,
-        Lang.ES_PA,
-        Lang.ES_PE,
-        Lang.ES_PY,
-        Lang.ES_UY,
-        Lang.ES_VE,
-        Lang.EU_ES,
-        Lang.FI_FI,
-        Lang.GL_ES,
-        Lang.GU_IN,
-        Lang.HE_IL,
-        Lang.HI_IN,
-        Lang.HU_HU,
-        Lang.IT_IT,
-        Lang.KAB_DZ,
-        Lang.LB_LU,
-        Lang.ML_IN,
-        Lang.MN_MN,
-        Lang.NB_NO,
-        Lang.NL_NL,
-        Lang.NL_BE,
-        Lang.PT_PT,
-        Lang.PT_AO,
-        Lang.PT_BR,
-        Lang.SQ_AL,
-        Lang.SV_SE,
-        Lang.SW,
-        Lang.TE_IN,
-    },
-    "nplurals=2; plural=(n > 1);": {
-        Lang.AM_ET,
-        Lang.FA_IR,
-        Lang.FR_FR,
-        Lang.FR_BE,
-        Lang.FR_CA,
-        Lang.FR_CH,
-        Lang.TL_PH,
-        Lang.TR_TR,
-    },
-    "nplurals=2; plural= n==1 || n%10==1 ? 0 : 1;": {
-        Lang.MK_MK,
-    },
-    "nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;": {
-        Lang.CS_CZ,
-        Lang.SK_SK,
-    },
-    "nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n != 0 ? 1 : 2);": {
-        Lang.LV_LV,
-    },
-    "nplurals=3; plural=(n==1 ? 0 : (n==0 || (n%100 > 0 && n%100 < 20)) ? 1 : 2);": {
-        Lang.RO_RO,
-    },
-    "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);": {
-        Lang.PL_PL,
-    },
-    "nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && (n%100<10 || n%100>=20) ? 1 : 2);": {
-        Lang.LT_LT,
-    },
-    "nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);": {
-        Lang.BE_BY,
-        Lang.BS_BA,
-        Lang.HR_HR,
-        Lang.RU_RU,
-        Lang.UK_UA,
-    },
-    "nplurals=3; plural=(n == 1 || (n % 10 == 1 && n % 100 != 11)) ? 0 : ((n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) ? 1 : 2);": {  # noqa: E501
-        Lang.SR_RS,
-        Lang.SR_LATIN,
-    },
-    "nplurals=4; plural=(n%100==1 ? 0 : n%100==2 ? 1 : n%100==3 || n%100==4 ? 2 : 3);": {
-        Lang.SL_SI,
-    },
-    "nplurals=6; plural=(n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5);": {
-        Lang.AR_001,
-        Lang.AR_SY,
-    },
+# Plural rules gathered from https://github.com/WeblateOrg/language-data/blob/main/languages.csv
+LANG_TO_PLURAL_RULES = {
+    Lang.AM_ET  : "nplurals=2; plural=n > 1;",
+    Lang.AR_001 : "nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5;",
+    Lang.AR_SY  : "nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5;",
+    Lang.AZ_AZ  : "nplurals=2; plural=n != 1;",
+    Lang.BE_BY  : "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.BG_BG  : "nplurals=2; plural=n != 1;",
+    Lang.BN_IN  : "nplurals=2; plural=n > 1;",
+    Lang.BS_BA  : "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.CA_ES  : "nplurals=2; plural=n != 1;",
+    Lang.CS_CZ  : "nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;",
+    Lang.DA_DK  : "nplurals=2; plural=n != 1;",
+    Lang.DE_DE  : "nplurals=2; plural=n != 1;",
+    Lang.DE_CH  : "nplurals=2; plural=n != 1;",
+    Lang.EL_GR  : "nplurals=2; plural=n != 1;",
+    Lang.EN_AU  : "nplurals=2; plural=n != 1;",
+    Lang.EN_CA  : "nplurals=2; plural=n != 1;",
+    Lang.EN_GB  : "nplurals=2; plural=n != 1;",
+    Lang.EN_IN  : "nplurals=2; plural=n != 1;",
+    Lang.EN_NZ  : "nplurals=2; plural=n != 1;",
+    Lang.ES_ES  : "nplurals=2; plural=n != 1;",
+    Lang.ES_419 : "nplurals=2; plural=n != 1;",
+    Lang.ES_AR  : "nplurals=2; plural=n != 1;",
+    Lang.ES_BO  : "nplurals=2; plural=n != 1;",
+    Lang.ES_CL  : "nplurals=2; plural=n != 1;",
+    Lang.ES_CO  : "nplurals=2; plural=n != 1;",
+    Lang.ES_CR  : "nplurals=2; plural=n != 1;",
+    Lang.ES_DO  : "nplurals=2; plural=n != 1;",
+    Lang.ES_EC  : "nplurals=2; plural=n != 1;",
+    Lang.ES_GT  : "nplurals=2; plural=n != 1;",
+    Lang.ES_MX  : "nplurals=2; plural=n != 1;",
+    Lang.ES_PA  : "nplurals=2; plural=n != 1;",
+    Lang.ES_PE  : "nplurals=2; plural=n != 1;",
+    Lang.ES_PY  : "nplurals=2; plural=n != 1;",
+    Lang.ES_UY  : "nplurals=2; plural=n != 1;",
+    Lang.ES_VE  : "nplurals=2; plural=n != 1;",
+    Lang.ET_EE  : "nplurals=2; plural=n != 1;",
+    Lang.EU_ES  : "nplurals=2; plural=n != 1;",
+    Lang.FA_IR  : "nplurals=2; plural=n > 1;",
+    Lang.FI_FI  : "nplurals=2; plural=n != 1;",
+    Lang.FR_FR  : "nplurals=2; plural=n > 1;",
+    Lang.FR_BE  : "nplurals=2; plural=n > 1;",
+    Lang.FR_CA  : "nplurals=2; plural=n > 1;",
+    Lang.FR_CH  : "nplurals=2; plural=n > 1;",
+    Lang.GL_ES  : "nplurals=2; plural=n != 1;",
+    Lang.GU_IN  : "nplurals=2; plural=n > 1;",
+    Lang.HE_IL  : "nplurals=4; plural=(n == 1) ? 0 : ((n == 2) ? 1 : ((n > 10 && n % 10 == 0) ? 2 : 3));",
+    Lang.HI_IN  : "nplurals=2; plural=n > 1;",
+    Lang.HR_HR  : "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.HU_HU  : "nplurals=2; plural=n != 1;",
+    Lang.ID_ID  : "nplurals=1; plural=0;",
+    Lang.IT_IT  : "nplurals=2; plural=n != 1;",
+    Lang.JA_JP  : "nplurals=1; plural=0;",
+    Lang.KA_GE  : "nplurals=2; plural=n != 1;",
+    Lang.KAB_DZ : "nplurals=2; plural=n > 1;",
+    Lang.KM_KH  : "nplurals=1; plural=0;",
+    Lang.KO_KR  : "nplurals=1; plural=0;",
+    Lang.KO_KP  : "nplurals=1; plural=0;",
+    Lang.LB_LU  : "nplurals=2; plural=n != 1;",
+    Lang.LO_LA  : "nplurals=1; plural=0;",
+    Lang.LT_LT  : "nplurals=3; plural=(n % 10 == 1 && (n % 100 < 11 || n % 100 > 19)) ? 0 : ((n % 10 >= 2 && n % 10 <= 9 && (n % 100 < 11 || n % 100 > 19)) ? 1 : 2);",
+    Lang.LV_LV  : "nplurals=3; plural=(n % 10 == 0 || n % 100 >= 11 && n % 100 <= 19) ? 0 : ((n % 10 == 1 && n % 100 != 11) ? 1 : 2);",
+    Lang.MK_MK  : "nplurals=2; plural=n==1 || n%10==1 ? 0 : 1;",
+    Lang.ML_IN  : "nplurals=2; plural=n != 1;",
+    Lang.MN_MN  : "nplurals=2; plural=n != 1;",
+    Lang.MS_MY  : "nplurals=1; plural=0;",
+    Lang.MY_MM  : "nplurals=1; plural=0;",
+    Lang.NB_NO  : "nplurals=2; plural=n != 1;",
+    Lang.NL_NL  : "nplurals=2; plural=n != 1;",
+    Lang.NL_BE  : "nplurals=2; plural=n != 1;",
+    Lang.PL_PL  : "nplurals=3; plural=n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.PT_PT  : "nplurals=2; plural=n > 1;",
+    Lang.PT_AO  : "nplurals=2; plural=n > 1;",
+    Lang.PT_BR  : "nplurals=2; plural=n > 1;",
+    Lang.RO_RO  : "nplurals=3; plural=n==1 ? 0 : (n==0 || (n%100 > 0 && n%100 < 20)) ? 1 : 2;",
+    Lang.RU_RU  : "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.SK_SK  : "nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;",
+    Lang.SL_SI  : "nplurals=4; plural=n%100==1 ? 0 : n%100==2 ? 1 : n%100==3 || n%100==4 ? 2 : 3;",
+    Lang.SQ_AL  : "nplurals=2; plural=n != 1;",
+    Lang.SR_RS  : "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.SR_LATN: "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.SV_SE  : "nplurals=2; plural=n != 1;",
+    Lang.SW     : "nplurals=2; plural=n != 1;",
+    Lang.TE_IN  : "nplurals=2; plural=n != 1;",
+    Lang.TH_TH  : "nplurals=1; plural=0;",
+    Lang.TL_PH  : "nplurals=2; plural=n != 1 && n != 2 && n != 3 && (n % 10 == 4 || n % 10 == 6 || n % 10 == 9);",
+    Lang.TR_TR  : "nplurals=2; plural=n != 1;",
+    Lang.UK_UA  : "nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;",
+    Lang.VI_VN  : "nplurals=1; plural=0;",
+    Lang.ZH_CN  : "nplurals=1; plural=0;",
+    Lang.ZH_HK  : "nplurals=1; plural=0;",
+    Lang.ZH_TW  : "nplurals=1; plural=0;",
 }
-LANG_TO_PLURAL_RULES = {lang: plural_rules for plural_rules, langs in PLURAL_RULES_TO_LANGS.items() for lang in langs}
 
 
 def update_module_po(
