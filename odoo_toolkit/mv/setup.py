@@ -557,8 +557,8 @@ def _add_worktree_for_branch(
     # Check whether the branch we want to add exists on the remote.
     try:
         bare_repo = Repo(repo_src_dir)
-        bare_repo.rev_parse(f"origin/{branch}")
-    except (BadName, BadObject):
+        bare_repo.remote("origin").fetch(branch)
+    except (BadName, BadObject, GitCommandError):
         ProgressUpdate.update_in_dict(
             progress_updates,
             repo,
