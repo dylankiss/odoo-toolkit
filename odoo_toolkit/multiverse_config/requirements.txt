@@ -8,6 +8,7 @@ fonttools       # `odoo/tools/pdf` dependency
 google-auth     # `cloud_storage_google` and `social_push_notifications` dependency
 jwt             # `l10n_be_hr_payroll_dimona`, `l10n_in_qr_code_bill_scan` and `l10n_in_reports_gstr` dependency
 markdown        # `upgrade` and `upgrade-util` dependency
+paramiko        # `l10n_be_hr_payroll_dmfa_sftp` dependency
 pdfminer.six    # `attachment_indexation` dependency
 phonenumbers    # `account_peppol`, `data_cleaning` and `phone_validation` dependency
 pydevd-odoo     # Odoo plugin for PyDev, PyCharm and VSCode debugger to work with recordsets

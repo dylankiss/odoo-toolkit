@@ -108,6 +108,8 @@ RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wk
         python3-openpyxl \
         # pyopenssl==24.1.0
         python3-openssl \
+        # paramiko==2.12.0
+        python3-paramiko \
         # passlib==1.7.4
         python3-passlib \
         # pdfminer.six==20221105 (attachment_indexation)
