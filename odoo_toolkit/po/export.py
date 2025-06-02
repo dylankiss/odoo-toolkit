@@ -636,7 +636,7 @@ def _get_modules_per_server_type(
                 d for m in modules_to_export[server_type] for d in dependents.get(m, set[str]())
             )
             # The `calendar` and `rating` modules seem to add fields to a lot of models, so we always install them.
-            modules_to_install[server_type].update("calendar", "rating")
+            modules_to_install[server_type].update({"calendar", "rating"})
 
     return {
         server_type: (modules_to_export[server_type], modules_to_install[server_type]) for server_type in _ServerType
