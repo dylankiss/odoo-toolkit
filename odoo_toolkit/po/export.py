@@ -330,7 +330,7 @@ def _run_server_and_export_terms(
                 proc.stderr.close()
 
                 # Stop the progress.
-                if data.progress_task:
+                if data.progress_task is not None:
                     progress.update(data.progress_task, description="Installing modules")
                 progress.stop()
                 print("Modules have been installed :white_check_mark:")
@@ -411,7 +411,7 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     match = re.search(r"Loading module (\w+) \(\d+/\d+\)", log_line)
     if match:
         data.log_buffer = ""
-        if data.progress and data.progress_task:
+        if data.progress is not None and data.progress_task is not None:
             data.progress.update(
                 data.progress_task,
                 advance=1,
