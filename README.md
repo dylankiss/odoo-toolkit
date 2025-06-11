@@ -122,11 +122,11 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 * `-u, --username TEXT`: Specify the username to log in to Odoo.  [default: `admin`]
 * `-p, --password TEXT`: Specify the password to log in to Odoo.  [default: `admin`]
 * `--host TEXT`: Specify the hostname of your Odoo server.  [default: `localhost`]
-* `--port INTEGER`: Specify the port of your Odoo server.  [default: `8069`]
+* `--port INTEGER`: Specify the port of your Odoo server.  [default: `8069`, or the first free one after that when `--start-server`]
 
 **Database Options**:
 
-* `-d, --database TEXT`: Specify the PostgreSQL database name used by Odoo.  [default: `__export_pot_db__`]
+* `-d, --database TEXT`: Specify the PostgreSQL database name used by Odoo.  [default: `export_pot_db_{port}`]
 * `--db-host TEXT`: Specify the PostgreSQL server's hostname.  [default: `localhost`]
 * `--db-port INTEGER`: Specify the PostgreSQL server's port.  [default: `5432`]
 * `--db-username TEXT`: Specify the PostgreSQL server's username.

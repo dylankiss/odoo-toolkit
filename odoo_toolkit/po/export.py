@@ -6,6 +6,7 @@ import xmlrpc.client
 from base64 import b64decode
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
@@ -13,16 +14,17 @@ from operator import itemgetter
 from pathlib import Path
 from socket import socket
 from subprocess import PIPE, CalledProcessError, Popen
-from typing import Annotated
+from typing import Annotated, Any
 
 from polib import pofile
-from rich.progress import TaskID
+from rich.progress import Progress, TaskID
 from rich.table import Table
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
+    get_odoo_version,
     get_valid_modules_to_path_mapping,
     print,
     print_command_title,
@@ -33,6 +35,7 @@ from odoo_toolkit.common import (
 )
 
 HTTPS_PORT = 443
+WITH_DEMO_VERSION = 18.3
 
 app = Typer()
 
@@ -47,7 +50,8 @@ class _ServerType(str, Enum):
 
 @dataclass
 class _LogLineData:
-    progress: TransientProgress | None
+    server_formatted: str
+    progress: Progress | None
     progress_task: TaskID | None
     log_buffer: str
     database: str
@@ -141,7 +145,7 @@ def export(
             help="Specify the PostgreSQL database name used by Odoo.",
             rich_help_panel="Database Options",
         ),
-    ] = "__export_pot_db__",
+    ] = "export_pot_db_{port}",
     db_host: Annotated[
         str,
         Option(help="Specify the PostgreSQL server's hostname.", rich_help_panel="Database Options"),
@@ -205,20 +209,27 @@ def export(
     # Determine the URL to connect to our Odoo server.
     host = "localhost" if start_server else host
     port = _free_port(host, port) if start_server else port
-    url = "{protocol}{host}:{port}".format(
+    url = "{protocol}{host}".format(
         protocol="" if "://" in host else "https://" if port == HTTPS_PORT else "http://",
         host=host,
-        port=port,
     )
+
+    # Generate a unique database name in case multiple exports would be happening simultaneously.
+    if "{port}" in database and not start_server:
+        database = database.format(port=port)
 
     if start_server:
         # Start a temporary Odoo server to export the terms.
-        odoo_bin_path = com_path.expanduser().resolve() / "odoo-bin"
-        com_modules_path = com_path.expanduser().resolve() / "addons"
+        odoo_repo_path = com_path.expanduser().resolve()
+        odoo_bin_path = odoo_repo_path / "odoo-bin"
+        com_modules_path = odoo_repo_path / "addons"
         ent_modules_path = ent_path.expanduser().resolve()
         extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
+        odoo_version = get_odoo_version(odoo_repo_path)
 
-        for server_type, (modules_to_export, modules_to_install) in modules_per_server_type.items():
+        # Gather all parameters per server type to run the processes in parallel later.
+        params_per_server_type: list[dict[str, Any]] = []
+        for seq, (server_type, (modules_to_export, modules_to_install)) in enumerate(modules_per_server_type.items()):
             if not modules_to_export:
                 continue
 
@@ -231,12 +242,16 @@ def export(
             addons_path = ",".join(str(p) for p in addons_path)
 
             cmd_env = os.environ | {"PYTHONUNBUFFERED": "1"}
+            cur_port = _free_port(host, port + seq)
+            cur_server_name = server_type.name.lower()
+            cur_suffix = f"{cur_port}_{cur_server_name}"
+            cur_database = database.format(port=cur_suffix) if "{port}" in database else f"{database}_{cur_suffix}"
             odoo_cmd: list[str | Path] = [
                 "python3",       odoo_bin_path,
                 "--addons-path", addons_path,
-                "--database",    database,
+                "--database",    cur_database,
                 "--init",        ",".join(modules_to_install),
-                "--http-port",   str(port),
+                "--http-port",   str(cur_port),
                 "--db_host",     db_host,
                 "--db_port",     str(db_port),
             ]
@@ -244,42 +259,57 @@ def export(
                 odoo_cmd.extend(["--db_user", db_username])
             if db_password:
                 odoo_cmd.extend(["--db_password", db_password])
+            if odoo_version and odoo_version >= WITH_DEMO_VERSION:
+                odoo_cmd.extend(["--with-demo"])
 
-            dropdb_cmd = ["dropdb", database, "--host", db_host, "--port", str(db_port)]
+            dropdb_cmd = ["dropdb", cur_database, "--host", db_host, "--port", str(db_port)]
             if db_username:
                 dropdb_cmd.extend(["--username", db_username])
             if db_password:
                 cmd_env |= {"PGPASSWORD": db_password}
 
-            print(f"[b]Modules to install for {server_type.value}[/b] (and their dependencies)")
-            print_indent(", ".join(sorted(modules_to_install)))
-            print()
+            server_type_name = f"[{server_type.name}]"
+            params_per_server_type.append({
+                "server_name": server_type.value,
+                "server_formatted": f"[b][cyan]{server_type_name:10}[/cyan][/b]",
+                "odoo_cmd": odoo_cmd,
+                "dropdb_cmd": dropdb_cmd,
+                "env": cmd_env,
+                "url": f"{url}:{cur_port}",
+                "database": cur_database,
+                "username": username,
+                "password": password,
+                "module_to_path": {k: v for k, v in module_to_path.items() if k in modules_to_export},
+            })
 
-            _run_server_and_export_terms(
-                server_type=server_type,
-                odoo_cmd=odoo_cmd,
-                dropdb_cmd=dropdb_cmd,
-                env=cmd_env,
-                url=url,
-                database=database,
-                username=username,
-                password=password,
-                module_to_path={k: v for k, v in module_to_path.items() if k in modules_to_export},
-            )
+        # Run the servers in parallel to speed things up.
+        with ThreadPoolExecutor() as executor, TransientProgress() as progress:
+            futures = [
+                executor.submit(_run_server_and_export_terms, **params, progress=progress)
+                for params in params_per_server_type
+            ]
+            # Wait until every process has finished.
+            wait(futures)
 
     else:
         # Export from a running server.
-        _export_module_terms(
-            module_to_path={k: v for k, v in module_to_path.items() if k in valid_modules_to_export},
-            url=url,
-            database=database,
-            username=username,
-            password=password,
-        )
+        with TransientProgress() as progress:
+            server_type_name = f"[{_ServerType.CUSTOM.name}]"
+            _export_module_terms(
+                server_name=_ServerType.CUSTOM.value,
+                server_formatted=f"[b][cyan]{server_type_name:10}[/cyan][/b]",
+                module_to_path={k: v for k, v in module_to_path.items() if k in valid_modules_to_export},
+                url=f"{url}:{port}",
+                database=database,
+                username=username,
+                password=password,
+                progress=progress,
+            )
 
 
 def _run_server_and_export_terms(
-    server_type: _ServerType,
+    server_name: str,
+    server_formatted: str,
     odoo_cmd: Sequence[str | Path],
     dropdb_cmd: Sequence[str | Path],
     env: Mapping[str, str],
@@ -288,10 +318,12 @@ def _run_server_and_export_terms(
     username: str,
     password: str,
     module_to_path: Mapping[str, Path],
+    progress: Progress,
 ) -> None:
     """Start an Odoo server and export .pot files for the given modules.
 
-    :param server_type: The server type to run.
+    :param server_name: The server type to run.
+    :param server_formatted: The server type to run, formatted in a short printable way.
     :param odoo_cmd: The command to start the Odoo server.
     :param dropdb_cmd: The command to drop the database.
     :param env: The environment variables to run the commands with.
@@ -300,15 +332,14 @@ def _run_server_and_export_terms(
     :param username: The Odoo username.
     :param password: The Odoo password.
     :param module_to_path: The modules to export mapped to their directories.
+    :param progress: The shared progress instance to add a task to.
     """
-    print_header(f":rocket: Start Odoo Server ({server_type.value})")
-    print("[b]Modules to export[/b]")
-    print_indent(", ".join(sorted(module_to_path.keys())))
-    print()
+    progress_task = progress.add_task(f"{server_formatted} :package: Installing modules", total=None)
 
     data = _LogLineData(
-        progress=None,
-        progress_task=None,
+        server_formatted=server_formatted,
+        progress=progress,
+        progress_task=progress_task,
         log_buffer="",
         database=database,
         database_created=False,
@@ -316,7 +347,7 @@ def _run_server_and_export_terms(
         error_msg=None,
     )
 
-    with Popen(odoo_cmd, env=env, stderr=PIPE, text=True) as proc, TransientProgress() as progress:
+    with Popen(odoo_cmd, env=env, stderr=PIPE, text=True) as proc:
         data.progress = progress
         while proc.poll() is None and proc.stderr:
             # As long as the process is still running ...
@@ -330,19 +361,26 @@ def _run_server_and_export_terms(
                 proc.stderr.close()
 
                 # Stop the progress.
-                if data.progress_task is not None:
-                    progress.update(data.progress_task, description="Installing modules")
-                progress.stop()
-                print("Modules have been installed :white_check_mark:")
-                print("Odoo Server has started :white_check_mark:\n")
+                progress.update(
+                    progress_task,
+                    description=f"{server_formatted} :package: Installing modules",
+                    completed=1,
+                    total=1,
+                )
+
+                print(f"{server_formatted} Modules have been installed :white_check_mark:")
+                print(f"{server_formatted} Odoo Server has started :white_check_mark:")
 
                 # Export module terms.
                 _export_module_terms(
+                    server_name=server_name,
+                    server_formatted=server_formatted,
                     module_to_path=module_to_path,
                     url=url,
                     database=database,
                     username=username,
                     password=password,
+                    progress=progress,
                 )
                 break
 
@@ -357,9 +395,8 @@ def _run_server_and_export_terms(
             )
             data.server_error = True
         else:
-            print_header(f":raised_hand: Stop Odoo Server ({server_type.value})")
             proc.kill()
-            print("Odoo Server has stopped :white_check_mark:\n")
+            print(f"{server_formatted} Odoo Server has stopped :white_check_mark:")
 
     if data.database_created and data.server_error:
         print_warning(
@@ -369,7 +406,7 @@ def _run_server_and_export_terms(
     elif data.database_created:
         try:
             subprocess.run(dropdb_cmd, env=env, capture_output=True, check=True)
-            print(f"Database [b]{database}[/b] has been deleted :white_check_mark:\n")
+            print(f"{server_formatted} Database [b]{database}[/b] has been deleted :white_check_mark:\n")
         except CalledProcessError as e:
             print_error(
                 f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.", e.stderr.strip(),
@@ -397,14 +434,17 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     if "odoo.modules.loading: init db" in log_line:
         data.log_buffer = ""
         data.database_created = True
-        print(f"Database [b]{data.database}[/b] has been created :white_check_mark:")
+        print(f"{data.server_formatted} Database [b]{data.database}[/b] has been created :white_check_mark:")
 
     match = re.search(r"loading (\d+) modules", log_line)
     if match:
         data.log_buffer = ""
         if data.progress:
             if data.progress_task is None:
-                data.progress_task = data.progress.add_task("Installing modules", total=None)
+                data.progress_task = data.progress.add_task(
+                    f"{data.server_formatted} :package: Installing modules",
+                    total=None,
+                )
             else:
                 data.progress.update(data.progress_task, total=int(match.group(1)))
 
@@ -415,34 +455,36 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
             data.progress.update(
                 data.progress_task,
                 advance=1,
-                description=f"Installing module [b]{match.group(1)}[/b]",
+                description=f"{data.server_formatted} :package: Installing module [b]{match.group(1)}[/b]",
             )
     return False
 
 
 def _export_module_terms(
+    server_name: str,
+    server_formatted: str,
     module_to_path: Mapping[str, Path],
     url: str,
     database: str,
     username: str,
     password: str,
+    progress: Progress,
 ) -> None:
     """Export .pot files for the given modules.
 
+    :param server_name: The server type running.
+    :param server_formatted: The server type running, formatted in a short printable way.
     :param module_to_path: A mapping from each module to its directory.
     :param url: The Odoo server URL to connect to.
     :param database: The database name.
     :param username: The Odoo username.
     :param password: The Odoo password.
     """
-    print_header(":link: Access Odoo Server")
-
     common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
     uid = common.authenticate(database, username, password, {})
-    print(f"Logged in as [b]{username}[/b] in database [b]{database}[/b] :white_check_mark:\n")
     models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
 
-    print_header(":speech_balloon: Export Terms")
+    progress_task = progress.add_task(f"{server_formatted} :speech_balloon: Exporting terms", total=None)
 
     modules = list(module_to_path.keys())
     if not modules:
@@ -461,101 +503,105 @@ def _export_module_terms(
         ],
     )
     if not isinstance(installed_modules, list):
-        print_warning("No modules installed to export")
+        print_warning(f"{server_formatted} No modules installed to export")
         return
 
     modules_to_export: list[Mapping[str, str]] = sorted(installed_modules, key=itemgetter("name"))
-    export_table = Table(box=None, pad_edge=False)
+    export_table = Table(box=None, pad_edge=False, show_header=False)
 
-    with TransientProgress() as progress:
-        progress_task = progress.add_task("Exporting terms", total=len(modules_to_export))
-        for module in modules_to_export:
-            module_name: str = module["name"]
-            progress.update(progress_task, description=f"Exporting terms for [b]{module_name}[/b]")
-            # Create the export wizard with the current module.
-            export_id = models.execute_kw(
-                database,
-                uid,
-                password,
-                "base.language.export",
-                "create",
-                [
-                    {
-                        "lang": "__new__",
-                        "format": "po",
-                        "modules": [(6, False, [module["id"]])],
-                        "state": "choose",
-                    },
-                ],
+    progress.update(progress_task, total=len(modules_to_export))
+    for module in modules_to_export:
+        module_name: str = module["name"]
+        progress.update(
+            progress_task,
+            description=f"{server_formatted} :speech_balloon: Exporting terms for [b]{module_name}[/b]",
+        )
+        # Create the export wizard with the current module.
+        export_id = models.execute_kw(
+            database,
+            uid,
+            password,
+            "base.language.export",
+            "create",
+            [
+                {
+                    "lang": "__new__",
+                    "format": "po",
+                    "modules": [(6, False, [module["id"]])],
+                    "state": "choose",
+                },
+            ],
+        )
+        # Export the .pot file.
+        models.execute_kw(
+            database,
+            uid,
+            password,
+            "base.language.export",
+            "act_getfile",
+            [[export_id]],
+        )
+        # Get the exported .pot file.
+        pot_file = models.execute_kw(
+            database,
+            uid,
+            password,
+            "base.language.export",
+            "read",
+            [[export_id], ["data"], {"bin_size": False}],
+        )
+        if not isinstance(pot_file, list):
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                "[d]Exporting the .pot file failed[/d] :negative_squared_cross_mark:",
             )
-            # Export the .pot file.
-            models.execute_kw(
-                database,
-                uid,
-                password,
-                "base.language.export",
-                "act_getfile",
-                [[export_id]],
-            )
-            # Get the exported .pot file.
-            pot_file = models.execute_kw(
-                database,
-                uid,
-                password,
-                "base.language.export",
-                "read",
-                [[export_id], ["data"], {"bin_size": False}],
-            )
-            if not isinstance(pot_file, list):
+            continue
+        pot_file_content = b64decode(pot_file[0]["data"])
+        i18n_path = module_to_path[module_name] / "i18n"
+        if not i18n_path.exists():
+            i18n_path.mkdir()
+        pot_path = i18n_path / f"{module_name}.pot"
+
+        if _is_pot_file_empty(pot_file_content):
+            if pot_path.is_file():
+                # Remove empty .pot files.
+                pot_path.unlink()
                 export_table.add_row(
                     f"[b]{module_name}[/b]",
-                    "[d]Exporting the .pot file failed[/d] :negative_squared_cross_mark:",
-                )
-                continue
-            pot_file_content = b64decode(pot_file[0]["data"])
-            i18n_path = module_to_path[module_name] / "i18n"
-            if not i18n_path.exists():
-                i18n_path.mkdir()
-            pot_path = i18n_path / f"{module_name}.pot"
-
-            if _is_pot_file_empty(pot_file_content):
-                if pot_path.is_file():
-                    # Remove empty .pot files.
-                    pot_path.unlink()
-                    export_table.add_row(
-                        f"[b]{module_name}[/b]",
-                        f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
-                    )
-                    continue
-
-                export_table.add_row(
-                    f"[b]{module_name}[/b]",
-                    "[d]No terms to translate[/d] :negative_squared_cross_mark:",
+                    f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
                 )
                 continue
 
-            pot_metadata = None
-            with suppress(OSError, ValueError):
-                pot_metadata = pofile(str(pot_path)).metadata
-            try:
-                pot = pofile(pot_file_content.decode())
-                if pot_metadata:
-                    pot.metadata = pot_metadata
-                pot.save(str(pot_path))
-            except (OSError, ValueError):
-                export_table.add_row(
-                    f"[b]{module_name}[/b]",
-                    f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:",
-                )
-            else:
-                export_table.add_row(
-                    f"[b]{module_name}[/b]",
-                    f"[d]{i18n_path}{os.sep}[/d][b]{module_name}.pot[/b] :white_check_mark: ({len(pot)} terms)",
-                )
-            progress.advance(progress_task, 1)
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                "[d]No terms to translate[/d] :negative_squared_cross_mark:",
+            )
+            continue
 
+        pot_metadata = None
+        with suppress(OSError, ValueError):
+            pot_metadata = pofile(str(pot_path)).metadata
+        try:
+            pot = pofile(pot_file_content.decode())
+            if pot_metadata:
+                pot.metadata = pot_metadata
+            pot.save(str(pot_path))
+        except (OSError, ValueError):
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:",
+            )
+        else:
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                f"[d]{i18n_path}{os.sep}[/d][b]{module_name}.pot[/b] :white_check_mark: ({len(pot)} terms)",
+            )
+        progress.advance(progress_task, 1)
+
+    print()
+    print_header(f":speech_balloon: Exported Terms for {server_name}")
     print(export_table, "")
-    print("Terms have been exported :white_check_mark:\n")
+    print(f"{server_formatted} Terms have been exported :white_check_mark:")
 
 
 def _is_pot_file_empty(contents: bytes) -> bool:

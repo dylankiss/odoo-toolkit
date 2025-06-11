@@ -1,7 +1,9 @@
+import importlib.util
 import re
 import time
 from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from fnmatch import fnmatch
@@ -302,3 +304,29 @@ def update_remote_progress(
         time.sleep(0.5)
 
     update_progress_internal()
+
+
+def get_odoo_version(odoo_repo: Path) -> float | None:
+    """Get the Odoo version as a float, given the repo path.
+
+    :param odoo_repo: The path to the Odoo community repository.
+    :return: The version as a float or `None` if it could not be found.
+    """
+    file_path = odoo_repo / "odoo" / "release.py"
+    module_name = odoo_repo.stem
+    attribute_name = "version_info"
+
+    with suppress(Exception):
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        if spec is None:
+            return None
+
+        module = importlib.util.module_from_spec(spec)
+        if spec.loader is not None:
+            spec.loader.exec_module(module)
+
+        if hasattr(module, attribute_name):
+            raw_version = getattr(module, attribute_name)
+            return float(raw_version[0] + (raw_version[1] / 10))
+
+    return None
