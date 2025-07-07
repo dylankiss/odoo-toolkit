@@ -198,6 +198,7 @@ def export(
         module_to_path=module_to_path,
         com_path=com_path,
         ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
         full_install=full_install,
         quick_install=quick_install,
     )
