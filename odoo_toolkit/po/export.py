@@ -652,10 +652,10 @@ def _get_modules_per_server_type(
 
     # Determine all modules to export per server type.
     for m, p in module_to_path.items():
-        if p.is_relative_to(com_modules_path) or m == "base":
+        if p.is_relative_to(com_modules_path):
             modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
             modules_to_install[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
-        elif p.is_relative_to(ent_modules_path):
+        elif p.is_relative_to(ent_modules_path) or m == "base":
             modules_to_export[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
             modules_to_install[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
         elif any(p.is_relative_to(emp) for emp in extra_modules_paths):
@@ -787,7 +787,7 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.ENT].add(m)
 
     # Add the base module.
-    modules[_ServerType.COM].add("base")
+    modules[_ServerType.ENT].add("base")
 
     # Add all custom modules.
     modules[_ServerType.CUSTOM].update(
