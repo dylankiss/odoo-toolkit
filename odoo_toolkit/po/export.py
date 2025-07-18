@@ -776,8 +776,10 @@ def _get_full_install_modules_per_server_type(
         # Add each Community module to the right server types.
         if _is_l10n_module(m):
             modules[_ServerType.COM_L10N].add(m)
+            modules[_ServerType.ENT_L10N].add(m)
         else:
             modules[_ServerType.COM].add(m)
+            modules[_ServerType.ENT].add(m)
 
     for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
         # Add each Enterprise module to the right server types.
