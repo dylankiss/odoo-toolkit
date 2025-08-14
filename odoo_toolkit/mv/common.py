@@ -14,8 +14,10 @@ class OdooRepo(str, Enum):
     DESIGN_THEMES = "design-themes"
     DOCUMENTATION = "documentation"
     ENTERPRISE = "enterprise"
+    IAP_APPS = "iap-apps"
     INDUSTRY = "industry"
     INTERNAL = "internal"
+    MOBILE = "mobile"
     ODOO = "odoo"
     ODOOFIN = "odoofin"
     O_SPREADSHEET = "o-spreadsheet"
@@ -36,4 +38,6 @@ SINGLE_BRANCH_REPOS = [
     OdooRepo.UPGRADE,
     OdooRepo.UPGRADE_UTIL,
     OdooRepo.INTERNAL,
+    OdooRepo.IAP_APPS,
+    OdooRepo.MOBILE,
 ]
