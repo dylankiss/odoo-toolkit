@@ -24,7 +24,7 @@ from odoo_toolkit.common import (
     update_remote_progress,
 )
 
-from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
+from .common import MULTI_BRANCH_REPOS, ODOO_DEV_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
 
 app = Typer()
 
@@ -342,7 +342,7 @@ def _clone_bare_multi_branch_repo(  # noqa: C901, PLR0915
     bare_repo.config_writer().set_value('remote "origin"', "fetch", "+refs/heads/*:refs/remotes/origin/*").release()
     ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
 
-    if repo not in (OdooRepo.DOCUMENTATION, OdooRepo.O_SPREADSHEET):
+    if repo in ODOO_DEV_REPOS:
         # Add the "odoo-dev" repository equivalent as a remote named "dev".
         ProgressUpdate.update_in_dict(
             progress_updates,

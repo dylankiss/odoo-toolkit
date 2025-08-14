@@ -41,3 +41,10 @@ SINGLE_BRANCH_REPOS = [
     OdooRepo.IAP_APPS,
     OdooRepo.MOBILE,
 ]
+ODOO_DEV_REPOS = [
+    OdooRepo.ODOO,
+    OdooRepo.ENTERPRISE,
+    OdooRepo.DESIGN_THEMES,
+    OdooRepo.INDUSTRY,
+    OdooRepo.UPGRADE_UTIL
+]
