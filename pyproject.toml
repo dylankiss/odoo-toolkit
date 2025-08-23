@@ -10,6 +10,7 @@ dependencies = [
     "polib>=1.2.0,<2",
     "python-on-whales>=0.76.1,<0.77",
     "gitpython>=3.1.44,<4",
+    "requests>=2.32.4",
 ]
 
 [project.scripts]

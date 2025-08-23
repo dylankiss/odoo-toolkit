@@ -8,14 +8,14 @@ from .common import print
 from .dev import app as dev_app
 from .mv import app as mv_app
 from .po import app as po_app
-from .tx import app as tx_app
+from .wl import app as wl_app
 
 # The main app to register all the commands with.
 app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
 app.add_typer(po_app, name="po")
 app.add_typer(dev_app, name="dev")
 app.add_typer(mv_app, name="mv")
-app.add_typer(tx_app, name="tx")
+app.add_typer(wl_app, name="wl")
 
 
 @app.callback(invoke_without_command=True)

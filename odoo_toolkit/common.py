@@ -5,7 +5,7 @@ from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future
 from contextlib import suppress
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any, TypeVar
@@ -36,9 +36,9 @@ print = console.print  # noqa: A001
 class Status(Enum):
     """The status of a specific function call."""
 
-    SUCCESS = 1
-    FAILURE = 2
-    PARTIAL = 3
+    SUCCESS = auto()
+    PARTIAL = auto()
+    FAILURE = auto()
 
 
 @dataclass
