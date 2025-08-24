@@ -59,11 +59,11 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk dev start-db`](#otk-dev-start-db) | Start a standalone PostgreSQL container for your Odoo databases.                     |
 | [`otk dev stop`](#otk-dev-stop)         | Stop and delete all running containers of the Odoo Development Server.               |
 
-### [Odoo Transifex (`otk tx`)](#odoo-transifex-otk-tx-1)
+### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
-| Command                     | Purpose                                   |
-| --------------------------- | ----------------------------------------- |
-| [`otk tx add`](#otk-tx-add) | Add modules to the Transifex config file. |
+| Command                       | Purpose                                                |
+| ----------------------------- | ------------------------------------------------------ |
+| [`otk wl copy`](#otk-wl-copy) | Copy translations from one Weblate project to another. |
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
@@ -223,7 +223,7 @@ $ otk po merge -o nl_merged.po nl.po nl_BE.po
 
 ### Arguments
 
-* `PO_FILES...`: Merge these .po files together.  [required]
+* `PO_FILES...`: Merge these .po files together.  **[required]**
 
 ### Options
 
@@ -453,45 +453,53 @@ $ otk dev stop [OPTIONS]
 * `--help`: Show this message and exit.
 
 
-## Odoo Transifex (`otk tx`)
+## Odoo Weblate (`otk wl`)
 
-**Work with Transifex.**
+**Work with Odoo translations on Weblate.**
 
-The following commands allow you to modify the Transifex config files.
+The following commands allow you to perform some operations on the Weblate server more efficiently than via the UI.
+
+In order to connect to the Weblate server, you need to have an API key available in the `WEBLATE_API_TOKEN` variable in
+your environment. You can do this either by providing the variable in front of the command each time, like:
+```console
+WEBLATE_API_TOKEN=wlu_XXXXXX... otk wl ...
+```
+or make the variable available to your execution environment by putting it in your `.bashrc`, `.zshrc` or equivalent
+configuration file for your shell.
 
 
-## `otk tx add`
+## `otk wl copy`
 
-**Add modules to the Transifex config file.**
+**Copy translations from one Weblate project to another.**
 
-This command will add module entries to `.tx/config` files. The `.tx/config` files need to be located at the provided
-addons paths' roots. If the entries already exists, they will potentially be updated.
+This command allows you to copy existing translations of components in one Weblate project to the same components in
+another Weblate project. You need to specify for which language(s) you want the translations copied.
 
-For `odoo` and `enterprise`, the project name follows the format `odoo-18` for major versions and `odoo-s18-1` for SaaS
-versions. Other repos have their own project names.
+You can provide specific components or none at all. In that case, all common components will be used.
+
+Finally you can specify which type of strings you want to have translated in the destination project.
 
 ### Usage
 
 ```console
-$ otk tx add [OPTIONS] MODULES...
+$ otk wl copy [OPTIONS] SRC_PROJECT DEST_PROJECT...
 ```
 e.g.
 
 ```console
-$ otk tx add -p odoo-18 -a design-themes theme_*
+$ otk wl copy odoo-18 odoo-s18-4 -l fr -f all
 ```
 
 ### Arguments
 
-* `MODULES...`: Add these Odoo modules to `.tx/config`, or either `all`, `community`, or `enterprise`.  **[required]**
+* `SRC_PROJECT`: The Weblate project to copy the translations from.  **[required]**
+* `DEST_PROJECT`: The Weblate project to copy the translations to.  **[required]**
 
 ### Options
 
-* `-p, --tx-project TEXT`: Specify the Transifex project name.  **[required]**
-* `-o, --tx-org TEXT`: Specify the Transifex organization name.  [default: `odoo`]
-* `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
-* `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `-l, --language TEXT`: The Weblate language codes to copy.  **[required]**
+* `-c, --component TEXT`: The Weblate components to copy. Copies all components if none are specified.
+* `-f, --filter [all|nottranslated|todo|fuzzy]`: Specify which strings need to be changed. Either all strings (`all`), untranslated strings (`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).  [default: `nottranslated`]
 * `--help`: Show this message and exit.
 
 
@@ -599,6 +607,8 @@ $ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgra
 - [`industry`](https://github.com/odoo/industry)
 - [`o-spreadsheet`](https://github.com/odoo/o-spreadsheet)
 - [`internal`](https://github.com/odoo/internal)
+- [`iap-apps`](https://github.com/odoo/iap-apps)
+- [`mobile`](https://github.com/odoo/mobile)
 
 
 ## `otk mv reset`
