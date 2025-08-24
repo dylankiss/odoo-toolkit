@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Annotated, cast
 
 from typer import Argument, Exit, Option, Typer
@@ -13,6 +14,15 @@ from odoo_toolkit.common import (
 )
 
 from .common import WEBLATE_AUTOTRANSLATE_ENDPOINT, WEBLATE_PROJECT_COMPONENTS_ENDPOINT, WeblateApi, WeblateApiError
+
+
+class FilterType(str, Enum):
+    """Filter types available for the autotranslate endpoint."""
+
+    ALL = "all"
+    NOTTRANSLATED = "nottranslated"
+    TODO = "todo"
+    FUZZY = "fuzzy"
 
 app = Typer()
 
@@ -34,16 +44,29 @@ def copy(
     components: Annotated[
         list[str],
         Option(
-            "--component", "-c", help="The Weblate components to copy. Copies all components if none are specified."
+            "--component",
+            "-c",
+            help="The Weblate components to copy. Copies all components if none are specified.",
         ),
     ] = EMPTY_LIST,
+    filter_type: Annotated[
+        FilterType,
+        Option(
+            "--filter",
+            "-f",
+            help="Specify which strings need to be changed. Either all strings (`all`), untranslated strings "
+            "(`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).",
+        ),
+    ] = FilterType.NOTTRANSLATED,
 ) -> None:
     """Copy translations from one Weblate project to another.
 
     This command allows you to copy existing translations of components in one Weblate project to the same components in
-    another Weblate project. You need to specify for which language you want the translations copied.
+    another Weblate project. You need to specify for which language(s) you want the translations copied.
 
     You can provide specific components or none at all. In that case, all common components will be used.
+
+    Finally you can specify which type of strings you want to have translated in the destination project.
     """
     print_command_title(":memo: Odoo Weblate Copy Translations")
 
@@ -62,7 +85,7 @@ def copy(
         raise Exit from e
 
     success_count, partial_count, failure_count = _process_components(
-        weblate_api, src_project, dest_project, components, languages, total_dest_components,
+        weblate_api, src_project, dest_project, components, languages, total_dest_components, filter_type,
     )
 
     total_processed = success_count + partial_count + failure_count
@@ -94,7 +117,7 @@ def _get_project_components(api: WeblateApi, project: str) -> set[str]:
 
 
 def _copy_language_translations(
-    api: WeblateApi, src_project: str, dest_project: str, component: str, languages: list[str],
+    api: WeblateApi, src_project: str, dest_project: str, component: str, languages: list[str], filter_type: FilterType,
 ) -> Status:
     """Copy translations for a specific component across multiple languages."""
     if not languages:
@@ -108,7 +131,7 @@ def _copy_language_translations(
                 WEBLATE_AUTOTRANSLATE_ENDPOINT.format(project=dest_project, component=component, language=language),
                 json={
                     "mode": "translate",
-                    "filter_type": "all",
+                    "filter_type": filter_type.value,
                     "auto_source": "others",
                     "component": f"{src_project}/{component}",
                     "threshold": 100,  # Not used, but required.
@@ -133,6 +156,7 @@ def _process_components(
     components: list[str],
     languages: list[str],
     total_dest_components: int,
+    filter_type: FilterType,
 ) -> tuple[int, int, int]:
     """Iterate through destination components, filter them, and call the translation copy function.
 
@@ -156,7 +180,7 @@ def _process_components(
                     print_warning(f"Component '{component}' not found in source project '{src_project}'. Skipping.")
                     continue
 
-                status = _copy_language_translations(api, src_project, dest_project, component, languages)
+                status = _copy_language_translations(api, src_project, dest_project, component, languages, filter_type)
                 counts[status] += 1
         except WeblateApiError as e:
             print_error("Fetching components failed.", str(e))
