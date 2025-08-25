@@ -1,6 +1,9 @@
+import json
+from collections import defaultdict
 from collections.abc import Generator
 from os import environ
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 from urllib.parse import urljoin
 
 from requests import HTTPError, JSONDecodeError, Response, Session
@@ -14,6 +17,7 @@ WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{langu
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
 WeblateJson = dict[str, "str | int | float | bool | tuple[str] | WeblateJson"]
+WeblateConfigType = dict[str, dict[str, list[dict[str, str]]]]
 
 class WeblateApiError(Exception):
     """Custom exception for Weblate API errors."""
@@ -133,3 +137,74 @@ class WeblateApi:
         :raises WeblateApiError: If the request returns an error.
         """
         return self._request("PUT", endpoint, json=json)
+
+
+class WeblateConfigError(Exception):
+    """Custom exception for WeblateConfig errors."""
+
+    def __init__(self, file_path: Path, error_type: Literal["load", "save"]) -> None:
+        """Initialize a WeblateConfigError for loading `file_path`."""
+        match error_type:
+            case "load":
+                super().__init__(f"The configuration file '{file_path}' could not be loaded.")
+            case "save":
+                super().__init__(f"The configuration file '{file_path}' could not be saved.")
+
+
+class WeblateConfig:
+    """A Weblate config file."""
+
+    def __init__(self, file_path: Path) -> None:
+        """Initialize a WeblateConfig object.
+
+        :param file_path: The file to load into the object or to save the new object to.
+        :raises WeblateConfigError: If the given file could not be loaded or parsed.
+        """
+        self.file_path = file_path
+        self.config = defaultdict[str, dict[str, list[dict[str, str]]]](lambda: defaultdict[str, list[dict[str, str]]](list))
+
+        if self.file_path.is_file():
+            try:
+                self.config.update(json.loads(self.file_path.read_text()))
+            except (OSError, json.JSONDecodeError) as e:
+                raise WeblateConfigError(self.file_path, "load") from e
+
+    def add_module(self, module_path: Path, project: str, languages: list[str]) -> None:
+        """Add a module configuration to the Weblate config file.
+
+        :param module_path: The path to the module to add.
+        :param project: The Weblate project slug.
+        :param languages: The specific language codes to translate this module into.
+        """
+        module_name = module_path.name
+        relative_module_path = module_path.relative_to(self.file_path.parent.parent)
+        module_config = {
+            "name": module_name,
+            "filemask": f"{relative_module_path}/i18n/*.po",
+            "new_base": f"{relative_module_path}/i18n/{module_name}.pot",
+        }
+        if languages:
+            module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
+        existing_module_config = next((c for c in self.config["projects"][project] if c["name"] == module_name), None)
+        if existing_module_config:
+            existing_module_config.update(module_config)
+        else:
+            self.config["projects"][project].append(module_config)
+
+    def save(self) -> None:
+        """Save the Weblate config to a file.
+
+        :raises WeblateConfigError: If the given file could not be saved.
+        """
+        def sort_config(config: WeblateConfigType) -> WeblateConfigType:
+            return {
+                "projects": {
+                    project: sorted(components, key=lambda c: c.get("name", ""))
+                    for project, components in sorted(config["projects"].items())
+                },
+            }
+
+        try:
+            self.file_path.write_text(json.dumps(sort_config(self.config), indent=4))
+        except (OSError, json.JSONDecodeError) as e:
+            raise WeblateConfigError(self.file_path, "save") from e

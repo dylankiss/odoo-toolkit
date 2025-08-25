@@ -63,6 +63,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 | Command                       | Purpose                                                |
 | ----------------------------- | ------------------------------------------------------ |
+| [`otk wl add`](#otk-wl-add)   | Add modules to the Weblate config file.                |
 | [`otk wl copy`](#otk-wl-copy) | Copy translations from one Weblate project to another. |
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
@@ -457,7 +458,7 @@ $ otk dev stop [OPTIONS]
 
 **Work with Odoo translations on Weblate.**
 
-The following commands allow you to perform some operations on the Weblate server more efficiently than via the UI.
+The following commands allow you to perform operations related to Weblate.
 
 In order to connect to the Weblate server, you need to have an API key available in the `WEBLATE_API_TOKEN` variable in
 your environment. You can do this either by providing the variable in front of the command each time, like:
@@ -466,6 +467,40 @@ WEBLATE_API_TOKEN=wlu_XXXXXX... otk wl ...
 ```
 or make the variable available to your execution environment by putting it in your `.bashrc`, `.zshrc` or equivalent
 configuration file for your shell.
+
+
+## `otk wl add`
+
+**Add modules to the Weblate config file.**
+
+This command will add module entries to `.weblate.json` files. The `.weblate.json` files need to be located at the provided addons paths' roots. If not, a new file will be created. If the entries already exist, they will be updated.
+
+For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for SaaS versions. Other repos have their own project names. Check the Weblate URLs to find the right project slug.
+
+### Usage
+
+```console
+$ otk wl add [OPTIONS] MODULES...
+```
+e.g.
+
+```console
+$ otk wl add my_module -p odoo-18
+$ otk wl add l10n_be -p odoo-18-l10n -l nl -l fr -l de
+```
+
+### Arguments
+
+* `MODULES...`: Add these Odoo modules to `.weblate.json`, or either "all", "community", or "enterprise".  **[required]**
+
+### Options
+
+* `-p, --project TEXT`: Specify the Weblate project slug.  **[required]**
+* `-l, --language TEXT`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate.  [default: `[]`]
+* `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
+* `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
+* `--help`: Show this message and exit.
 
 
 ## `otk wl copy`
@@ -482,7 +517,7 @@ Finally you can specify which type of strings you want to have translated in the
 ### Usage
 
 ```console
-$ otk wl copy [OPTIONS] SRC_PROJECT DEST_PROJECT...
+$ otk wl copy [OPTIONS] SRC_PROJECT DEST_PROJECT
 ```
 e.g.
 

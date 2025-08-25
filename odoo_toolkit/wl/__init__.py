@@ -1,8 +1,10 @@
 from typer import Typer
 
+from .add import app as add_app
 from .copy import app as copy_app
 
 app = Typer(no_args_is_help=True)
+app.add_typer(add_app)
 app.add_typer(copy_app)
 
 
@@ -10,7 +12,7 @@ app.add_typer(copy_app)
 def callback() -> None:
     """Work with :earth_africa: Odoo translations on Weblate.
 
-    The following commands allow you to perform some operations on the Weblate server more efficiently than via the UI.
+    The following commands allow you to perform operations related to Weblate.
 
     In order to connect to the Weblate server, you need to have an API key available in the `WEBLATE_API_TOKEN` variable
     in your environment. You can do this either by providing the variable in front of the command each time, like

@@ -15,7 +15,7 @@ from odoo_toolkit.common import (
     print_success,
 )
 
-from .common import TxConfig, TxConfigError
+from .common import WeblateConfig, WeblateConfigError
 
 app = Typer()
 
@@ -24,10 +24,18 @@ app = Typer()
 def add(
     modules: Annotated[
         list[str],
-        Argument(help='Add these Odoo modules to .tx/config, or either "all", "community", or "enterprise".'),
+        Argument(help='Add these Odoo modules to `.weblate.json`, or either "all", "community", or "enterprise".'),
     ],
-    tx_project: Annotated[str, Option("--tx-project", "-p", help="Specify the Transifex project name.")],
-    tx_org: Annotated[str, Option("--tx-org", "-o", help="Specify the Transifex organization name.")] = "odoo",
+    project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
+    languages: Annotated[
+        list[str],
+        Option(
+            "--language",
+            "-l",
+            help="Define specific language codes for this component. Mostly used for localizations. "
+            "If none are given, it follows the default languages on Weblate.",
+        ),
+    ] = EMPTY_LIST,
     com_path: Annotated[
         Path,
         Option(
@@ -53,15 +61,16 @@ def add(
         ),
     ] = EMPTY_LIST,
 ) -> None:
-    """Add modules to the Transifex config file.
+    """Add modules to the Weblate config file.
 
-    This command will add module entries to `.tx/config` files. The `.tx/config` files need to be located at the
-    provided addons paths' roots. If the entries already exists, they will potentially be updated.
+    This command will add module entries to `.weblate.json` files. The `.weblate.json` files need to be located at the
+    provided addons paths' roots. If not, a new file will be created. If the entries already exist, they will be
+    updated.
 
-    For `odoo` and `enterprise`, the project name follows the format `odoo-18` for major versions and `odoo-s18-1` for
-    SaaS versions. Other repos have their own project names.
+    For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for
+    SaaS versions. Other repos have their own project names. Check the Weblate URLs to find the right project slug.
     """
-    print_command_title(":memo: Odoo Transifex Config Add")
+    print_command_title(":memo: Odoo Weblate Config Add")
 
     module_to_path = get_valid_modules_to_path_mapping(
         modules=modules,
@@ -85,16 +94,16 @@ def add(
 
     # For each addons path, add the given modules to the .tx/config.
     for addons_path, local_modules in addons_path_to_modules.items():
-        tx_config_path = addons_path / ".tx" / "config"
+        weblate_config_path = addons_path / ".weblate.json"
 
-        print_header(f"Updating [u]{tx_config_path}[/u]")
+        print_header(f"Updating [u]{weblate_config_path}[/u]")
 
-        tx_config = TxConfig(addons_path / ".tx" / "config")
+        weblate_config = WeblateConfig(weblate_config_path)
         for m in TransientProgress().track(local_modules, description="Adding modules ..."):
-            tx_config.add_module(module_to_path[m], tx_project, tx_org)
+            weblate_config.add_module(module_to_path[m], project, languages)
 
         try:
-            tx_config.save()
+            weblate_config.save()
             print_success("Config file successfully updated.\n")
-        except TxConfigError as e:
+        except WeblateConfigError as e:
             print_error("Config file update failed.", str(e))
