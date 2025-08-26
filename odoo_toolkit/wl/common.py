@@ -3,7 +3,7 @@ from collections import defaultdict
 from collections.abc import Generator
 from os import environ
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict, TypeVar
 from urllib.parse import urljoin
 
 from requests import HTTPError, JSONDecodeError, Response, Session
@@ -16,8 +16,16 @@ WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{langu
 
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
-WeblateJson = dict[str, "str | int | float | bool | tuple[str] | WeblateJson"]
+T = TypeVar("T")
 WeblateConfigType = dict[str, dict[str, list[dict[str, str]]]]
+
+
+class WeblatePagedResponse(TypedDict):
+    """Minimal response structure of Weblate paged results."""
+
+    count: int
+    next: str | None
+
 
 class WeblateApiError(Exception):
     """Custom exception for Weblate API errors."""
@@ -39,15 +47,15 @@ class WeblateApiError(Exception):
         except JSONDecodeError:
             self.errors = [{"code": None, "detail": response.text}]
 
-        message = f"HTTP {self.status_code} ({self.error_type}): The request failed with {len(self.errors)} error(s)."
-        super().__init__(message)
+        super().__init__(self.__str__())
 
     def __str__(self) -> str:
         """Provide a clean string representation, listing all errors."""
         error_list = [
-            f"Request URL: {self.response.request.url}",
-            f"Request Body: {self.response.request.body}",
-            f"Status Code: {self.status_code} ({self.error_type})",
+            f"HTTP {self.status_code} ({self.error_type}): The request failed with {len(self.errors)} error(s).",
+            f"  Request URL: {self.response.request.url}",
+            f"  Request Body: {self.response.request.body}",
+            f"  Status Code: {self.status_code} ({self.error_type})",
         ]
         for i, err in enumerate(self.errors):
             code = err.get("code", "N/A")
@@ -76,7 +84,7 @@ class WeblateApi:
             "User-Agent": "Odoo Toolkit",
         })
 
-    def _request(self, method: str, endpoint: str, *, json: WeblateJson | None = None) -> WeblateJson:
+    def _request(self, return_type: type[T], method: str, endpoint: str, *, json: dict[str, Any] | None = None) -> T:  # noqa: ARG002
         """Do an HTTP request and handle errors.
 
         :param method: An HTTP method verb.
@@ -88,11 +96,11 @@ class WeblateApi:
         response = self.session.request(method, url, json=json)
         try:
             response.raise_for_status()
-            return response.json() if response.content else {}
+            return response.json() if response.content else {} # pyright: ignore[reportReturnType]
         except (HTTPError, JSONDecodeError) as e:
             raise WeblateApiError(response) from e
 
-    def get_generator(self, endpoint: str) -> Generator[WeblateJson]:
+    def get_generator(self, return_type: type[T], endpoint: str) -> Generator[T]:  # noqa: ARG002
         """Fetch all results from a paginated Weblate API endpoint.
 
         :param endpoint: The API endpoint to access.
@@ -111,32 +119,41 @@ class WeblateApi:
             yield from data.get("results", [])
             current_url = data.get("next")
 
-    def get(self, endpoint: str, *, json: WeblateJson | None = None) -> WeblateJson:
+    def get(self, return_type: type[T], endpoint: str, *, json: dict[str, Any] | None = None) -> T:
         """Perform a GET request against a Weblate API endpoint.
 
         :param endpoint: The API endpoint to access.
         :param json: The JSON payload to send, defaults to None.
         :raises WeblateApiError: If the request returns an error.
         """
-        return self._request("GET", endpoint, json=json)
+        return self._request(return_type, "GET", endpoint, json=json)
 
-    def post(self, endpoint: str, *, json: WeblateJson | None = None) -> WeblateJson:
+    def post(self, return_type: type[T], endpoint: str, *, json: dict[str, Any] | None = None) -> T:
         """Perform a POST request against a Weblate API endpoint.
 
         :param endpoint: The API endpoint to access.
         :param json: The JSON payload to send, defaults to None.
         :raises WeblateApiError: If the request returns an error.
         """
-        return self._request("POST", endpoint, json=json)
+        return self._request(return_type, "POST", endpoint, json=json)
 
-    def put(self, endpoint: str, *, json: WeblateJson | None = None) -> WeblateJson:
-        """Perform a PUT request against a Weblate API endpoint.
+    def patch(self, return_type: type[T], endpoint: str, *, json: dict[str, Any] | None = None) -> T:
+        """Perform a PATCH request against a Weblate API endpoint.
 
         :param endpoint: The API endpoint to access.
         :param json: The JSON payload to send, defaults to None.
         :raises WeblateApiError: If the request returns an error.
         """
-        return self._request("PUT", endpoint, json=json)
+        return self._request(return_type, "PATCH", endpoint, json=json)
+
+    def delete(self, return_type: type[T], endpoint: str, *, json: dict[str, Any] | None = None) -> T:
+        """Perform a DELETE request against a Weblate API endpoint.
+
+        :param endpoint: The API endpoint to access.
+        :param json: The JSON payload to send, defaults to None.
+        :raises WeblateApiError: If the request returns an error.
+        """
+        return self._request(return_type, "DELETE", endpoint, json=json)
 
 
 class WeblateConfigError(Exception):

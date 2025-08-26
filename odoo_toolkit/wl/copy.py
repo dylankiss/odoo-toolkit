@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, cast
+from typing import Annotated
 
 from typer import Argument, Exit, Option, Typer
 
@@ -13,7 +13,14 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import WEBLATE_AUTOTRANSLATE_ENDPOINT, WEBLATE_PROJECT_COMPONENTS_ENDPOINT, WeblateApi, WeblateApiError
+from .common import (
+    WEBLATE_AUTOTRANSLATE_ENDPOINT,
+    WEBLATE_PROJECT_COMPONENTS_ENDPOINT,
+    WeblateApi,
+    WeblateApiError,
+    WeblateComponentResponse,
+    WeblatePagedResponse,
+)
 
 
 class FilterType(str, Enum):
@@ -77,9 +84,9 @@ def copy(
         raise Exit from e
 
     try:
-        total_dest_components = cast(
-            "int", weblate_api.get(WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=dest_project)).get("count", 0),
-        )
+        total_dest_components = weblate_api.get(
+            WeblatePagedResponse, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=dest_project),
+        ).get("count", 0)
     except WeblateApiError as e:
         print_error("Weblate API Error", str(e))
         raise Exit from e
@@ -109,8 +116,10 @@ def copy(
 def _get_project_components(api: WeblateApi, project: str) -> set[str]:
     """Fetch and return a set of component slugs for a given project."""
     try:
-        component_generator = api.get_generator(WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project))
-        return {cast("str", c.get("slug")) for c in component_generator}
+        component_generator = api.get_generator(
+            WeblateComponentResponse, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+        )
+        return {c.get("slug") for c in component_generator}
     except WeblateApiError as e:
         print_error(f"Weblate API Error: Failed to fetch components for project '{project}'.", str(e))
         raise Exit from e
@@ -128,7 +137,10 @@ def _copy_language_translations(
     for language in languages:
         try:
             api.post(
-                WEBLATE_AUTOTRANSLATE_ENDPOINT.format(project=dest_project, component=component, language=language),
+                str,
+                WEBLATE_AUTOTRANSLATE_ENDPOINT.format(
+                    project=dest_project, component=component, language=language,
+                ),
                 json={
                     "mode": "translate",
                     "filter_type": filter_type.value,
@@ -170,9 +182,11 @@ def _process_components(
             f"Copying translations from {src_project} to {dest_project}", total=total_dest_components,
         )
         try:
-            for dest_component in api.get_generator(WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=dest_project)):
+            for dest_component in api.get_generator(
+                WeblateComponentResponse, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=dest_project),
+            ):
                 progress.advance(progress_task)
-                component = cast("str", dest_component.get("slug"))
+                component = dest_component.get("slug")
 
                 if components and component not in components:
                     continue
