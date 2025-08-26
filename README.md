@@ -532,7 +532,7 @@ $ otk wl copy odoo-18 odoo-s18-4 -l fr -f all
 
 ### Options
 
-* `-l, --language TEXT`: The Weblate language codes to copy.  **[required]**
+* `-l, --language TEXT`: The language codes to copy.  **[required]**
 * `-c, --component TEXT`: The Weblate components to copy. Copies all components if none are specified.
 * `-f, --filter [all|nottranslated|todo|fuzzy]`: Specify which strings need to be changed. Either all strings (`all`), untranslated strings (`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).  [default: `nottranslated`]
 * `--help`: Show this message and exit.

@@ -225,3 +225,20 @@ class WeblateConfig:
             self.file_path.write_text(json.dumps(sort_config(self.config), indent=4))
         except (OSError, json.JSONDecodeError) as e:
             raise WeblateConfigError(self.file_path, "save") from e
+
+
+def get_weblate_lang(lang_code: str) -> str:
+    """Convert Odoo lang codes to Weblate ones."""
+    match lang_code:
+        case "ku":
+            return "ckb"
+        case "nb":
+            return "nb_NO"
+        case "sr@latin":
+            return "sr_Latn"
+        case "zh_CN":
+            return "zh_Hans"
+        case "zh_TW":
+            return "zh_Hant"
+        case _:
+            return lang_code

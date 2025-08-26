@@ -20,6 +20,7 @@ from .common import (
     WeblateApiError,
     WeblateComponentResponse,
     WeblatePagedResponse,
+    get_weblate_lang,
 )
 
 
@@ -46,7 +47,7 @@ def copy(
     ],
     languages: Annotated[
         list[str],
-        Option("--language", "-l", help="The Weblate language codes to copy."),
+        Option("--language", "-l", help="The language codes to copy."),
     ],
     components: Annotated[
         list[str],
@@ -76,6 +77,12 @@ def copy(
     Finally you can specify which type of strings you want to have translated in the destination project.
     """
     print_command_title(":memo: Odoo Weblate Copy Translations")
+
+    # Support comma-separated values as well.
+    if len(languages) == 1 and "," in languages[0]:
+        languages = languages[0].split(",")
+    if len(components) == 1 and "," in components[0]:
+        components = components[0].split(",")
 
     try:
         weblate_api = WeblateApi()
@@ -139,7 +146,7 @@ def _copy_language_translations(
             api.post(
                 str,
                 WEBLATE_AUTOTRANSLATE_ENDPOINT.format(
-                    project=dest_project, component=component, language=language,
+                    project=dest_project, component=component, language=get_weblate_lang(language),
                 ),
                 json={
                     "mode": "translate",
