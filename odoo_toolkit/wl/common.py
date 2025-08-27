@@ -13,6 +13,16 @@ WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
 
 WEBLATE_PROJECT_COMPONENTS_ENDPOINT = "/api/projects/{project}/components/"
 WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{language}/autotranslate/"
+WEBLATE_GROUPS_ENDPOINT = "/api/groups/"
+WEBLATE_GROUP_ENDPOINT = "/api/groups/{group}/"
+WEBLATE_GROUP_PROJECTS_ENDPOINT = "/api/groups/{group}/projects/"
+WEBLATE_GROUP_PROJECT_ENDPOINT = "/api/groups/{group}/projects/{project}/"
+WEBLATE_GROUP_ROLES_ENDPOINT = "/api/groups/{group}/roles/"
+WEBLATE_GROUP_ROLE_ENDPOINT = "/api/groups/{group}/roles/{role}/"
+WEBLATE_GROUP_LANGUAGES_ENDPOINT = "/api/groups/{group}/languages/"
+WEBLATE_GROUP_LANGUAGE_ENDPOINT = "/api/groups/{group}/languages/{language}/"
+WEBLATE_PROJECTS_ENDPOINT = "/api/projects/"
+WEBLATE_ROLES_ENDPOINT = "/api/roles/"
 
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
@@ -25,6 +35,39 @@ class WeblatePagedResponse(TypedDict):
 
     count: int
     next: str | None
+
+
+class WeblateProjectResponse(TypedDict):
+    """Minimal response structure of a Weblate project."""
+
+    id: int
+    slug: str
+
+
+class WeblateComponentResponse(TypedDict):
+    """Minimal response structure of a Weblate component."""
+
+    slug: str
+
+
+class WeblateGroupResponse(TypedDict):
+    """Minimal response structure of a Weblate group."""
+
+    id: int
+    name: str
+    defining_project: str | None
+    project_selection: int
+    language_selection: int
+    roles: list[str]
+    languages: list[str]
+    projects: list[str]
+
+
+class WeblateRoleResponse(TypedDict):
+    """Minimal response structure of a Weblate role."""
+
+    id: int
+    name: str
 
 
 class WeblateApiError(Exception):

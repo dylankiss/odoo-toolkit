@@ -2,10 +2,12 @@ from typer import Typer
 
 from .add import app as add_app
 from .copy import app as copy_app
+from .update_teams import app as update_teams
 
 app = Typer(no_args_is_help=True)
 app.add_typer(add_app)
 app.add_typer(copy_app)
+app.add_typer(update_teams)
 
 
 @app.callback()

@@ -61,10 +61,11 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
-| Command                       | Purpose                                                |
-| ----------------------------- | ------------------------------------------------------ |
-| [`otk wl add`](#otk-wl-add)   | Add modules to the Weblate config file.                |
-| [`otk wl copy`](#otk-wl-copy) | Copy translations from one Weblate project to another. |
+| Command                                       | Purpose                                                |
+| --------------------------------------------- | ------------------------------------------------------ |
+| [`otk wl add`](#otk-wl-add)                   | Add modules to the Weblate config file.                |
+| [`otk wl copy`](#otk-wl-copy)                 | Copy translations from one Weblate project to another. |
+| [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                      |
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
@@ -486,7 +487,7 @@ e.g.
 
 ```console
 $ otk wl add my_module -p odoo-18
-$ otk wl add l10n_be -p odoo-18-l10n -l nl -l fr -l de
+$ otk wl add l10n_be -p odoo-18-l10n -l nl,fr,de
 ```
 
 ### Arguments
@@ -535,6 +536,35 @@ $ otk wl copy odoo-18 odoo-s18-4 -l fr -f all
 * `-l, --language TEXT`: The language codes to copy.  **[required]**
 * `-c, --component TEXT`: The Weblate components to copy. Copies all components if none are specified.
 * `-f, --filter [all|nottranslated|todo|fuzzy]`: Specify which strings need to be changed. Either all strings (`all`), untranslated strings (`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).  [default: `nottranslated`]
+* `--help`: Show this message and exit.
+
+
+## `otk wl update-teams`
+
+**Update Weblate teams permissions.**
+
+This command will update the languages, projects, and/or roles associated with one or more teams in Weblate.
+
+### Usage
+
+```console
+$ otk wl update-teams [OPTIONS] TEAMS...
+```
+e.g.
+
+```console
+$ otk wl update-teams "Translators:*" -p -odoo-16,+odoo-19 -r "+Add suggestion"
+```
+
+### Arguments
+
+* `TEAMS...`: Names of the teams to update. Use glob patterns to match multiple teams with one string.  **[required]**
+
+### Options
+
+* `-l, --language TEXT`: The language codes to add or remove from the teams, or `all`. To add a language, prefix the code with `+`. To remove a language, prefix the code with `-`.
+* `-p, --project TEXT`: The project slugs to add or remove from the teams, or `all`, `public`, or `protected`. Only existing Weblate projects can be used. To add a project, prefix it with `+`. To remove a project, prefix it with `-`.
+* `-r, --role TEXT`: The roles to add or remove from the teams. The names need to match exactly with Weblate. To add a role, prefix it with `+`. To remove a role, prefix it with `-`.
 * `--help`: Show this message and exit.
 
 
