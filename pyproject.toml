@@ -1,6 +1,6 @@
 [project]
 name = "odoo-toolkit"
-version = "0.2.0"
+version = "0.3.0"
 description = "This toolkit contains a few useful tools for Odoo development."
 authors = [{ name = "Dylan Kiss", email = "dyki@odoo.com" }]
 requires-python = "~=3.10"
