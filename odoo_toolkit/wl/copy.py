@@ -38,18 +38,9 @@ app = Typer()
 
 @app.command()
 def copy(
-    src_project: Annotated[
-        str,
-        Argument(help="The Weblate project to copy the translations from."),
-    ],
-    dest_project: Annotated[
-        str,
-        Argument(help="The Weblate project to copy the translations to."),
-    ],
-    languages: Annotated[
-        list[str],
-        Option("--language", "-l", help="The language codes to copy."),
-    ],
+    src_project: Annotated[str, Argument(help="The Weblate project to copy the translations from.")],
+    dest_project: Annotated[str, Argument(help="The Weblate project to copy the translations to.")],
+    languages: Annotated[list[str], Option("--language", "-l", help="The language codes to copy.")],
     components: Annotated[
         list[str],
         Option(

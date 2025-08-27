@@ -64,8 +64,8 @@ def update_teams(
         Option(
             "--language",
             "-l",
-            help='The language codes to add or remove from the teams, or "all". '
-            'To add a language, prefix the code with "+". To remove a language, prefix the code with "-".',
+            help="The language codes to add or remove from the teams, or `all`. "
+            "To add a language, prefix the code with `+`. To remove a language, prefix the code with `-`.",
         ),
     ] = EMPTY_LIST,
     projects: Annotated[
@@ -73,9 +73,9 @@ def update_teams(
         Option(
             "--project",
             "-p",
-            help='The project slugs to add or remove from the teams, or "all", "public", or "protected". '
-            'Only existing Weblate projects can be used. '
-            'To add a project, prefix it with "+". To remove a project, prefix it with "-".',
+            help="The project slugs to add or remove from the teams, or `all`, `public`, or `protected`. "
+            "Only existing Weblate projects can be used. "
+            "To add a project, prefix it with `+`. To remove a project, prefix it with `-`.",
         ),
     ] = EMPTY_LIST,
     roles: Annotated[
@@ -83,8 +83,8 @@ def update_teams(
         Option(
             "--role",
             "-r",
-            help='The roles to add or remove from the teams. The names need to match exactly with Weblate. '
-            'To add a role, prefix it with "+". To remove a role, prefix it with "-".',
+            help="The roles to add or remove from the teams. The names need to match exactly with Weblate. "
+            "To add a role, prefix it with `+`. To remove a role, prefix it with `-`.",
         ),
     ] = EMPTY_LIST,
 ) -> None:

@@ -32,8 +32,8 @@ def start(
         Option(
             "--workspace",
             "-w",
-            help='Specify the path to your development workspace that will be mounted in the container\'s "/code" '
-                'directory.',
+            help="Specify the path to your development workspace that will be mounted in the container\'s `/code` "
+            "directory.",
         ),
     ] = Path("~/code/odoo-mv"),
     ubuntu_version: Annotated[

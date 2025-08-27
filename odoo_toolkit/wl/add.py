@@ -24,7 +24,7 @@ app = Typer()
 def add(
     modules: Annotated[
         list[str],
-        Argument(help='Add these Odoo modules to `.weblate.json`, or either "all", "community", or "enterprise".'),
+        Argument(help="Add these Odoo modules to `.weblate.json`, or either `all`, `community`, or `enterprise`."),
     ],
     project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
     languages: Annotated[

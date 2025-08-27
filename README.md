@@ -492,7 +492,7 @@ $ otk wl add l10n_be -p odoo-18-l10n -l nl,fr,de
 
 ### Arguments
 
-* `MODULES...`: Add these Odoo modules to `.weblate.json`, or either "all", "community", or "enterprise".  **[required]**
+* `MODULES...`: Add these Odoo modules to `.weblate.json`, or either `all`, `community`, or `enterprise`.  **[required]**
 
 ### Options
 
