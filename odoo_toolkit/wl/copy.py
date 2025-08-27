@@ -7,6 +7,7 @@ from odoo_toolkit.common import (
     EMPTY_LIST,
     Status,
     TransientProgress,
+    normalize_list_option,
     print_command_title,
     print_error,
     print_success,
@@ -79,10 +80,8 @@ def copy(
     print_command_title(":memo: Odoo Weblate Copy Translations")
 
     # Support comma-separated values as well.
-    if len(languages) == 1 and "," in languages[0]:
-        languages = languages[0].split(",")
-    if len(components) == 1 and "," in components[0]:
-        components = components[0].split(",")
+    languages = normalize_list_option(languages)
+    components = normalize_list_option(components)
 
     try:
         weblate_api = WeblateApi()

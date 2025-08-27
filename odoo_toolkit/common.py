@@ -330,3 +330,10 @@ def get_odoo_version(odoo_repo: Path) -> float | None:
             return float(raw_version[0] + (raw_version[1] / 10))
 
     return None
+
+
+def normalize_list_option(items: list[str]) -> list[str]:
+    """Normalize input by splitting comma-separated strings into a list."""
+    if len(items) == 1 and "," in items[0]:
+        return [item.strip() for item in items[0].split(",")]
+    return items
