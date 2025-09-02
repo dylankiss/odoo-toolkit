@@ -8,6 +8,7 @@ from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
     get_valid_modules_to_path_mapping,
+    normalize_list_option,
     print,
     print_command_title,
     print_error,
@@ -92,7 +93,7 @@ def add(
             addons_path_to_modules[addons_path].append(module)
     addons_path_to_modules = dict(addons_path_to_modules)
 
-    # For each addons path, add the given modules to the .tx/config.
+    # For each addons path, add the given modules to the .weblate.json.
     for addons_path, local_modules in addons_path_to_modules.items():
         weblate_config_path = addons_path / ".weblate.json"
 
@@ -100,7 +101,7 @@ def add(
 
         weblate_config = WeblateConfig(weblate_config_path)
         for m in TransientProgress().track(local_modules, description="Adding modules ..."):
-            weblate_config.add_module(module_to_path[m], project, languages)
+            weblate_config.add_module(module_to_path[m], project, normalize_list_option(languages))
 
         try:
             weblate_config.save()
