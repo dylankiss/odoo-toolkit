@@ -37,7 +37,7 @@ app = Typer()
 
 
 @app.command()
-def copy(
+def sync(
     src_project: Annotated[str, Argument(help="The Weblate project to copy the translations from.")],
     dest_project: Annotated[str, Argument(help="The Weblate project to copy the translations to.")],
     languages: Annotated[list[str], Option("--language", "-l", help="The language codes to copy.")],
@@ -59,7 +59,7 @@ def copy(
         ),
     ] = FilterType.NOTTRANSLATED,
 ) -> None:
-    """Copy translations from one Weblate project to another.
+    """Sync translations from one Weblate project to another.
 
     This command allows you to copy existing translations of components in one Weblate project to the same components in
     another Weblate project. You need to specify for which language(s) you want the translations copied.
@@ -68,7 +68,7 @@ def copy(
 
     Finally you can specify which type of strings you want to have translated in the destination project.
     """
-    print_command_title(":memo: Odoo Weblate Copy Translations")
+    print_command_title(":memo: Odoo Weblate Sync Translations")
 
     # Support comma-separated values as well.
     languages = normalize_list_option(languages)

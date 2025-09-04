@@ -92,7 +92,7 @@ def update_teams(
 
     This command will update the languages, projects, and/or roles associated with one or more teams in Weblate.
     """
-    print_command_title("Odoo Weblate Teams: Update")
+    print_command_title(":closed_lock_with_key: Odoo Weblate Teams: Update")
 
     # Support comma-separated values as well.
     languages = normalize_list_option(languages)
