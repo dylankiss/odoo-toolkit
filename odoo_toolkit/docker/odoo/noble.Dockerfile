@@ -5,10 +5,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     NODE_ENV=production \
     TERM=xterm-256color \
-    # Keeps Python from generating .pyc files in the container
+    # Keep Python from generating .pyc files in the container
     PYTHONDONTWRITEBYTECODE=1 \
-    # Turns off buffering for easier container logging
-    PYTHONUNBUFFERED=1
+    # Turn off buffering for easier container logging
+    PYTHONUNBUFFERED=1 \
+    # Disable hash randomization
+    PYTHONHASHSEED=0
 
 # Add GeoIP databases
 ADD https://github.com/maxmind/MaxMind-DB/raw/main/test-data/GeoIP2-City-Test.mmdb /usr/share/GeoIP/GeoLite2-City.mmdb
@@ -96,10 +98,16 @@ RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wk
         python3-lxml \
         # lxml-html-clean
         python3-lxml-html-clean \
+        # magic==0.4.27
+        python3-magic \
         # markdown==3.5.2 (upgrade, upgrade-util)
         python3-markdown \
+        # markdown2==2.4.11 (ai_agent, ai_fields)
+        python3-markdown2 \
         # MarkupSafe==2.1.5
         python3-markupsafe \
+        # maxminddb==2.5.2
+        python3-maxminddb \
         # num2words==0.5.13
         python3-num2words \
         # ofxparse==0.21
@@ -261,9 +269,11 @@ ENV PATH="/home/odoo/.local/bin:$PATH"
 # Install Python dependencies via pip that are not available as Debian package or need a newer version
 RUN pip install --no-cache-dir --break-system-packages \
         # Install Odoo dependencies
+        cn2an \
         ebaysdk \
         firebase-admin==2.17.0 \
         inotify \
+        jingtrang \
         pdf417gen \
         # Install documentation dependencies
         pygments-csv-lexer~=0.1 \
