@@ -61,11 +61,12 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
-| Command                                       | Purpose                                                |
-| --------------------------------------------- | ------------------------------------------------------ |
-| [`otk wl add`](#otk-wl-add)                   | Add modules to the Weblate config file.                |
-| [`otk wl copy`](#otk-wl-copy)                 | Copy translations from one Weblate project to another. |
-| [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                      |
+| Command                                       | Purpose                                                                    |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| [`otk wl add`](#otk-wl-add)                   | Add modules to the Weblate config file.                                    |
+| [`otk wl sync`](#otk-wl-sync)                 | Sync translations from one Weblate project to another.                     |
+| [`otk wl transfer`](#otk-wl-transfer)         | Transfer translations from one language, component, or project to another. |
+| [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                                          |
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
@@ -504,9 +505,9 @@ $ otk wl add l10n_be -p odoo-18-l10n -l nl,fr,de
 * `--help`: Show this message and exit.
 
 
-## `otk wl copy`
+## `otk wl sync`
 
-**Copy translations from one Weblate project to another.**
+**Sync translations from one Weblate project to another.**
 
 This command allows you to copy existing translations of components in one Weblate project to the same components in
 another Weblate project. You need to specify for which language(s) you want the translations copied.
@@ -518,12 +519,12 @@ Finally you can specify which type of strings you want to have translated in the
 ### Usage
 
 ```console
-$ otk wl copy [OPTIONS] SRC_PROJECT DEST_PROJECT
+$ otk wl sync [OPTIONS] SRC_PROJECT DEST_PROJECT
 ```
 e.g.
 
 ```console
-$ otk wl copy odoo-18 odoo-s18-4 -l fr -f all
+$ otk wl sync odoo-18 odoo-s18-4 -l fr -f all
 ```
 
 ### Arguments
@@ -536,6 +537,41 @@ $ otk wl copy odoo-18 odoo-s18-4 -l fr -f all
 * `-l, --language TEXT`: The language codes to copy.  **[required]**
 * `-c, --component TEXT`: The Weblate components to copy. Copies all components if none are specified.
 * `-f, --filter [all|nottranslated|todo|fuzzy]`: Specify which strings need to be changed. Either all strings (`all`), untranslated strings (`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).  [default: `nottranslated`]
+* `--help`: Show this message and exit.
+
+
+## `otk wl transfer`
+
+**Transfer translations from one language, component, or project to another.**
+
+This command allows you to copy existing translations of components in Weblate to either another language, another component, and/or another project.
+
+If you don't define a destination project, it will copy inside the same project.
+If you don't define a destination language, it will copy to the same language.
+If you don't define a source component, it will copy all components within the source project.
+If you don't define a target component, it will copy to the same components in the target project.
+
+### Usage
+
+```console
+$ otk wl transfer [OPTIONS]
+```
+e.g.
+
+```console
+$ otk wl transfer -p odoo-18 -l pt_BR -L pt -o ignore
+```
+
+### Options
+
+* `-p, --src-project TEXT`: The Weblate project to copy translations from.  **[required]**
+* `-l, --src-language TEXT`: The language code to copy translations from.  **[required]**
+* `-P, --dest-project TEXT`: The Weblate project to copy translations to.
+* `-L, --dest-language TEXT`: The language code to copy translations to.
+* `-c, --src-component TEXT`: The Weblate component to copy translations from.
+* `-C, --dest-component TEXT`: The Weblate component to copy translations to.
+* `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).
+* `-o, --overwrite [ignore|replace-translated|replace-reviewed]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even reviewed translations (`replace-reviewed`).
 * `--help`: Show this message and exit.
 
 

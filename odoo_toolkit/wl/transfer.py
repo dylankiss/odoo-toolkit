@@ -20,6 +20,7 @@ from .common import (
     WeblateComponentResponse,
     WeblatePagedResponse,
     WeblateTranslationsUploadResponse,
+    get_weblate_lang,
 )
 
 
@@ -196,13 +197,13 @@ def _upload_translations(
 ) -> WeblateTranslationsUploadResponse:
     po_file: bytes = api.get_bytes(
         WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-            project=src_project, component=src_component, language=src_language,
+            project=src_project, component=src_component, language=get_weblate_lang(src_language),
         ),
     )
     return api.post(
         WeblateTranslationsUploadResponse,
         WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-            project=dest_project, component=dest_component, language=dest_language,
+            project=dest_project, component=dest_component, language=get_weblate_lang(dest_language),
         ),
         data=upload_data,
         files={"file": ("upload.po", re.sub(po_clean_header_pattern, b"", po_file))},
