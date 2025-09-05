@@ -300,24 +300,34 @@ class WeblateConfig:
         :raises WeblateConfigError: If the given file could not be loaded or parsed.
         """
         self.file_path = file_path
-        self.config = defaultdict[str, dict[str, list[dict[str, str]]]](lambda: defaultdict[str, list[dict[str, str]]](list))
+        self.config: dict[str, dict[str, list[dict[str, str]]]] = {
+            "projects": defaultdict[str, list[dict[str, str]]](list),
+        }
 
         if self.file_path.is_file():
             try:
-                self.config.update(json.loads(self.file_path.read_text()))
+                projects = json.loads(self.file_path.read_text()).get("projects")
+                if projects:
+                    self.config["projects"].update(projects)
             except (OSError, json.JSONDecodeError) as e:
                 raise WeblateConfigError(self.file_path, "load") from e
 
-    def add_module(self, module_path: Path, project: str, languages: list[str]) -> bool:
-        """Add a module configuration to the Weblate config file, if its `.pot` file exists.
+    def update_module(self, module_path: Path, project: str, languages: list[str]) -> bool:
+        """Update a module configuration in the Weblate config file.
 
-        :param module_path: The path to the module to add.
+        If the `.pot` file exists, the module configuration will be added or updated.
+        If the `.pot` file doesn't exist, the module configuration will be removed.
+
+        :param module_path: The path to the module to update.
         :param project: The Weblate project slug.
         :param languages: The specific language codes to translate this module into.
-        :return: True if the module was added, False if it couldn't be added.
+        :return: True if the module was added or updated, False if it couldn't be added or updated, or was removed.
         """
         module_name = module_path.name
+        existing_module_config = next((c for c in self.config["projects"][project] if c["name"] == module_name), None)
         if not (module_path / "i18n" / f"{module_name}.pot").is_file():
+            if existing_module_config:
+                self.config["projects"][project].remove(existing_module_config)
             return False
 
         relative_module_path = module_path.relative_to(self.file_path.parent)
@@ -328,7 +338,6 @@ class WeblateConfig:
         }
         if languages:
             module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
-        existing_module_config = next((c for c in self.config["projects"][project] if c["name"] == module_name), None)
         if existing_module_config:
             existing_module_config.update(module_config)
         else:
@@ -356,16 +365,11 @@ class WeblateConfig:
 
 def get_weblate_lang(lang_code: str) -> str:
     """Convert Odoo lang codes to Weblate ones."""
-    match lang_code:
-        case "ku":
-            return "ckb"
-        case "nb":
-            return "nb_NO"
-        case "sr@latin":
-            return "sr_Latn"
-        case "zh_CN":
-            return "zh_Hans"
-        case "zh_TW":
-            return "zh_Hant"
-        case _:
-            return lang_code
+    lang_mapping = {
+        "ku": "ckb",
+        "nb": "nb_NO",
+        "sr@latin": "sr_Latn",
+        "zh_CN": "zh_Hans",
+        "zh_TW": "zh_Hant",
+    }
+    return lang_mapping.get(lang_code, lang_code)

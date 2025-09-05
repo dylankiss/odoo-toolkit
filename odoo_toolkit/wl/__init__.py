@@ -1,15 +1,15 @@
 from typer import Typer
 
-from .add import app as add_app
+from .config import app as config_app
 from .sync import app as sync_app
 from .transfer import app as transfer_app
-from .update_teams import app as update_teams
+from .update_teams import app as update_teams_app
 
 app = Typer(no_args_is_help=True)
-app.add_typer(add_app)
+app.add_typer(config_app)
 app.add_typer(sync_app)
 app.add_typer(transfer_app)
-app.add_typer(update_teams)
+app.add_typer(update_teams_app)
 
 
 @app.callback()

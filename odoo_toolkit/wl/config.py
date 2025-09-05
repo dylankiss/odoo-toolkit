@@ -1,4 +1,5 @@
 from collections import defaultdict
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
@@ -22,12 +23,15 @@ app = Typer()
 
 
 @app.command()
-def add(
+def config(
     modules: Annotated[
         list[str],
-        Argument(help="Add these Odoo modules to `.weblate.json`, or either `all`, `community`, or `enterprise`."),
+        Argument(help="Include these Odoo modules in `.weblate.json`, or either `all`, `community`, or `enterprise`."),
     ],
     project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
+    exclude: Annotated[
+        list[str], Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
+    ] = EMPTY_LIST,
     languages: Annotated[
         list[str],
         Option(
@@ -62,25 +66,25 @@ def add(
         ),
     ] = EMPTY_LIST,
 ) -> None:
-    """Add modules to the Weblate config file.
+    """Update modules in the Weblate config file.
 
-    This command will add module entries to `.weblate.json` files. The `.weblate.json` files need to be located at the
-    provided addons paths' roots. If not, a new file will be created. If the entries already exist, they will be
-    updated.
+    This command will add, update, or remove module entries in `.weblate.json` files. The `.weblate.json` files need to
+    be located at the provided addons paths' roots. If not, a new file will be created.
 
     For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for
-    SaaS versions. Other repos have their own project names. Check the Weblate URLs to find the right project slug.
+    SaaS versions. Other repos have their own project slugs. Check the Weblate URLs to find the right project slug.
     """
-    print_command_title(":memo: Odoo Weblate Config Add")
+    print_command_title(":memo: Odoo Weblate Config")
 
     module_to_path = get_valid_modules_to_path_mapping(
         modules=modules,
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
+        filter_fn=lambda m: not any(fnmatch(m, p) for p in normalize_list_option(exclude)),
     )
 
-    print(f"Modules to add: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
+    print(f"Modules to include: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
 
     # Combine all paths into one list.
     all_addons_paths = [p.expanduser().resolve() for p in [com_path, ent_path, *extra_addons_paths]]
@@ -100,17 +104,17 @@ def add(
         print_header(f"Updating [u]{weblate_config_path}[/u]")
 
         weblate_config = WeblateConfig(weblate_config_path)
-        added, skipped = 0, 0
-        for m in TransientProgress().track(local_modules, description="Adding modules ..."):
-            if weblate_config.add_module(module_to_path[m], project, normalize_list_option(languages)):
-                added += 1
+        updated, skipped = 0, 0
+        for m in TransientProgress().track(local_modules, description="Updating modules ..."):
+            if weblate_config.update_module(module_to_path[m], project, normalize_list_option(languages)):
+                updated += 1
             else:
                 skipped += 1
 
         try:
             weblate_config.save()
-            print(f"Modules added or updated: [b]{added}[/b]")
-            print(f"Modules skipped: [b]{skipped}[/b]")
+            print(f"Modules added or updated: [b]{updated}[/b]")
+            print(f"Modules skipped or removed: [b]{skipped}[/b]")
             print_success("Config file successfully updated.\n")
         except WeblateConfigError as e:
             print_error("Config file update failed.\n", str(e))

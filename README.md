@@ -63,7 +63,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 | Command                                       | Purpose                                                                    |
 | --------------------------------------------- | -------------------------------------------------------------------------- |
-| [`otk wl add`](#otk-wl-add)                   | Add modules to the Weblate config file.                                    |
+| [`otk wl config`](#otk-wl-config)             | Update modules in the Weblate config file.                                 |
 | [`otk wl sync`](#otk-wl-sync)                 | Sync translations from one Weblate project to another.                     |
 | [`otk wl transfer`](#otk-wl-transfer)         | Transfer translations from one language, component, or project to another. |
 | [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                                          |
@@ -471,33 +471,34 @@ or make the variable available to your execution environment by putting it in yo
 configuration file for your shell.
 
 
-## `otk wl add`
+## `otk wl config`
 
-**Add modules to the Weblate config file.**
+**Update modules in the Weblate config file.**
 
-This command will add module entries to `.weblate.json` files. The `.weblate.json` files need to be located at the provided addons paths' roots. If not, a new file will be created. If the entries already exist, they will be updated.
+This command will add, update, or remove module entries in `.weblate.json` files. The `.weblate.json` files need to be located at the provided addons paths' roots. If not, a new file will be created.
 
-For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for SaaS versions. Other repos have their own project names. Check the Weblate URLs to find the right project slug.
+For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for SaaS versions. Other repos have their own project slugs. Check the Weblate URLs to find the right project slug.
 
 ### Usage
 
 ```console
-$ otk wl add [OPTIONS] MODULES...
+$ otk wl config [OPTIONS] MODULES...
 ```
 e.g.
 
 ```console
-$ otk wl add my_module -p odoo-18
-$ otk wl add l10n_be -p odoo-18-l10n -l nl,fr,de
+$ otk wl config all -p odoo-18 -x "l10n_*,test_*,*_test"
+$ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 ```
 
 ### Arguments
 
-* `MODULES...`: Add these Odoo modules to `.weblate.json`, or either `all`, `community`, or `enterprise`.  **[required]**
+* `MODULES...`: Include these Odoo modules in `.weblate.json`, or either `all`, `community`, or `enterprise`.  **[required]**
 
 ### Options
 
 * `-p, --project TEXT`: Specify the Weblate project slug.  **[required]**
+* `-x, --exclude TEXT`: Exclude these modules from being added or updated.  [default: `[]`]
 * `-l, --language TEXT`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate.  [default: `[]`]
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
