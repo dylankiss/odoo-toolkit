@@ -100,11 +100,17 @@ def add(
         print_header(f"Updating [u]{weblate_config_path}[/u]")
 
         weblate_config = WeblateConfig(weblate_config_path)
+        added, skipped = 0, 0
         for m in TransientProgress().track(local_modules, description="Adding modules ..."):
-            weblate_config.add_module(module_to_path[m], project, normalize_list_option(languages))
+            if weblate_config.add_module(module_to_path[m], project, normalize_list_option(languages)):
+                added += 1
+            else:
+                skipped += 1
 
         try:
             weblate_config.save()
+            print(f"Modules added or updated: [b]{added}[/b]")
+            print(f"Modules skipped: [b]{skipped}[/b]")
             print_success("Config file successfully updated.\n")
         except WeblateConfigError as e:
-            print_error("Config file update failed.", str(e))
+            print_error("Config file update failed.\n", str(e))

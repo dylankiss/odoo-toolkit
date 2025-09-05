@@ -308,15 +308,19 @@ class WeblateConfig:
             except (OSError, json.JSONDecodeError) as e:
                 raise WeblateConfigError(self.file_path, "load") from e
 
-    def add_module(self, module_path: Path, project: str, languages: list[str]) -> None:
-        """Add a module configuration to the Weblate config file.
+    def add_module(self, module_path: Path, project: str, languages: list[str]) -> bool:
+        """Add a module configuration to the Weblate config file, if its `.pot` file exists.
 
         :param module_path: The path to the module to add.
         :param project: The Weblate project slug.
         :param languages: The specific language codes to translate this module into.
+        :return: True if the module was added, False if it couldn't be added.
         """
         module_name = module_path.name
-        relative_module_path = module_path.relative_to(self.file_path.parent.parent)
+        if not (module_path / "i18n" / f"{module_name}.pot").is_file():
+            return False
+
+        relative_module_path = module_path.relative_to(self.file_path.parent)
         module_config = {
             "name": module_name,
             "filemask": f"{relative_module_path}/i18n/*.po",
@@ -329,6 +333,7 @@ class WeblateConfig:
             existing_module_config.update(module_config)
         else:
             self.config["projects"][project].append(module_config)
+        return True
 
     def save(self) -> None:
         """Save the Weblate config to a file.
@@ -344,7 +349,7 @@ class WeblateConfig:
             }
 
         try:
-            self.file_path.write_text(json.dumps(sort_config(self.config), indent=4))
+            self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n")
         except (OSError, json.JSONDecodeError) as e:
             raise WeblateConfigError(self.file_path, "save") from e
 
