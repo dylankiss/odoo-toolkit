@@ -66,7 +66,7 @@ def export(
         list[str],
         Argument(
             help="Export `.pot` files for these Odoo modules (supports glob patterns), or either `all`, `community`,"
-                "or `enterprise`.",
+            "or `enterprise`.",
         ),
     ],
     start_server: Annotated[
@@ -79,7 +79,11 @@ def export(
     ] = True,
     full_install: Annotated[
         bool,
-        Option("--full-install", help="Install every available Odoo module.", rich_help_panel="Odoo Server Options"),
+        Option(
+            "--full-install",
+            help="Install every available Odoo module in Community and Enterprise.",
+            rich_help_panel="Odoo Server Options",
+        ),
     ] = False,
     quick_install: Annotated[
         bool,
@@ -655,18 +659,13 @@ def _get_modules_per_server_type(
         if p.is_relative_to(com_modules_path):
             modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
             modules_to_install[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
-        elif p.is_relative_to(ent_modules_path) or m == "base":
+        elif p.is_relative_to(ent_modules_path):
             modules_to_export[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
             modules_to_install[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
-        elif any(p.is_relative_to(emp) for emp in extra_modules_paths):
+        elif any(p.is_relative_to(emp) for emp in extra_modules_paths)  or m == "base":
+            # We want to export base with all addons paths, so we can get all module definitions in there.
             modules_to_export[_ServerType.CUSTOM].add(m)
             modules_to_install[_ServerType.CUSTOM].add(m)
-    if "base" in modules_to_export[_ServerType.ENT] and modules_to_export[_ServerType.CUSTOM]:
-        # If we have extra modules on the addons path, we want to export `base` from there, so it has all module definitions.
-        modules_to_install[_ServerType.CUSTOM].add("base")
-        modules_to_export[_ServerType.CUSTOM].add("base")
-        modules_to_install[_ServerType.ENT].discard("base")
-        modules_to_export[_ServerType.ENT].discard("base")
 
     # Determine all modules to install per server type.
     if full_install:
@@ -793,19 +792,6 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.ENT_L10N].add(m)
         else:
             modules[_ServerType.ENT].add(m)
-
-    # Add the base module.
-    modules[_ServerType.ENT].add("base")
-
-    # Add all custom modules.
-    modules[_ServerType.CUSTOM].update(
-        f.parent.name for p in extra_modules_paths for f in p.glob("*/__manifest__.py")
-    )
-
-    if "base" in modules[_ServerType.ENT] and modules[_ServerType.CUSTOM]:
-        # If we have extra modules on the addons path, we want to export `base` from there, so it has all module definitions.
-        modules[_ServerType.CUSTOM].add("base")
-        modules[_ServerType.ENT].discard("base")
 
     return modules
 
