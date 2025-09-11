@@ -583,13 +583,8 @@ def _export_module_terms(
             )
             continue
 
-        pot_metadata = None
-        with suppress(OSError, ValueError):
-            pot_metadata = pofile(str(pot_path)).metadata
         try:
             pot = pofile(pot_file_content.decode())
-            if pot_metadata:
-                pot.metadata = pot_metadata
             pot.save(str(pot_path))
         except (OSError, ValueError):
             export_table.add_row(
