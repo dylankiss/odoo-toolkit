@@ -436,7 +436,7 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
         data.server_error = True
         data.error_msg = "Could not connect to the database! Terminating the process ..."
 
-    if "odoo.modules.loading: init db" in log_line:
+    if "odoo.modules.loading: init db" in log_line or "odoo.modules.loading: Initializing database" in log_line:
         data.log_buffer = ""
         data.database_created = True
         print(f"{data.server_formatted} Database [b]{data.database}[/b] has been created :white_check_mark:")
