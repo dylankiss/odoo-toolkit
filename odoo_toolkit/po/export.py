@@ -561,13 +561,13 @@ def _export_module_terms(
                 "[d]Exporting the .pot file failed[/d] :negative_squared_cross_mark:",
             )
             continue
-        pot_file_content = b64decode(pot_file[0]["data"])
+        pot_file_content = b64decode(pot_file[0]["data"]) if pot_file[0].get("data") else False
         i18n_path = module_to_path[module_name] / "i18n"
         if not i18n_path.exists():
             i18n_path.mkdir()
         pot_path = i18n_path / f"{module_name}.pot"
 
-        if _is_pot_file_empty(pot_file_content):
+        if not pot_file_content or _is_pot_file_empty(pot_file_content):
             if pot_path.is_file():
                 # Remove empty .pot files.
                 pot_path.unlink()
