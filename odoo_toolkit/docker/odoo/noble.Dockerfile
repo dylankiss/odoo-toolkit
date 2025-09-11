@@ -98,7 +98,7 @@ RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wk
         python3-lxml \
         # lxml-html-clean
         python3-lxml-html-clean \
-        # magic==0.4.27
+        # python-magic==0.4.27
         python3-magic \
         # markdown==3.5.2 (upgrade, upgrade-util)
         python3-markdown \

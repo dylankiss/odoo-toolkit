@@ -8,7 +8,6 @@ from multiprocessing import Manager
 from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Annotated, cast
-from venv import EnvBuilder
 
 from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from typer import Exit, Option, Typer
@@ -769,16 +768,20 @@ def _configure_python_env_for_branch(
     if venv_path.is_dir() and reset_config:
         shutil.rmtree(venv_path)
 
-    EnvBuilder(with_pip=True, symlinks=True, upgrade=not reset_config, upgrade_deps=True).create(venv_path)
+    # Find the system Python interpreter to create the virtual environment with.
+    python = shutil.which("python3") or "python3"
 
-    # Locate the Python executable in the virtual environment.
-    python = venv_path / "bin" / "python"  # Linux and MacOS
-    if not python.exists():
-        python = venv_path / "Scripts" / "python.exe"  # Windows
-
-    # Install Python dependencies using pip.
     cmd = []
     try:
+        # Try creating the virtual environment.
+        cmd = [python, "-m", "venv", str(venv_path)]
+        subprocess.run(cmd, capture_output=True, check=True)
+
+        # Locate the Python executable in the virtual environment.
+        python = venv_path / "bin" / "python"  # Linux and MacOS
+        if not python.exists():
+            python = venv_path / "Scripts" / "python.exe"  # Windows
+
         # Try upgrading pip.
         cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
         subprocess.run(cmd, capture_output=True, check=True)
