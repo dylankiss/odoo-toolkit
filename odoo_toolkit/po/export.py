@@ -661,6 +661,12 @@ def _get_modules_per_server_type(
         elif any(p.is_relative_to(emp) for emp in extra_modules_paths):
             modules_to_export[_ServerType.CUSTOM].add(m)
             modules_to_install[_ServerType.CUSTOM].add(m)
+    if "base" in modules_to_export[_ServerType.ENT] and modules_to_export[_ServerType.CUSTOM]:
+        # If we have extra modules on the addons path, we want to export `base` from there, so it has all module definitions.
+        modules_to_install[_ServerType.CUSTOM].add("base")
+        modules_to_export[_ServerType.CUSTOM].add("base")
+        modules_to_install[_ServerType.ENT].discard("base")
+        modules_to_export[_ServerType.ENT].discard("base")
 
     # Determine all modules to install per server type.
     if full_install:
@@ -795,6 +801,11 @@ def _get_full_install_modules_per_server_type(
     modules[_ServerType.CUSTOM].update(
         f.parent.name for p in extra_modules_paths for f in p.glob("*/__manifest__.py")
     )
+
+    if "base" in modules[_ServerType.ENT] and modules[_ServerType.CUSTOM]:
+        # If we have extra modules on the addons path, we want to export `base` from there, so it has all module definitions.
+        modules[_ServerType.CUSTOM].add("base")
+        modules[_ServerType.ENT].discard("base")
 
     return modules
 
