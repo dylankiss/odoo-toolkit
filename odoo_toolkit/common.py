@@ -251,10 +251,10 @@ def get_valid_modules_to_path_mapping(
                 modules_to_consider = {m for m in ent_modules if not filter_fn or filter_fn(m)}
             case _:
                 modules = modules_text.split(",")
-                modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
+                modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m))}
     else:
         modules = {re.sub(r",", "", m) for m in modules}
-        modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules)}
+        modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m))}
 
     if not modules_to_consider:
         return {}
