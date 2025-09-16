@@ -37,7 +37,7 @@ class UploadConflicts(str, Enum):
 
     IGNORE = "ignore"
     REPLACE_TRANSLATED = "replace-translated"
-    REPLACE_REVIEWED = "replace-reviewed"
+    REPLACE_APPROVED = "replace-approved"
 
 
 app = Typer()
@@ -75,7 +75,7 @@ def transfer(
             "--overwrite",
             "-o",
             help="Specify what the upload should do. Either don't overwrite existing translations (`ignore`), "
-            "overwrite only non-reviewed translations (`replace-translated`), or overwrite even reviewed translations (`replace-reviewed`).",
+            "overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).",
         ),
     ] = UploadConflicts.REPLACE_TRANSLATED,
 ) -> None:

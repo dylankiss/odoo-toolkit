@@ -572,7 +572,7 @@ $ otk wl transfer -p odoo-18 -l pt_BR -L pt -o ignore
 * `-c, --src-component TEXT`: The Weblate component to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
 * `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).
-* `-o, --overwrite [ignore|replace-translated|replace-reviewed]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even reviewed translations (`replace-reviewed`).
+* `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).
 * `--help`: Show this message and exit.
 
 

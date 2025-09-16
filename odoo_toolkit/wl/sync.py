@@ -173,10 +173,11 @@ def _process_components(
     """
     counts = {Status.SUCCESS: 0, Status.PARTIAL: 0, Status.FAILURE: 0}
     src_components = _get_project_components(api, src_project)
+    remaining_components = set(components)
 
     with TransientProgress() as progress:
         progress_task = progress.add_task(
-            f"Copying translations from {src_project} to {dest_project}", total=total_dest_components,
+            f"Copying translations from [b]{src_project}[/b] to [b]{dest_project}[/b]", total=total_dest_components,
         )
         try:
             for dest_component in api.get_generator(
@@ -191,8 +192,17 @@ def _process_components(
                     print_warning(f"Component '{component}' not found in source project '{src_project}'. Skipping.")
                     continue
 
+                progress.update(
+                    progress_task,
+                    description=f"Copying translations from [b]{src_project}[/b] to [b]{dest_project}[/b] for [b]{component}[/b]",
+                )
+
                 status = _copy_language_translations(api, src_project, dest_project, component, languages, filter_type)
                 counts[status] += 1
+                if components:
+                    remaining_components.discard(component)
+                    if not remaining_components:
+                        break
         except WeblateApiError as e:
             print_error("Fetching components failed.", str(e))
             counts[Status.FAILURE] += 1

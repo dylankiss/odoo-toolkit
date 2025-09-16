@@ -103,10 +103,13 @@ class WeblateApiError(Exception):
 
     def __str__(self) -> str:
         """Provide a clean string representation, listing all errors."""
+        headers = {**self.response.request.headers}
+        if "Authorization" in headers and headers["Authorization"].startswith("Token "):
+            headers["Authorization"] = "Token **********"
         error_list = [
             f"HTTP {self.status_code} ({self.error_type}): The request failed with {len(self.errors)} error(s).",
             f"  Request URL: {self.response.request.url}",
-            f"  Request Headers: {self.response.request.headers}",
+            f"  Request Headers: {headers}",
             f"  Request Body: {self.response.request.body}",
             f"  Status Code: {self.status_code} ({self.error_type})",
         ]
@@ -361,6 +364,13 @@ class WeblateConfig:
             self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n")
         except (OSError, json.JSONDecodeError) as e:
             raise WeblateConfigError(self.file_path, "save") from e
+
+    def clear(self, project: str | None = None) -> None:
+        """Clear one or all projects' components from the config."""
+        if project:
+            self.config["projects"].get(project, {}).clear()
+        else:
+            self.config["projects"].clear()
 
 
 def get_weblate_lang(lang_code: str) -> str:

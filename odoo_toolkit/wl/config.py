@@ -30,7 +30,8 @@ def config(
     ],
     project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
+        list[str],
+        Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
     ] = EMPTY_LIST,
     languages: Annotated[
         list[str],
@@ -41,6 +42,9 @@ def config(
             "If none are given, it follows the default languages on Weblate.",
         ),
     ] = EMPTY_LIST,
+    reset: Annotated[
+        bool, Option("--reset", "-r", help="Reset the config file for the given project and only add the given modules."),
+    ] = False,
     com_path: Annotated[
         Path,
         Option(
@@ -104,6 +108,8 @@ def config(
         print_header(f"Updating [u]{weblate_config_path}[/u]")
 
         weblate_config = WeblateConfig(weblate_config_path)
+        if reset:
+            weblate_config.clear(project)
         updated, skipped = 0, 0
         for m in TransientProgress().track(local_modules, description="Updating modules ..."):
             if weblate_config.update_module(module_to_path[m], project, normalize_list_option(languages)):

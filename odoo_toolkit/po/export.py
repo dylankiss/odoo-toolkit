@@ -37,7 +37,7 @@ from odoo_toolkit.common import (
 
 HTTPS_PORT = 443
 WITH_DEMO_VERSION = 18.3
-DEFAULT_EXCLUDE = ["*l10n_*", "*theme_", "*hw_*", "*test*", "pos_blackbox_be"]
+DEFAULT_EXCLUDE = ["*l10n_*", "*theme_*", "*hw_*", "*test*", "pos_blackbox_be"]
 
 app = Typer()
 
