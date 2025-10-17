@@ -1,8 +1,10 @@
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
-from polib import POFile, pofile
+from polib import pofile
 from rich.console import RenderableType
 from rich.tree import Tree
 from typer import Argument, Exit, Option, Typer
@@ -13,6 +15,7 @@ from odoo_toolkit.common import (
     TransientProgress,
     get_error_log_panel,
     get_valid_modules_to_path_mapping,
+    normalize_list_option,
     print,
     print_command_title,
     print_error,
@@ -21,7 +24,7 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import LANG_TO_PLURAL_RULES, Lang, update_module_po
+from .common import update_module_po
 
 app = Typer()
 
@@ -33,9 +36,9 @@ def update(
         Argument(help="Update `.po` files for these Odoo modules, or either `all`, `community`, or `enterprise`."),
     ],
     languages: Annotated[
-        list[Lang],
-        Option("--languages", "-l", help="Update `.po` files for these languages, or `all`.", case_sensitive=False),
-    ] = [Lang.ALL],  # noqa: B006
+        list[str],
+        Option("--language", "-l", help="Update `.po` files for these language codes, or `all`."),
+    ] = ["all"],  # noqa: B006
     com_path: Annotated[
         Path,
         Option(
@@ -63,6 +66,8 @@ def update(
 ) -> None:
     """Update Odoo translation files (`.po`) according to a new version of their `.pot` files.
 
+    > Uses the gettext `msgmerge` and `msgattrib` commands if available.\n
+    \n
     This command will update the `.po` files for the provided modules according to a new `.pot` file you might have
     exported in their `i18n` directory.\n
     \n
@@ -70,6 +75,8 @@ def update(
     and `enterprise` repositories are checked out with these names.
     """
     print_command_title(":arrows_counterclockwise: Odoo PO Update")
+
+    languages = sorted(normalize_list_option(languages))
 
     module_to_path = get_valid_modules_to_path_mapping(
         modules=modules,
@@ -87,67 +94,98 @@ def update(
 
     print_header(":speech_balloon: Update Translation Files")
 
-    # Determine all .po file languages to update.
-    if Lang.ALL in languages:
-        languages = [lang for lang in Lang if lang != Lang.ALL]
-    languages = sorted(languages)
-
     status = None
+    failed_langs_per_module: dict[str, list[str]] = {}
     with TransientProgress() as progress:
         progress_task = progress.add_task("Updating .po files", total=len(modules))
         for module in modules:
             progress.update(progress_task, description=f"Updating .po files for [b]{module}[/b]")
-            module_languages = [
-                lang for lang in languages if (module_to_path[module] / "i18n" / f"{lang.value}.po").is_file()
-            ]
+            if "all" in languages:
+                module_languages = sorted([
+                    lang.stem
+                    for lang in (module_to_path[module] / "i18n").glob("*.po")
+                    if lang.is_file()
+                ])
+            else:
+                module_languages = sorted([
+                    lang for lang in languages if (module_to_path[module] / "i18n" / f"{lang}.po").is_file()
+                ])
             module_tree = Tree(f"[b]{module}[/b]")
-            update_status = update_module_po(
+            update_status, failed_langs = update_module_po(
                 action=_update_po_for_lang,
                 module=module,
                 languages=module_languages,
                 module_path=module_to_path[module],
                 module_tree=module_tree,
             )
+            if failed_langs:
+                failed_langs_per_module[module] = failed_langs
             print(module_tree, "")
             status = Status.PARTIAL if status and status != update_status else update_status
             progress.advance(progress_task, 1)
 
+    failed_langs_per_module_str = "\n".join(
+        f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failed_langs_per_module.items()
+    )
     match status:
         case Status.SUCCESS:
             print_success("All translation files were updated correctly!\n")
         case Status.PARTIAL:
-            print_warning("Some translation files were updated correctly, while others weren't!\n")
+            print_warning(
+                f"Some translation files were updated correctly, while others weren't!\n\n"
+                f"{failed_langs_per_module_str}\n",
+            )
         case _:
             print_error("No translation files were updated!\n")
 
 
-def _update_po_for_lang(lang: Lang, pot: POFile, module_path: Path) -> tuple[bool, RenderableType]:
+def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[bool, RenderableType]:
     """Update a .po file for the given language and .pot file.
 
-    :param lang: The language to update the .po file for.
-    :param pot: The .pot file to get the terms from.
+    :param lang: The language code to update the .po file for.
+    :param pot_path: The .pot file to get the terms from.
     :param module_path: The path to the module.
     :return: A tuple containing `True` if the update succeeded and `False` if it didn't, and the message to render.
     """
-    po_file = module_path / "i18n" / f"{lang.value}.po"
-    try:
-        po = pofile(po_file)
-        # Update the .po header and metadata.
-        po.header = pot.header
-        po.metadata.update({"Language": lang.value, "Plural-Forms": LANG_TO_PLURAL_RULES.get(lang, "")})
-        # Merge the .po file with the .pot file to update all terms.
-        po.merge(pot)
-        # Remove entries that are obsolete or fuzzy.
-        po[:] = [entry for entry in po if not entry.obsolete and not entry.fuzzy]
-        # Sort the entries before saving, in the same way as `msgmerge -s`.
-        po.sort(key=lambda entry: (entry.msgid, entry.msgctxt or ""))
-        po.save()
-    except (OSError, ValueError) as e:
-        return False, get_error_log_panel(str(e), f"Updating {po_file.name} failed!")
+    po_path = module_path / "i18n" / f"{lang}.po"
+
+    if shutil.which("msgmerge") and shutil.which("msgattrib"):
+        # We prefer to use the `msgmerge` command if available, as it is faster than `polib`.
+        try:
+            # Merge the .po file with the .pot file to update all terms.
+            cmd = [
+                "msgmerge",
+                "--update",
+                "--backup=none",
+                "--no-fuzzy-matching",
+                f"--lang={lang}",
+                str(po_path),
+                str(pot_path),
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+            # Remove entries that are obsolete.
+            cmd = [
+                "msgattrib",
+                "--no-obsolete",
+                f"--output-file={po_path}",
+                str(po_path),
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+        except subprocess.CalledProcessError as e:
+            return False, get_error_log_panel(e.stderr.decode().strip(), f"Updating {po_path.name} failed!")
+        else:
+            return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
     else:
-        color = "red" if not po.translated_entries() else "orange1" if po.untranslated_entries() else "green"
-        return (
-            True,
-            f"[d]{po_file.parent}{os.sep}[/d][b]{po_file.name}[/b] :white_check_mark: "
-            f"[{color}]({po.percent_translated()}% translated)[/{color}]",
-        )
+        # Fallback to using `polib` if `msgmerge` is not available.
+        try:
+            po = pofile(po_path)
+            pot = pofile(pot_path)
+            # Merge the .po file with the .pot file to update all terms.
+            po.merge(pot)
+            # Remove entries that are obsolete.
+            po[:] = [entry for entry in po if not entry.obsolete]
+            po.save()
+        except (OSError, ValueError) as e:
+            return False, get_error_log_panel(str(e), f"Updating {po_path.name} failed!")
+        else:
+            return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
