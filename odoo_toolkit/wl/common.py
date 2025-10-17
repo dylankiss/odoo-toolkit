@@ -376,9 +376,13 @@ class WeblateConfig:
 def get_weblate_lang(lang_code: str) -> str:
     """Convert Odoo lang codes to Weblate ones."""
     lang_mapping = {
+        "b+es+419": "es_419",
         "ku": "ckb",
         "nb": "nb_NO",
+        "pt-rBR": "pt_BR",
         "sr@latin": "sr_Latn",
+        "zh-rCN": "zh_Hans",
+        "zh-rTW": "zh_Hant",
         "zh_CN": "zh_Hans",
         "zh_TW": "zh_Hant",
     }
