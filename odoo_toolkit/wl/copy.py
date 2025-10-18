@@ -48,7 +48,7 @@ po_clean_header_pattern = re.compile(b'^"(?:Language|Plural-Forms):.*\n', flags=
 
 
 @app.command()
-def transfer(
+def copy(
     src_project: Annotated[str, Option("--src-project", "-p", help="The Weblate project to copy translations from.")],
     src_languages: Annotated[list[str], Option("--src-language", "-l", help="The language codes to copy translations from.")],
     dest_project: Annotated[
@@ -94,20 +94,21 @@ def transfer(
             help="Specify what the upload should do. Either don't overwrite existing translations (`ignore`), "
             "overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).",
         ),
-    ] = UploadConflicts.REPLACE_TRANSLATED,
+    ] = UploadConflicts.IGNORE,
 ) -> None:
-    """Transfer translations from one language, component, or project to another.
+    """Copy translations between languages, components, and/or projects.
 
     This command allows you to copy existing translations of components in Weblate to either another language, another
-    component, and/or another project.
-
-    If you don't define a destination project, it will copy inside the same project.
-    If you don't define a destination language, it will copy to the same language(s).
+    component, and/or another project. Technically it downloads the PO files from the source and uploads them to the
+    destination.\n
+    \n
+    If you don't define a destination project, it will copy inside the same project.\n
+    If you don't define a destination language, it will copy to the same language(s).\n
     If you don't define any source components, it will copy all components that are both in the source and destination
-    projects.
-    If you don't define a target component, it will copy to the same components in the target project.
+    projects.\n
+    If you don't define a target component, it will copy to the same component(s) in the target project.
     """
-    print_command_title(":memo: Odoo Weblate Transfer Translations")
+    print_command_title(":memo: Odoo Weblate Copy Translations")
 
     src_languages_set = set(normalize_list_option(src_languages))
     src_components_set = set(normalize_list_option(src_components))
@@ -175,7 +176,7 @@ def transfer(
     else:
         languages.update({lang: lang for lang in src_languages_set})
 
-    # Transfer the translations.
+    # Copy the translations.
 
     accepted_count = 0
     skipped_count = 0

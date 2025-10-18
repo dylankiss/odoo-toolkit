@@ -12,7 +12,6 @@ WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
 
 WEBLATE_PROJECT_COMPONENTS_ENDPOINT = "/api/projects/{project}/components/"
-WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{language}/autotranslate/"
 WEBLATE_GROUPS_ENDPOINT = "/api/groups/"
 WEBLATE_GROUP_ENDPOINT = "/api/groups/{group}/"
 WEBLATE_GROUP_PROJECTS_ENDPOINT = "/api/groups/{group}/projects/"
