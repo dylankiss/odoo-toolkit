@@ -48,8 +48,6 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk po export`](#otk-po-export) | Export Odoo translation files (.pot) to each module's i18n folder.                  |
 | [`otk po create`](#otk-po-create) | Create Odoo translation files (.po) according to their .pot files.                  |
 | [`otk po update`](#otk-po-update) | Update Odoo translation files (.po) according to a new version of their .pot files. |
-| [`otk po merge`](#otk-po-merge)   | Merge multiple translation files (.po) into one.                                    |
-|                                   | [Available Languages](#available-languages)                                         |
 
 ### [Odoo Development Server (`otk dev`)](#odoo-development-server-otk-dev-1)
 
@@ -61,12 +59,11 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
-| Command                                       | Purpose                                                                    |
-| --------------------------------------------- | -------------------------------------------------------------------------- |
-| [`otk wl config`](#otk-wl-config)             | Update modules in the Weblate config file.                                 |
-| [`otk wl sync`](#otk-wl-sync)                 | Sync translations from one Weblate project to another.                     |
-| [`otk wl transfer`](#otk-wl-transfer)         | Transfer translations from one language, component, or project to another. |
-| [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                                          |
+| Command                                       | Purpose                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| [`otk wl config`](#otk-wl-config)             | Update modules in the Weblate config file.                        |
+| [`otk wl copy`](#otk-wl-copy)                 | Copy translations between languages, components, and/or projects. |
+| [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                                 |
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
@@ -143,6 +140,9 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 **Create Odoo translation files (`.po`) according to their `.pot` files.**
 
+> [!NOTE]
+> Uses the gettext `msginit` command if available.
+
 This command will provide you with a clean `.po` file per language you specified for the given modules. It basically copies all entries from the `.pot` file in the module and completes the metadata with the right language information. All generated `.po` files will be saved in the respective modules' `i18n` directories.
 
 > [!NOTE]
@@ -165,7 +165,7 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 
 ### Options
 
-* [`-l, --languages LANG`](#available-languages): Create .po files for these languages, or `all`.  [default: None] **[required]**
+* `-l, --languages TEXT`: Create .po files for these language codes, or `all`.  **[required]**
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
@@ -175,6 +175,9 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 ## `otk po update`
 
 **Update Odoo translation files (`.po`) according to a new version of their `.pot` files.**
+
+> [!NOTE]
+> Uses the gettext `msgmerge` and `msgattrib` commands if available.
 
 This command will update the `.po` files for the provided modules according to a new `.pot` file you might have exported in their `i18n` directory.
 
@@ -197,99 +200,11 @@ $ otk po update -l nl -l fr account account_accountant
 
 ### Options
 
-* [`-l, --languages LANG`](#available-languages): Update .po files for these languages, or `all`.  [default: `all`]
+* `-l, --languages TEXT`: Update .po files for these language codes, or `all`.  [default: `all`]
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
 * `--help`: Show this message and exit.
-
-
-## `otk po merge`
-
-**Merge multiple translation files (`.po`) into one.**
-
-The order of the files determines which translation takes priority. Empty translations in earlier files will be completed with translations from later files, taking the first one in the order they occur.
-
-If the option `--overwrite` is active, existing translations in earlier files will always be overwritten by translations in later files. In that case the last file takes precedence.
-
-The .po metadata is taken from the first file by default, or the last if `--overwrite` is active.
-
-### Usage
-
-```console
-$ otk po merge [OPTIONS] PO_FILES...
-```
-e.g.
-```console
-$ otk po merge -o nl_merged.po nl.po nl_BE.po
-```
-
-### Arguments
-
-* `PO_FILES...`: Merge these .po files together.  **[required]**
-
-### Options
-
-* `-o, --output-file PATH`: Specify the output .po file.  [default: `merged.po`]
-* `--overwrite`: Overwrite existing translations.
-* `--help`: Show this message and exit.
-
-
-## Available Languages
-
-When `LANG` is given as a type, any of the following language codes can be used. They are all available in Odoo.
-
-> [!TIP]
-> When creating new .po files, always try to use the most generic language possible. That way, all more specific languages can fall back on that one.
-
-| Code     | Language                     | Code       | Language              |
-| -------- | ---------------------------- | ---------- | --------------------- |
-| `all`    | *All languages*              | `he`       | Hebrew                |
-| `am`     | Amharic                      | `hi`       | Hindi                 |
-| `ar`     | Arabic                       | `hr`       | Croatian              |
-| `ar_SY`  | Arabic (Syria)               | `hu`       | Hungarian             |
-| `az`     | Azerbaijani                  | `id`       | Indonesian            |
-| `be`     | Belarusian                   | `it`       | Italian               |
-| `bg`     | Bulgarian                    | `ja`       | Japanese              |
-| `bn`     | Bengali                      | `ka`       | Georgian              |
-| `bs`     | Bosnian                      | `kab`      | Kabyle                |
-| `ca`     | Catalan                      | `km`       | Khmer                 |
-| `cs`     | Czech                        | `ko`       | Korean                |
-| `da`     | Danish                       | `ko_KP`    | Korean (North Korea)  |
-| `de`     | German                       | `lb`       | Luxembourgish         |
-| `de_CH`  | German (Switzerland)         | `lo`       | Lao                   |
-| `el`     | Greek                        | `lt`       | Lithuanian            |
-| `en_AU`  | English (Australia)          | `lv`       | Latvian               |
-| `en_CA`  | English (Canada)             | `mk`       | Macedonian            |
-| `en_GB`  | English (United Kingdom)     | `ml`       | Malayalam             |
-| `en_IN`  | English (India)              | `mn`       | Mongolian             |
-| `en_NZ`  | English (New Zealand)        | `ms`       | Malay                 |
-| `es`     | Spanish                      | `my`       | Burmese               |
-| `es_419` | Spanish (Latin America)      | `nb`       | Norwegian Bokmål      |
-| `es_AR`  | Spanish (Argentina)          | `nl`       | Dutch                 |
-| `es_BO`  | Spanish (Bolivia)            | `nl_BE`    | Dutch (Belgium)       |
-| `es_CL`  | Spanish (Chile)              | `pl`       | Polish                |
-| `es_CO`  | Spanish (Colombia)           | `pt`       | Portuguese            |
-| `es_CR`  | Spanish (Costa Rica)         | `pt_AO`    | Portuguese (Angola)   |
-| `es_DO`  | Spanish (Dominican Republic) | `pt_BR`    | Portuguese (Brazil)   |
-| `es_EC`  | Spanish (Ecuador)            | `ro`       | Romanian              |
-| `es_GT`  | Spanish (Guatemala)          | `ru`       | Russian               |
-| `es_MX`  | Spanish (Mexico)             | `sk`       | Slovak                |
-| `es_PA`  | Spanish (Panama)             | `sl`       | Slovenian             |
-| `es_PE`  | Spanish (Peru)               | `sq`       | Albanian              |
-| `es_PY`  | Spanish (Paraguay)           | `sr`       | Serbian               |
-| `es_UY`  | Spanish (Uruguay)            | `sr@latin` | Serbian (Latin)       |
-| `es_VE`  | Spanish (Venezuela)          | `sv`       | Swedish               |
-| `et`     | Estonian                     | `sw`       | Swahili               |
-| `eu`     | Basque                       | `te`       | Telugu                |
-| `fa`     | Persian                      | `th`       | Thai                  |
-| `fi`     | Finnish                      | `tl`       | Tagalog / Filipino    |
-| `fr`     | French                       | `tr`       | Turkish               |
-| `fr_BE`  | French (Belgium)             | `uk`       | Ukrainian             |
-| `fr_CA`  | French (Canada)              | `vi`       | Vietnamese            |
-| `fr_CH`  | French (Switzerland)         | `zh_CH`    | Chinese (Simplified)  |
-| `gl`     | Galician                     | `zh_HK`    | Chinese (Hong Kong)   |
-| `gu`     | Gujarati                     | `zh_TW`    | Chinese (Traditional) |
 
 
 ## Odoo Development Server (`otk dev`)
@@ -506,73 +421,39 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 * `--help`: Show this message and exit.
 
 
-## `otk wl sync`
+## `otk wl copy`
 
-**Sync translations from one Weblate project to another.**
+**Copy translations between languages, components, and/or projects.**
 
-This command allows you to copy existing translations of components in one Weblate project to the same components in
-another Weblate project. You need to specify for which language(s) you want the translations copied.
-
-You can provide specific components or none at all. In that case, all common components will be used.
-
-Finally you can specify which type of strings you want to have translated in the destination project.
-
-### Usage
-
-```console
-$ otk wl sync [OPTIONS] SRC_PROJECT DEST_PROJECT
-```
-e.g.
-
-```console
-$ otk wl sync odoo-18 odoo-s18-4 -l fr -f all
-```
-
-### Arguments
-
-* `SRC_PROJECT`: The Weblate project to copy the translations from.  **[required]**
-* `DEST_PROJECT`: The Weblate project to copy the translations to.  **[required]**
-
-### Options
-
-* `-l, --language TEXT`: The language codes to copy.  **[required]**
-* `-c, --component TEXT`: The Weblate components to copy. Copies all components if none are specified.
-* `-f, --filter [all|nottranslated|todo|fuzzy]`: Specify which strings need to be changed. Either all strings (`all`), untranslated strings (`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).  [default: `nottranslated`]
-* `--help`: Show this message and exit.
-
-
-## `otk wl transfer`
-
-**Transfer translations from one language, component, or project to another.**
-
-This command allows you to copy existing translations of components in Weblate to either another language, another component, and/or another project.
+This command allows you to copy existing translations of components in Weblate to either another language, another component, and/or another project. Technically it downloads the PO files from the source and uploads them to the destination.
 
 If you don't define a destination project, it will copy inside the same project.
-If you don't define a destination language, it will copy to the same language.
-If you don't define a source component, it will copy all components within the source project.
-If you don't define a target component, it will copy to the same components in the target project.
+If you don't define a destination language, it will copy to the same language(s).
+If you don't define any source components, it will copy all components that are both in the source and destination projects.
+If you don't define a target component, it will copy to the same component(s) in the target project.
 
 ### Usage
 
 ```console
-$ otk wl transfer [OPTIONS]
+$ otk wl copy [OPTIONS]
 ```
 e.g.
 
 ```console
-$ otk wl transfer -p odoo-18 -l pt_BR -L pt -o ignore
+$ otk wl copy -p odoo-18 -l pt_BR -L pt -o translate
+$ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 ```
 
 ### Options
 
 * `-p, --src-project TEXT`: The Weblate project to copy translations from.  **[required]**
-* `-l, --src-language TEXT`: The language code to copy translations from.  **[required]**
+* `-l, --src-language TEXT`: The language codes to copy translations from.  **[required]**
 * `-P, --dest-project TEXT`: The Weblate project to copy translations to.
 * `-L, --dest-language TEXT`: The language code to copy translations to.
-* `-c, --src-component TEXT`: The Weblate component to copy translations from.
+* `-c, --src-component TEXT`: The Weblate components to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
-* `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).
-* `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).
+* `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
+* `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
 * `--help`: Show this message and exit.
 
 
