@@ -650,7 +650,11 @@ def _link_repo_to_branch_dir(
         )
         return
     except NoSuchPathError:
-        repo_worktree_dir.symlink_to(repo_src_dir, target_is_directory=True)
+        repo_worktree_dir.symlink_to(
+            # Make the symlink a relative one to ensure it works in a Docker container as well.
+            Path(os.path.relpath(repo_src_dir, repo_worktree_dir.parent)),
+            target_is_directory=True,
+        )
         ProgressUpdate.update_in_dict(
             progress_updates,
             repo,
@@ -772,9 +776,10 @@ def _configure_python_env_for_branch(
     python = shutil.which("python3") or "python3"
 
     cmd = []
+    uv = shutil.which("uv")
     try:
         # Try creating the virtual environment.
-        cmd = [python, "-m", "venv", str(venv_path)]
+        cmd = [uv, "venv", str(venv_path)] if uv else [python, "-m", "venv", str(venv_path)]
         subprocess.run(cmd, capture_output=True, check=True)
 
         # Locate the Python executable in the virtual environment.
@@ -783,25 +788,46 @@ def _configure_python_env_for_branch(
             python = venv_path / "Scripts" / "python.exe"  # Windows
 
         # Try upgrading pip.
-        cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
+        if uv:
+            cmd = [uv, "pip", "install", "--python", str(python), "-q", "--upgrade", "pip"]
+        else:
+            cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
         subprocess.run(cmd, capture_output=True, check=True)
 
         # Install "odoo" requirements.
         requirements = branch_dir / "odoo" / "requirements.txt"
         if requirements.is_file():
-            cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
+            if uv:
+                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
+            else:
+                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
             subprocess.run(cmd, capture_output=True, check=True)
 
         # Install "documentation" requirements.
         requirements = branch_dir / "documentation" / "requirements.txt"
         if requirements.is_file():
-            cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
+            if uv:
+                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
+            else:
+                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
+            subprocess.run(cmd, capture_output=True, check=True)
+
+        # Install "documentation" test requirements.
+        requirements = branch_dir / "documentation" / "tests" / "requirements.txt"
+        if requirements.is_file():
+            if uv:
+                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
+            else:
+                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
             subprocess.run(cmd, capture_output=True, check=True)
 
         # Install optional requirements.
         requirements = branch_dir / "requirements.txt"
         if requirements.is_file():
-            cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
+            if uv:
+                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
+            else:
+                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
             subprocess.run(cmd, capture_output=True, check=True)
 
     except CalledProcessError as e:

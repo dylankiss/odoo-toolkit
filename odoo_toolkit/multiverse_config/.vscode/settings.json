@@ -1,5 +1,5 @@
 {
-    "autoDocstring.docstringFormat": "sphinx",
+    "autoDocstring.docstringFormat": "one-line-sphinx",
     "autoDocstring.startOnNewLine": false,
     "cSpell.allowCompoundWords": true,
     "csv-edit.fontFamilyInTable": "sameAsCodeEditor",
@@ -157,12 +157,10 @@
             "title": "Open Support Ticket #<num> in Odoo"
         }
     ],
-    "python.analysis.extraPaths": [
-        "${workspaceFolder}/enterprise",
-        "${workspaceFolder}/design-themes",
-    ],
     "python.terminal.activateEnvironment": true,
     "python.terminal.activateEnvInCurrentTerminal": true,
+    "ruff.enable": true,
+    "ruff.format.preview": true,
     "search.exclude": {
         "**/.github": true,
         "**/.venv": true,
@@ -175,4 +173,7 @@
     "xml.format.maxLineWidth": 0,
     "xml.server.preferBinary": true,
     "xml.validation.resolveExternalEntities": true,
+    "[javascript]": {
+        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+    }
 }
