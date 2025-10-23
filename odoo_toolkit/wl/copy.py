@@ -132,7 +132,7 @@ def copy(
         and (not dest_language or dest_language in src_languages_set)
         and (not dest_component or dest_component in src_components_set)
     ):
-        print_error("You cannot transfer translations to the same language and component in the same project.")
+        print_error("You cannot copy translations to the same language and component in the same project.")
         raise Exit
 
     upload_data = {
@@ -205,7 +205,7 @@ def copy(
                     dest_project or src_project, dest_component, dest_language, upload_data,
                 )
             except WeblateApiError as e:
-                print_error("Transferring translations failed.", str(e))
+                print_error("Copying translations failed.", str(e))
                 continue
             accepted_count += response["accepted"]
             skipped_count += response["skipped"]
