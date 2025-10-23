@@ -34,3 +34,7 @@ alias o-bin-deb-e="$debug_cmd odoo/odoo-bin $port_opt $ent_addons_opt $limits_op
 alias o-bin-deb-up="$debug_cmd odoo/odoo-bin $port_opt $upgrade_opt $limits_opt"
 alias o-bin-deb-up-c="$debug_cmd odoo/odoo-bin $port_opt $com_addons_opt $upgrade_opt $limits_opt"
 alias o-bin-deb-up-e="$debug_cmd odoo/odoo-bin $port_opt $ent_addons_opt $upgrade_opt $limits_opt"
+
+# Odoo Documentation
+# Use `LANGUAGE=fr o-make` to build the documentation in a specific language.
+alias o-make="VIRTUAL_ENV=/venv/odoo-doc make"

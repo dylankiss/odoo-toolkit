@@ -32,7 +32,7 @@ def start(
         Option(
             "--workspace",
             "-w",
-            help="Specify the path to your development workspace that will be mounted in the container\'s `/code` "
+            help="Specify the path to your development workspace that will be mounted in the container's `/code` "
             "directory.",
         ),
     ] = Path("~/code/odoo-mv"),
@@ -51,8 +51,23 @@ def start(
             "--db-port", "-p", help="Specify the port on your local machine the PostgreSQL database should listen on.",
         ),
     ] = 5432,
+    git_name: Annotated[
+        str | None,
+        Option(
+            "--git-name", help="Specify the Git user.name to be used within the container.",
+        ),
+    ] = None,
+    git_email: Annotated[
+        str | None,
+        Option(
+            "--git-email", help="Specify the Git user.email to be used within the container.",
+        ),
+    ] = None,
     build: Annotated[
         bool, Option("--build", help="Build the Docker image locally instead of pulling it from DockerHub."),
+    ] = False,
+    build_no_cache: Annotated[
+        bool, Option("--build-no-cache", help="Build the Docker image locally without using any cache."),
     ] = False,
 ) -> None:
     """Start an Odoo Development Server using Docker and launch a terminal session into it.
@@ -84,21 +99,38 @@ def start(
         version_file.unlink(missing_ok=True)
         version_file.write_text(current_version)
 
+    # Construct the .gitconfig file to use in the container.
+    gitconfig_path = APP_DIR / ".gitconfig"
+    with suppress(OSError):
+        if git_name and git_email:
+            gitconfig_content = (
+                "[user]\n"
+                f"\tname = {git_name}\n"
+                f"\temail = {git_email}\n"
+            )
+            APP_DIR.mkdir(parents=True, exist_ok=True)
+            gitconfig_path.write_text(gitconfig_content)
+        elif not gitconfig_path.is_file():
+            # If no Git config was provided and no existing one, create an empty file to avoid Docker errors.
+            APP_DIR.mkdir(parents=True, exist_ok=True)
+            gitconfig_path.touch()
+
     # Set the environment variables to be used by Docker Compose.
     os.environ["DB_PORT"] = str(db_port)
     os.environ["ODOO_WORKSPACE_DIR"] = str(workspace.expanduser().resolve())
+    os.environ["GITCONFIG_PATH"] = str(gitconfig_path.expanduser().resolve())
 
     print_header(":rocket: Start Odoo Development Server")
 
     try:
         with TransientProgress() as progress:
-            if build:
+            if build or build_no_cache:
                 progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
                 # Build Docker image if it wasn't already or when forced.
                 output_generator = DOCKER.compose.build(
                     [f"odoo-{ubuntu_version.value}"],
                     stream_logs=True,
-                    cache=False,
+                    cache=not build_no_cache,
                 )
                 for stream_type, stream_content in output_generator:
                     # Loop through every output line to check on the progress.

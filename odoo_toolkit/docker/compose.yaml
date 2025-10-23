@@ -17,12 +17,11 @@ services:
       - pgadmin
     volumes:
       - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
       - odoo-filestore:/home/odoo/.local/share/Odoo
       - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - ./odoo/.bash_aliases:/home/odoo/.bash_aliases
-      - ./odoo/starship.toml:/home/odoo/.config/starship.toml
       - odoo-postgres-sockets:/var/run/postgresql
-      - ./odoo/startup.sh:/home/odoo/.local/bin/startup.sh
+      - odoo-ssh-keys:/home/odoo/.ssh
     ports:
       - 5679:5678
       - 8075:8075
@@ -50,12 +49,11 @@ services:
       - pgadmin
     volumes:
       - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
       - odoo-filestore:/home/odoo/.local/share/Odoo
       - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
-      - ./odoo/.bash_aliases:/home/odoo/.bash_aliases
-      - ./odoo/starship.toml:/home/odoo/.config/starship.toml
       - odoo-postgres-sockets:/var/run/postgresql
-      - ./odoo/startup.sh:/home/odoo/.local/bin/startup.sh
+      - odoo-ssh-keys:/home/odoo/.ssh
     ports:
       - 5678:5678
       - 8070:8070
@@ -118,6 +116,8 @@ volumes:
     name: odoo-bash-history-data-jammy
   odoo-bash-history-data-noble:
     name: odoo-bash-history-data-noble
+  odoo-ssh-keys:
+    name: odoo-ssh-keys
   odoo-postgres-data:
     name: odoo-postgres-data
   odoo-postgres-sockets:

@@ -4,3 +4,6 @@ export HISTFILE="$HOME/.bash_history_data/.bash_history"
 
 # Launch Starship
 eval "$(starship init bash)"
+
+# Enable uv shell completions
+eval "$(uv generate-shell-completion bash)"

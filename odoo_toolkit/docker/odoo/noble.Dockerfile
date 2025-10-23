@@ -1,295 +1,211 @@
-# Ubuntu 24.04 LTS (Noble Numbat)
+# Use Ubuntu 24.04 LTS (Noble Numbat)
 FROM ubuntu:noble
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=C.UTF-8 \
-    NODE_ENV=production \
+ENV LANG=C.UTF-8 \
     TERM=xterm-256color \
-    # Keep Python from generating .pyc files in the container
-    PYTHONDONTWRITEBYTECODE=1 \
-    # Turn off buffering for easier container logging
     PYTHONUNBUFFERED=1 \
-    # Disable hash randomization
-    PYTHONHASHSEED=0
+    PYTHONHASHSEED=0 \
+    NODE_PATH=/usr/lib/node_modules/ \
+    npm_config_prefix=/usr \
+    PATH="/venv/odoo/bin:/venv/odoo-doc/bin:/home/odoo/.local/bin:$PATH"
 
 # Add GeoIP databases
 ADD https://github.com/maxmind/MaxMind-DB/raw/main/test-data/GeoIP2-City-Test.mmdb /usr/share/GeoIP/GeoLite2-City.mmdb
 ADD https://github.com/maxmind/MaxMind-DB/raw/main/test-data/GeoIP2-Country-Test.mmdb /usr/share/GeoIP/GeoLite2-Country.mmdb
 
-RUN apt-get update -y && \
-    apt-get upgrade -y && \
-    # Install curl to fetch custom Debian packages
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl && \
-    # Fetch Google Chrome (for web tour tests)
-    curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-        -o chrome.deb
+# Perform the following commands as root
+USER root
 
-RUN --mount=type=bind,source=wkhtmltox_0.12.6.1-2.jammy_amd64.deb,target=/tmp/wkhtmltox.deb \
-    apt-get update -y && \
-    apt-get upgrade -y && \
-    # Continue install after fetching Debian packages
-    apt-get install -y --no-install-recommends \
-        #==============================================
-        # Install necessary and useful Debian packages
-        #==============================================
+# Install Debian packages
+RUN set -x; \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        # Runbot packages
+        apt-transport-https \
+        build-essential \
+        ca-certificates \
+        curl \
+        faketime \
         file \
-        gettext \
+        fonts-freefont-ttf \
+        fonts-noto-cjk \
+        gawk \
+        gnupg \
+        gsfonts \
+        libldap2-dev \
+        libjpeg9-dev \
+        libsasl2-dev \
+        libxslt1-dev \
+        lsb-release \
+        npm \
+        ocrmypdf \
+        sed \
+        sudo \
+        unzip \
+        xfonts-75dpi \
+        zip \
+        zlib1g-dev \
+        # Extra packages
         git \
         nano \
-        postgresql-client \
-        sed \
-        # To route localhost routes to other containers
+        openssh-client \
         socat \
-        sudo \
-        # To properly manage background processes (socat)
         tini \
         vim \
-        #
-        #======================================
-        # Install Python dependencies for Odoo
-        #======================================
-        # pylint==3.0.3 (test dep)
-        pylint \
-        # aiosmtpd==1.4.4 (test dep)
-        python3-aiosmtpd \
-        # asn1crypto==1.5.1
-        python3-asn1crypto \
-        # astroid==3.0.2 (test dep)
-        python3-astroid \
-        # Babel==2.10.3
-        python3-babel \
-        # cbor2==5.6.2
-        python3-cbor2 \
-        # chardet==5.2.0
-        python3-chardet \
-        # cryptography==42.0.8
-        python3-cryptography \
-        # python-dateutil==2.8.2
-        python3-dateutil \
-        # dbfread==2.0.7 (account_winbooks_import)
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Debian packages
+RUN set -x; \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        # Runbot packages
+        publicsuffix \
+        python3 \
+        flake8 \
         python3-dbfread \
-        # decorator==5.1.1
-        python3-decorator \
-        # docutils==0.20.1
-        python3-docutils \
-        # fonttools==4.46.0 (odoo/tools/pdf)
-        python3-fonttools \
-        # freezegun==1.2.1
-        python3-freezegun \
-        # geoip2==2.9.0
-        python3-geoip2 \
-        # gevent==24.2.1
-        python3-gevent \
-        # google-auth==1.5.1 (cloud_storage_google, social_push_notifications)
-        python3-google-auth \
-        # greenlet==3.0.3
-        python3-greenlet \
-        # idna==3.6
-        python3-idna \
-        # Jinja2==3.1.2
-        python3-jinja2 \
-        # jwt==2.7.0 (l10n_be_hr_payroll_dimona, l10n_in_qr_code_bill_scan, l10n_in_reports_gstr)
-        python3-jwt \
-        # libsass==0.22.0
-        python3-libsass \
-        # lxml==5.2.1
-        python3-lxml \
-        # lxml-html-clean
-        python3-lxml-html-clean \
-        # python-magic==0.4.27
-        python3-magic \
-        # markdown==3.5.2 (upgrade, upgrade-util)
-        python3-markdown \
-        # markdown2==2.4.11 (ai_agent, ai_fields)
-        python3-markdown2 \
-        # MarkupSafe==2.1.5
-        python3-markupsafe \
-        # maxminddb==2.5.2
-        python3-maxminddb \
-        # num2words==0.5.13
-        python3-num2words \
-        # ofxparse==0.21
-        python3-ofxparse \
-        # openpyxl==3.1.2
-        python3-openpyxl \
-        # pyopenssl==24.1.0
-        python3-openssl \
-        # paramiko==2.12.0
-        python3-paramiko \
-        # passlib==1.7.4
-        python3-passlib \
-        # pdfminer.six==20221105 (attachment_indexation)
-        python3-pdfminer \
-        # phonenumbers==8.12.57 (account_peppol, data_cleaning, phone_validation)
-        python3-phonenumbers \
-        # Pillow==10.2.0
-        python3-pil \
-        # polib==1.1.1
-        python3-polib \
-        # psutil==5.9.8
-        python3-psutil \
-        # psycopg2==2.9.9
-        python3-psycopg2 \
-        # python-ldap==3.4.4
-        python3-pyldap \
-        # PyPDF2==2.12.1
-        python3-pypdf2 \
-        # qrcode==7.4.2
-        python3-qrcode \
-        # reportlab==4.1.0
-        python3-reportlab \
-        # requests==2.31.0
-        python3-requests \
-        # rjsmin==1.2.0
-        python3-rjsmin \
-        # pyserial==3.5
-        python3-serial \
-        # python-slugify==8.0.4 (base)
-        python3-slugify \
-        # python-stdnum==1.19
-        python3-stdnum \
-        # suds==1.1.2 (fallback in odoo/_monkeypatches)
-        python3-suds \
-        # pytz==2024.1
-        python3-tz \
-        # urllib3==2.0.7
-        python3-urllib3 \
-        # pyusb==1.2.1
-        python3-usb \
-        # vobject==0.9.6.1
-        python3-vobject \
-        # websocket==1.7.0 (test dep + hw_drivers)
-        python3-websocket \
-        # Werkzeug==3.0.1
-        python3-werkzeug \
-        # xlrd==2.0.1
-        python3-xlrd \
-        # XlsxWriter==3.1.9
-        python3-xlsxwriter \
-        # xlwt==1.3.0
-        python3-xlwt \
-        # xmlsec==1.3.13 (l10n_nl_reports_sbr)
-        python3-xmlsec \
-        # zeep==4.2.1
-        python3-zeep \
-        #
-        #===================================================
-        # Install Python dependencies for the documentation
-        #===================================================
-        # pygments==2.17.2
-        python3-pygments \
-        # sphinx==7.2.6
-        python3-sphinx \
-        # sphinx-tabs==3.4.4
-        python3-sphinx-tabs \
-        #
-        #=============================================================================================
-        # Install pip and build tools, to install Python dependencies not available as Debian package
-        #=============================================================================================
-        build-essential \
-        pipx \
         python3-dev \
-        # Use python3 by default
-        python-is-python3 \
+        python3-gevent \
         python3-pip \
         python3-setuptools \
         python3-wheel \
-        #
-        #===========================================
-        # Install npm, to install node dependencies
-        #===========================================
-        npm \
-        #
-        #===============
-        # Install fonts
-        #===============
-        # FreeFont (FreeSerif, FreeSans, FreeMono)
-        fonts-freefont-ttf \
-        # Khmer OS (Khmer language spoken in Cambodia)
-        fonts-khmeros-core \
-        # Noto CJK (Chinese, Japanese and Korean)
-        fonts-noto-cjk \
-        # OCR-B (Barcodes)
-        fonts-ocr-b \
-        # VL Gothic (Japanese)
-        fonts-vlgothic \
-        # Replacing Times New Roman, Palatino, Century Schoolbook, Helvetica, Avant Garde, Courier ...
-        gsfonts \
-        # matplotlib==3.6.3 (DejaVu fonts)
-        python3-matplotlib \
-        # Fonts like Courier, Helvetica, Times and Lucida
-        xfonts-75dpi \
-        #
-        #=======================
-        # Install Google Chrome
-        #=======================
-        ./chrome.deb \
-        #
-        #===================
-        # Install wkhtmltox
-        #===================
-        /tmp/wkhtmltox.deb
+        python3-markdown \
+        python3-mock \
+        python3-phonenumbers \
+        python3-websocket \
+        python3-google-auth \
+        libpq-dev \
+        pylint \
+        python3-jwt \
+        python3-asn1crypto \
+        python3-html2text \
+        python3-suds \
+        python3-xmlsec \
+        python3-markdown2 \
+        python3-aiosmtpd \
+        # Moved packages
+        python3-venv \
+        # Extra packages
+        python-is-python3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Cleanup
-RUN rm -rf ./chrome.deb /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Install wkhtmltopdf
+RUN curl -sSL https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb -o /tmp/wkhtml.deb \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends --fix-missing -qq \
+        /tmp/wkhtml.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm /tmp/wkhtml.deb
 
-# Install Node dependencies
-RUN npm install -g \
-        # Install dependencies for Odoo
+# Install npm packages
+RUN npm install --force -g \
         rtlcss@3.4.0 \
-        # Install dependencies to check/lint code
-        eslint@8.27.0 \
+        es-check@6.0.0 \
+        eslint@8.1.0 \
+        prettier@2.7.1 \
         eslint-config-prettier@8.5.0 \
-        eslint-plugin-prettier@4.2.1 \
-        prettier@2.7.1
+        eslint-plugin-prettier@4.2.1
 
-# Remove the default Ubuntu user, add an Odoo user and set up his environment
-RUN --mount=type=bind,source=append.bashrc,target=/tmp/append.bashrc \
-    userdel ubuntu && \
-    groupadd -g 1000 odoo && \
-    useradd --create-home -u 1000 -g odoo -G audio,video odoo && \
-    passwd -d odoo && \
-    echo odoo ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/odoo && \
-    chmod 0440 /etc/sudoers.d/odoo && \
-    # Create the working directory and make it owned by the Odoo user
-    mkdir /code && \
-    chown odoo /code && \
-    # Configure the Bash shell using Starship
-    curl -sS https://starship.rs/install.sh | sh -s -- --yes && \
-    cat /tmp/append.bashrc >> /home/odoo/.bashrc
+# Install Debian packages in debian/control and get latest postgresql-client
+ADD https://raw.githubusercontent.com/odoo/odoo/18.0/debian/control /tmp/control_18.txt
+ADD https://raw.githubusercontent.com/odoo/odoo/master/debian/control /tmp/control_master.txt
+RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/trusted.gpg.d/psql_client.asc \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -s -c`-pgdg main" > /etc/apt/sources.list.d/pgclient.list \
+    && apt-get update \
+    && sed -n '/^Depends:/,/^[A-Z]/p' /tmp/control_18.txt \
+        | awk '/^ [a-z]/ { gsub(/,/,"") ; gsub(" ", "") ; print $NF }' | sort -u \
+        | DEBIAN_FRONTEND=noninteractive xargs apt-get install -y -qq --no-install-recommends \
+    && sed -n '/^Depends:/,/^[A-Z]/p' /tmp/control_master.txt \
+        | awk '/^ [a-z]/ { gsub(/,/,"") ; gsub(" ", "") ; print $NF }' | sort -u \
+        | DEBIAN_FRONTEND=noninteractive xargs apt-get install -y -qq --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install the following dependencies using the "odoo" user
-USER odoo
+# Install Google Chrome
+RUN curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb \
+    && apt-get update \
+    && apt-get -y install --no-install-recommends \
+        /tmp/chrome.deb \
+    && rm /tmp/chrome.deb
 
-# Set the right path for the installed tools
-ENV PATH="/home/odoo/.local/bin:$PATH"
+# Install Odoo Phonenumbers
+ADD https://packages.odoo.com/pub/python3-phonenumbers_8.12.57-4+odoo1_all.deb /phonenumbers.deb
+RUN set -x ; \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        /phonenumbers.deb \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies via pip that are not available as Debian package or need a newer version
-RUN pip install --no-cache-dir --break-system-packages \
-        # Install Odoo dependencies
-        cn2an \
-        ebaysdk \
-        firebase-admin==2.17.0 \
-        inotify \
-        jingtrang \
-        pdf417gen \
-        # Install documentation dependencies
-        pygments-csv-lexer~=0.1 \
-        sphinxcontrib-applehelp==1.0.4 \
-        sphinxcontrib-devhelp==1.0.2 \
-        sphinxcontrib-htmlhelp==2.0.1 \
-        sphinxcontrib-serializinghtml==1.1.5 \
-        sphinxcontrib-qthelp==1.0.3 \
-        # Install development tools
+# Install uv system-wide
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.local/bin/uv /usr/local/bin/uv \
+    && mv /root/.local/bin/uvx /usr/local/bin/uvx
+
+# Create virtual environments using uv
+RUN uv venv /venv/odoo --system-site-packages \
+    && uv venv /venv/odoo-doc --system-site-packages
+
+# Install Odoo Python requirements
+ADD https://raw.githubusercontent.com/odoo/odoo/18.0/requirements.txt /tmp/18_requirements.txt
+ADD https://raw.githubusercontent.com/odoo/odoo/master/requirements.txt /tmp/master_requirements.txt
+ADD https://raw.githubusercontent.com/odoo/documentation/master/requirements.txt /tmp/doc_requirements.txt
+ADD https://raw.githubusercontent.com/odoo/documentation/master/tests/requirements.txt /tmp/doctests_requirements.txt
+RUN VIRTUAL_ENV=/venv/odoo uv pip install --no-cache-dir \
+        -r /tmp/18_requirements.txt \
+        -r /tmp/master_requirements.txt \
+    && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
+        -r /tmp/18_requirements.txt \
+        -r /tmp/master_requirements.txt \
+    && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
+        -r /tmp/doc_requirements.txt \
+        -r /tmp/doctests_requirements.txt
+
+# Install pip packages
+RUN uv pip install --no-cache-dir \
+        # Runbot packages
+        ebaysdk==2.1.5 \
+        pdf417gen==0.7.1 \
+        astroid==3.3.9 \
+        pylint==3.3.6 \
+        unidiff==0.7.3 \
+        paramiko==2.12.0 \
+        markdown2==2.4.11 \
+        # Extra packages
         debugpy \
         pydevd-odoo \
-        watchdog
+        watchdog \
+        inotify
+
+# Remove the default Ubuntu user, add an Odoo user and set up their environment
+RUN --mount=type=bind,source=append.bashrc,target=/tmp/append.bashrc \
+    userdel ubuntu \
+    && groupadd -g 1000 odoo \
+    && useradd --create-home -u 1000 -g odoo -G audio,video odoo \
+    && passwd -d odoo \
+    && echo odoo ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/odoo \
+    && chmod 0440 /etc/sudoers.d/odoo \
+    # Create the working directory and make it owned by the Odoo user
+    && mkdir /code \
+    && chown odoo:odoo /code \
+    # Give the new user ownership of the venv directory
+    && chown -R odoo:odoo /venv \
+    # Configure the Bash shell using Starship
+    && curl -sS https://starship.rs/install.sh | sh -s -- --yes \
+    && cat /tmp/append.bashrc >> /home/odoo/.bashrc
+
+# Switch to the odoo user for subsequent commands
+USER odoo
 
 # Create mounted folders to prevent permission issues
-RUN mkdir -p /home/odoo/.local/share/Odoo && \
-    mkdir -p /home/odoo/.bash_history_data
+RUN mkdir -p /home/odoo/.local/share && \
+    mkdir -p /home/odoo/.local/share/Odoo && \
+    mkdir -p /home/odoo/.local/bin && \
+    mkdir -p /home/odoo/.bash_history_data && \
+    mkdir -p /home/odoo/.ssh
+
+# Copy config files and scripts
+COPY .bash_aliases /home/odoo/.bash_aliases
+COPY starship.toml /home/odoo/.config/starship.toml
+COPY startup.sh /home/odoo/.local/bin/startup.sh
 
 WORKDIR /code
 
@@ -299,7 +215,5 @@ EXPOSE 5678 8075 8076 8077 8078 8079
 # Set Tini as the entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# Start socat to forward port 25 to mailpit:1025,
-# install latest Odoo Toolkit and set up completion,
-# and keep the server running
+# Start background services and keep the container alive
 CMD ["sh", "-c", "/home/odoo/.local/bin/startup.sh"]

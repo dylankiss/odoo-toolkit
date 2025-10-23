@@ -13,10 +13,7 @@ def stop() -> None:
     """Stop and delete all running containers of the Odoo Development Server.
 
     This is useful if you want to build a new version of the container, or you want the container to have the latest
-    version of `odoo-toolkit`.\n
-    \n
-    Running this is also necessary if you updated the `odoo-toolkit` package on your local machine. If not, your
-    container won't be able to mount the configuration files.
+    version of `odoo-toolkit`.
     """
     print_command_title(":computer: Odoo Development Server")
     stop_containers()
