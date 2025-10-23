@@ -111,6 +111,8 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 ### Options
 
+* `-x, --exclude TEXT`: Exclude these modules from being installed and exported, or `default`.  [default: `[]`]
+
 **Odoo Server Options**:
 
 * `--start-server / --own-server`: Start an Odoo server automatically or connect to your own server.  [default: `start-server`]
@@ -330,7 +332,10 @@ $ otk dev start -u jammy
 * `-w, --workspace PATH`: Specify the path to your development workspace that will be mounted in the container's `/code` directory.  [default: `~/code/odoo`]
 * `-u, --ubuntu-version [noble|jammy]`: Specify the Ubuntu version to run in this container.  [default: `noble`]
 * `-p, --db-port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
+* `--git-name TEXT`: Specify the Git user.name to be used within the container.
+* `--git-email TEXT`: Specify the Git user.email to be used within the container.
 * `--build`: Build the Docker image locally instead of pulling it from DockerHub.
+* `--build-no-cache`: Build the Docker image locally without using any cache.
 * `--help`: Show this message and exit.
 
 
