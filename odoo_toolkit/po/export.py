@@ -72,8 +72,8 @@ def export(
         ),
     ],
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being installed and exported."),
-    ] = DEFAULT_EXCLUDE,
+        list[str], Option("--exclude", "-x", help="Exclude these modules from being installed and exported, or `default`."),
+    ] = EMPTY_LIST,
     start_server: Annotated[
         bool,
         Option(
@@ -190,8 +190,11 @@ def export(
     """
     print_command_title(":outbox_tray: Odoo POT Export")
 
+    exclude = normalize_list_option(exclude)
+    if "default" in exclude:
+        exclude = DEFAULT_EXCLUDE
     def filter_fn(m: str) -> bool:
-        return not any(fnmatch(m, p) for p in normalize_list_option(exclude))
+        return not any(fnmatch(m, p) for p in exclude)
 
     module_to_path = get_valid_modules_to_path_mapping(
         modules=modules,
