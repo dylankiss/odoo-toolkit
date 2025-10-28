@@ -320,6 +320,9 @@ class WeblateConfig:
         If the `.pot` file exists, the module configuration will be added or updated.
         If the `.pot` file doesn't exist, the module configuration will be removed.
 
+        If no languages are provided and the module is a l10n module, only the languages available in that module will
+        be added.
+
         :param module_path: The path to the module to update.
         :param project: The Weblate project slug.
         :param languages: The specific language codes to translate this module into.
@@ -338,6 +341,13 @@ class WeblateConfig:
             "filemask": f"{relative_module_path}/i18n/*.po",
             "new_base": f"{relative_module_path}/i18n/{module_name}.pot",
         }
+        if not languages and "l10n_" in module_name:
+            # If we are adding a l10n module, only add the available languages.
+            languages = sorted([
+                lang.stem
+                for lang in (module_path / "i18n").glob("*.po")
+                if lang.is_file()
+            ])
         if languages:
             module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
         if existing_module_config:

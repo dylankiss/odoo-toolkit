@@ -73,8 +73,11 @@ def config(
     """Update modules in the Weblate config file.
 
     This command will add, update, or remove module entries in `.weblate.json` files. The `.weblate.json` files need to
-    be located at the provided addons paths' roots. If not, a new file will be created.
-
+    be located at the provided addons paths' roots. If not, a new file will be created.\n
+    \n
+    If no `languages` are provided, and a localization module is added, we will automatically limit the languages to the
+    ones currently available in that localization module.\n
+    \n
     For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for
     SaaS versions. Other repos have their own project slugs. Check the Weblate URLs to find the right project slug.
     """
