@@ -84,7 +84,7 @@ def config(
     print_command_title(":memo: Odoo Weblate Config")
 
     module_to_path = get_valid_modules_to_path_mapping(
-        modules=modules,
+        modules=normalize_list_option(modules),
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,

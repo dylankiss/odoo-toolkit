@@ -250,7 +250,7 @@ def get_valid_modules_to_path_mapping(
             case "enterprise":
                 modules_to_consider = {m for m in ent_modules if not filter_fn or filter_fn(m)}
             case _:
-                modules = modules_text.split(",")
+                modules = normalize_list_option(modules)
                 modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m))}
     else:
         modules = {re.sub(r",", "", m) for m in modules}
@@ -332,8 +332,8 @@ def get_odoo_version(odoo_repo: Path) -> float | None:
     return None
 
 
-def normalize_list_option(items: list[str]) -> list[str]:
+def normalize_list_option(option_list: Collection[str]) -> list[str]:
     """Normalize input by splitting comma-separated strings into a list."""
-    if len(items) == 1 and "," in items[0]:
-        return [item.strip() for item in items[0].split(",")]
-    return items
+    if len(option_list) > 0 and any("," in options for options in option_list):
+        return [option.strip() for options in option_list for option in options.split(",")]
+    return list(option_list)
