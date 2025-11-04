@@ -246,9 +246,11 @@ def export(
 
         # Gather all parameters per server type to run the processes in parallel later.
         params_per_server_type: list[dict[str, Any]] = []
-        for seq, (server_type, (modules_to_export, modules_to_install)) in enumerate(modules_per_server_type.items()):
+        seq = -1
+        for server_type, (modules_to_export, modules_to_install) in modules_per_server_type.items():
             if not modules_to_export:
                 continue
+            seq += 1
 
             if server_type == _ServerType.CUSTOM:
                 addons_path = [*extra_modules_paths, ent_modules_path, com_modules_path]
