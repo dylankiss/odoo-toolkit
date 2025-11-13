@@ -26,6 +26,7 @@ from odoo_toolkit.common import (
     TransientProgress,
     get_odoo_version,
     get_valid_modules_to_path_mapping,
+    is_l10n_module,
     normalize_list_option,
     print,
     print_command_title,
@@ -68,7 +69,7 @@ def export(
         list[str],
         Argument(
             help="Export `.pot` files for these Odoo modules (supports glob patterns), or either `all`, `community`,"
-            "or `enterprise`.",
+            "`enterprise`, `community-l10n`, or `enterprise-l10n`.",
         ),
     ],
     exclude: Annotated[
@@ -656,11 +657,11 @@ def _get_modules_per_server_type(
     modules_to_export: dict[_ServerType, set[str]] = defaultdict(set[str])
     modules_to_install: dict[_ServerType, set[str]] = defaultdict(set[str])
     paths_and_filter_per_server_type: dict[_ServerType, tuple[list[Path], Callable[[str], bool] | None]] = {
-        _ServerType.COM: ([com_modules_path], lambda m: _is_exportable(m) and not _is_l10n_module(m)),
+        _ServerType.COM: ([com_modules_path], lambda m: _is_exportable(m) and not is_l10n_module(m)),
         _ServerType.COM_L10N: ([com_modules_path], _is_exportable),
         _ServerType.ENT: (
             [com_modules_path, ent_modules_path],
-            lambda m: _is_exportable(m) and not _is_l10n_module(m),
+            lambda m: _is_exportable(m) and not is_l10n_module(m),
         ),
         _ServerType.ENT_L10N: ([com_modules_path, ent_modules_path], _is_exportable),
         _ServerType.CUSTOM: (extra_modules_paths, None),
@@ -669,11 +670,11 @@ def _get_modules_per_server_type(
     # Determine all modules to export per server type.
     for m, p in module_to_path.items():
         if p.is_relative_to(com_modules_path):
-            modules_to_export[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
-            modules_to_install[_ServerType.COM_L10N if _is_l10n_module(m) else _ServerType.COM].add(m)
+            modules_to_export[_ServerType.COM_L10N if is_l10n_module(m) else _ServerType.COM].add(m)
+            modules_to_install[_ServerType.COM_L10N if is_l10n_module(m) else _ServerType.COM].add(m)
         elif p.is_relative_to(ent_modules_path):
-            modules_to_export[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
-            modules_to_install[_ServerType.ENT_L10N if _is_l10n_module(m) else _ServerType.ENT].add(m)
+            modules_to_export[_ServerType.ENT_L10N if is_l10n_module(m) else _ServerType.ENT].add(m)
+            modules_to_install[_ServerType.ENT_L10N if is_l10n_module(m) else _ServerType.ENT].add(m)
         elif any(p.is_relative_to(emp) for emp in extra_modules_paths)  or m == "base":
             # We want to export base with all addons paths, so we can get all module definitions in there.
             modules_to_export[_ServerType.CUSTOM].add(m)
@@ -779,7 +780,7 @@ def _find_all_dependents(
     # Find all dependents for each module.
     for module in all_modules:
         all_dependents_mapping[module] = _find_all_dependents_recursive(module, set())
-        if l10n_multilang and _is_l10n_module(module):
+        if l10n_multilang and is_l10n_module(module):
             # Add `l10n_multilang` to all l10n modules, to have all translatable fields exported.
             all_dependents_mapping[module].add("l10n_multilang")
 
@@ -799,7 +800,7 @@ def _get_full_install_modules_per_server_type(
             # Skip module if it doesn't pass the filter.
             continue
         # Add each Community module to the right server types.
-        if _is_l10n_module(m):
+        if is_l10n_module(m):
             modules[_ServerType.COM_L10N].add(m)
             modules[_ServerType.ENT_L10N].add(m)
         else:
@@ -812,7 +813,7 @@ def _get_full_install_modules_per_server_type(
             # Skip module if it doesn't pass the filter.
             continue
         # Add each Enterprise module to the right server types.
-        if _is_l10n_module(m):
+        if is_l10n_module(m):
             modules[_ServerType.ENT_L10N].add(m)
         else:
             modules[_ServerType.ENT].add(m)
@@ -824,11 +825,6 @@ def _get_full_install_modules_per_server_type(
 def _is_exportable(module: str) -> bool:
     """Determine if the given module should be exportable at all."""
     return "hw_" not in module and "test" not in module
-
-
-def _is_l10n_module(module: str) -> bool:
-    """Determine if the given module is a localization related module."""
-    return "l10n_" in module and module != "l10n_multilang"
 
 
 def _free_port(host: str, start_port: int) -> int:

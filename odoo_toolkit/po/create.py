@@ -33,7 +33,10 @@ app = Typer()
 def create(
     modules: Annotated[
         list[str],
-        Argument(help="Create `.po` files for these Odoo modules, or either `all`, `community`, or `enterprise`."),
+        Argument(
+            help="Create `.po` files for these Odoo modules, or either `all`, `community`, `enterprise`, "
+                 "`community-l10n`, or `enterprise-l10n`.",
+        ),
     ],
     languages: Annotated[
         list[str],

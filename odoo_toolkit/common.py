@@ -204,6 +204,11 @@ def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:
     return Panel(error_logs, title=title, title_align="left", style="red", border_style="bold red")
 
 
+def is_l10n_module(module: str) -> bool:
+    """Determine if the given module is a localization related module."""
+    return "l10n_" in module and module != "l10n_multilang"
+
+
 def get_valid_modules_to_path_mapping(
     modules: Collection[str],
     com_path: Path,
@@ -213,7 +218,7 @@ def get_valid_modules_to_path_mapping(
 ) -> dict[str, Path]:
     """Determine the valid modules and their directories.
 
-    :param modules: The requested modules, or `all`, `community`, or `enterprise`.
+    :param modules: The requested modules, or `all`, `community`, `enterprise`, `community-l10n`, or `enterprise-l10n`.
     :param com_path: The Odoo Community repository.
     :param ent_path: The Odoo Enterprise repository.
     :param extra_addons_paths: Optional extra directories containing Odoo modules, defaults to `[]`.
@@ -249,6 +254,10 @@ def get_valid_modules_to_path_mapping(
                 modules_to_consider = {m for m in com_modules if not filter_fn or filter_fn(m)}
             case "enterprise":
                 modules_to_consider = {m for m in ent_modules if not filter_fn or filter_fn(m)}
+            case "community-l10n":
+                modules_to_consider = {m for m in com_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m))}
+            case "enterprise-l10n":
+                modules_to_consider = {m for m in ent_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m))}
             case _:
                 modules = normalize_list_option(modules)
                 modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m))}

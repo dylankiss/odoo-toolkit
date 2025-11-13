@@ -33,7 +33,10 @@ app = Typer()
 def update(
     modules: Annotated[
         list[str],
-        Argument(help="Update `.po` files for these Odoo modules, or either `all`, `community`, or `enterprise`."),
+        Argument(
+            help="Update `.po` files for these Odoo modules, or either `all`, `community`, `enterprise`, "
+            "`community-l10n`, or `enterprise-l10n`.",
+        ),
     ],
     languages: Annotated[
         list[str],
