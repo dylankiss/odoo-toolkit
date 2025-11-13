@@ -587,12 +587,14 @@ def _export_module_terms(
                     f"[b]{module_name}[/b]",
                     f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:",
                 )
+                progress.advance(progress_task, 1)
                 continue
 
             export_table.add_row(
                 f"[b]{module_name}[/b]",
                 "[d]No terms to translate[/d] :negative_squared_cross_mark:",
             )
+            progress.advance(progress_task, 1)
             continue
 
         try:
