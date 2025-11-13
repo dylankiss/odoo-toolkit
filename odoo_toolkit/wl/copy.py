@@ -1,6 +1,5 @@
 import itertools
 import re
-from enum import Enum
 from fnmatch import fnmatch
 from typing import Annotated, Any
 
@@ -15,65 +14,57 @@ from odoo_toolkit.common import (
     print_success,
     print_warning,
 )
+from odoo_toolkit.po.common import get_cldr_lang
 
 from .common import (
-    WEBLATE_PROJECT_COMPONENTS_ENDPOINT,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
+    UploadConflicts,
+    UploadMethod,
     WeblateApi,
     WeblateApiError,
-    WeblateComponentResponse,
     WeblateTranslationsUploadResponse,
-    get_weblate_lang,
+    get_weblate_project_components,
 )
 
-
-class UploadMethod(str, Enum):
-    """Upload methods available to the translation upload endpoint."""
-
-    TRANSLATE = "translate"
-    APPROVE = "approve"
-    SUGGEST = "suggest"
-
-
-class UploadConflicts(str, Enum):
-    """Conflict handling available to the translation upload endpoint."""
-
-    IGNORE = "ignore"
-    REPLACE_TRANSLATED = "replace-translated"
-    REPLACE_APPROVED = "replace-approved"
-
-
 app = Typer()
-po_clean_header_pattern = re.compile(b'^"(?:Language|Plural-Forms):.*\n', flags=re.MULTILINE)
+PO_CLEAN_HEADER_PATTERN = re.compile(b'^"(?:Language|Plural-Forms):.*\n', flags=re.MULTILINE)
 
 
 @app.command()
 def copy(
     src_project: Annotated[str, Option("--src-project", "-p", help="The Weblate project to copy translations from.")],
-    src_languages: Annotated[list[str], Option("--src-language", "-l", help="The language codes to copy translations from.")],
+    src_languages: Annotated[
+        list[str], Option("--src-language", "-l", help="The language codes to copy translations from."),
+    ],
     dest_project: Annotated[
-        str | None, Option("--dest-project", "-P", help="The Weblate project to copy translations to."),
+        str | None,
+        Option("--dest-project", "-P", help="The Weblate project to copy translations to."),
     ] = None,
     dest_language: Annotated[
-        str | None, Option("--dest-language", "-L", help="The language code to copy translations to."),
+        str | None,
+        Option("--dest-language", "-L", help="The language code to copy translations to."),
     ] = None,
     src_components: Annotated[
-        list[str], Option("--src-component", "-c", help="The Weblate components to copy translations from."),
+        list[str],
+        Option("--src-component", "-c", help="The Weblate components to copy translations from."),
     ] = EMPTY_LIST,
     dest_component: Annotated[
-        str | None, Option("--dest-component", "-C", help="The Weblate component to copy translations to."),
+        str | None,
+        Option("--dest-component", "-C", help="The Weblate component to copy translations to."),
     ] = None,
     author: Annotated[
         str | None,
         Option(
-            "--author", "-a",
+            "--author",
+            "-a",
             help="The author name to use for the uploaded translations. If not set, the API key user will be used.",
         ),
     ] = None,
     email: Annotated[
         str | None,
         Option(
-            "--email", "-e",
+            "--email",
+            "-e",
             help="The author email to use for the uploaded translations. If not set, the API key user will be used.",
         ),
     ] = None,
@@ -157,16 +148,24 @@ def copy(
     if dest_component:
         components[src_components_set.pop()] = dest_component
     else:
-        dest_components = _get_project_components(weblate_api, dest_project or src_project)
-        if dest_project != src_project:
-            remote_src_components = _get_project_components(weblate_api, src_project)
-        else:
-            remote_src_components = dest_components
+        try:
+            dest_components = get_weblate_project_components(weblate_api, dest_project or src_project)
+            if dest_project != src_project:
+                remote_src_components = get_weblate_project_components(weblate_api, src_project)
+            else:
+                remote_src_components = dest_components
+        except WeblateApiError as e:
+            print_error("Weblate API Error: Failed to fetch components for project.", str(e))
+            raise Exit from e
 
         if not src_components_set:
             components.update({c: c for c in remote_src_components if c in dest_components})
         else:
-            components.update({c: c for c in remote_src_components if any(fnmatch(c, pattern) for pattern in src_components_set) and c in dest_components})
+            components.update({
+                c: c
+                for c in remote_src_components
+                if any(fnmatch(c, pattern) for pattern in src_components_set) and c in dest_components
+            })
 
     # Map the languages to process.
 
@@ -188,21 +187,27 @@ def copy(
             total=len(components) * len(languages),
         )
 
-
-        for (src_component, dest_component), (src_language, dest_language) in itertools.product(
-            sorted(components.items(), key=lambda c: c[0]), sorted(languages.items(), key=lambda lang: lang[0]),
+        for (src_component, dest_component), (src_language, dest_language) in itertools.product(  # noqa: PLR1704
+            sorted(components.items(), key=lambda c: c[0]),
+            sorted(languages.items(), key=lambda lang: lang[0]),
         ):
             progress.update(
                 progress_task,
                 description=f"Copying [b]{src_component}[/b] ([b]{src_language}[/b], [b]{src_project}[/b]) "
-                    f"to [b]{dest_component}[/b] ([b]{dest_language}[/b], [b]{dest_project or src_project}[/b])",
+                f"to [b]{dest_component}[/b] ([b]{dest_language}[/b], [b]{dest_project or src_project}[/b])",
             )
             progress.advance(progress_task)
 
             try:
                 response = _upload_translations(
-                    weblate_api, src_project, src_component, src_language,
-                    dest_project or src_project, dest_component, dest_language, upload_data,
+                    weblate_api,
+                    src_project,
+                    src_component,
+                    src_language,
+                    dest_project or src_project,
+                    dest_component,
+                    dest_language,
+                    upload_data,
                 )
             except WeblateApiError as e:
                 print_error("Copying translations failed.", str(e))
@@ -222,18 +227,6 @@ def copy(
             f"and didn't find {not_found_count} source strings.",
         )
 
-def _get_project_components(api: WeblateApi, project: str) -> set[str]:
-    """Fetch and return a set of component slugs for a given project."""
-    try:
-        return {
-            c.get("slug")
-            for c in api.get_generator(
-                WeblateComponentResponse, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
-            )
-        }
-    except WeblateApiError as e:
-        print_error(f"Weblate API Error: Failed to fetch components for project '{project}'.", str(e))
-        raise Exit from e
 
 def _upload_translations(
     api: WeblateApi,
@@ -247,14 +240,21 @@ def _upload_translations(
 ) -> WeblateTranslationsUploadResponse:
     po_file: bytes = api.get_bytes(
         WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-            project=src_project, component=src_component, language=get_weblate_lang(src_language),
+            project=src_project,
+            component=src_component,
+            language=get_cldr_lang(src_language),
         ),
     )
     return api.post(
         WeblateTranslationsUploadResponse,
         WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-            project=dest_project, component=dest_component, language=get_weblate_lang(dest_language),
+            project=dest_project,
+            component=dest_component,
+            language=get_cldr_lang(dest_language),
         ),
         data=upload_data,
-        files={"file": ("upload.po", re.sub(po_clean_header_pattern, b"", po_file))},
+        files={"file": (
+            f"{dest_project}-{dest_component}-{get_cldr_lang(dest_language)}.po",
+            re.sub(PO_CLEAN_HEADER_PATTERN, b"", po_file),
+        )},
     )

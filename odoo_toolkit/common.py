@@ -337,3 +337,15 @@ def normalize_list_option(option_list: Collection[str]) -> list[str]:
     if len(option_list) > 0 and any("," in options for options in option_list):
         return [option.strip() for options in option_list for option in options.split(",")]
     return list(option_list)
+
+
+def filter_by_globs(items: Iterable[str], globs: Collection[str]) -> list[str]:
+    """Filter a list of items by a collection of glob patterns.
+
+    :param items: The items to filter.
+    :param globs: The glob patterns to filter by.
+    :return: The filtered list of items.
+    """
+    if not globs:
+        return list(items)
+    return [item for item in items if any(fnmatch(item, pattern) for pattern in set(globs))]

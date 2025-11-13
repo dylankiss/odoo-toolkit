@@ -1,6 +1,7 @@
 import json
 from collections import defaultdict
 from collections.abc import Generator
+from enum import Enum
 from os import environ
 from pathlib import Path
 from typing import Any, Literal, TypedDict, TypeVar
@@ -12,6 +13,7 @@ WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
 
 WEBLATE_PROJECT_COMPONENTS_ENDPOINT = "/api/projects/{project}/components/"
+WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{language}/autotranslate/"
 WEBLATE_GROUPS_ENDPOINT = "/api/groups/"
 WEBLATE_GROUP_ENDPOINT = "/api/groups/{group}/"
 WEBLATE_GROUP_PROJECTS_ENDPOINT = "/api/groups/{group}/projects/"
@@ -382,17 +384,34 @@ class WeblateConfig:
             self.config["projects"].clear()
 
 
-def get_weblate_lang(lang_code: str) -> str:
-    """Convert Odoo lang codes to Weblate ones."""
-    lang_mapping = {
-        "b+es+419": "es_419",
-        "ku": "ckb",
-        "nb": "nb_NO",
-        "pt-rBR": "pt_BR",
-        "sr@latin": "sr_Latn",
-        "zh-rCN": "zh_Hans",
-        "zh-rTW": "zh_Hant",
-        "zh_CN": "zh_Hans",
-        "zh_TW": "zh_Hant",
+class UploadMethod(str, Enum):
+    """Upload methods available to the translation upload endpoint."""
+
+    TRANSLATE = "translate"
+    APPROVE = "approve"
+    SUGGEST = "suggest"
+
+
+class UploadConflicts(str, Enum):
+    """Conflict handling available to the translation upload endpoint."""
+
+    IGNORE = "ignore"
+    REPLACE_TRANSLATED = "replace-translated"
+    REPLACE_APPROVED = "replace-approved"
+
+
+def get_weblate_project_components(api: WeblateApi, project: str) -> set[str]:
+    """Fetch and return a set of component slugs for a given project.
+
+    :param api: The Weblate API to use.
+    :param project: The project slug to find the components for.
+    :raises WeblateApiError: If the request returns an error.
+    :return: A set of component slugs for the given project.
+    """
+    return {
+        c["slug"]
+        for c in api.get_generator(
+            WeblateComponentResponse,
+            WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+        )
     }
-    return lang_mapping.get(lang_code, lang_code)

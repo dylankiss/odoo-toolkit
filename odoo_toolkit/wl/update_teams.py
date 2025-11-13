@@ -13,6 +13,7 @@ from odoo_toolkit.common import (
     print_success,
     print_warning,
 )
+from odoo_toolkit.po.common import get_cldr_lang
 
 from .common import (
     WEBLATE_GROUP_ENDPOINT,
@@ -30,7 +31,6 @@ from .common import (
     WeblateGroupResponse,
     WeblateProjectResponse,
     WeblateRoleResponse,
-    get_weblate_lang,
 )
 
 app = Typer()
@@ -131,8 +131,8 @@ def update_teams(
     # Prepare a dictionary with all required updates.
     updates: TeamUpdatesDict = {
         "group_request": update_group_request,
-        "languages_to_add": {get_weblate_lang(lang) for lang in languages_to_add},
-        "languages_to_remove": {get_weblate_lang(lang) for lang in languages_to_remove},
+        "languages_to_add": {get_cldr_lang(lang) for lang in languages_to_add},
+        "languages_to_remove": {get_cldr_lang(lang) for lang in languages_to_remove},
         "project_ids_to_add": project_ids_to_add,
         "project_ids_to_remove": project_ids_to_remove,
         "role_ids_to_add": role_ids_to_add,
