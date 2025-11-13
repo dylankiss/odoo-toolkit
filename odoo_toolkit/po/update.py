@@ -132,8 +132,10 @@ def update(
             print_success("All translation files were updated correctly!\n")
         case Status.PARTIAL:
             print_warning(
-                f"Some translation files were updated correctly, while others weren't!\n\n"
-                f"{failed_langs_per_module_str}\n",
+                "Some translation files were updated correctly, while others weren't!\n\n"
+                f"{failed_langs_per_module_str}\n\n"
+                "You can run the command again for the failed modules using:\n"
+                f"[b]otk po update {' '.join(failed_langs_per_module.keys())}[/b]\n",
             )
         case _:
             print_error("No translation files were updated!\n")
