@@ -2,6 +2,7 @@ import itertools
 from pathlib import Path
 from typing import Annotated
 
+from polib import pofile
 from rich.table import Table
 from typer import Exit, Option, Typer
 
@@ -22,6 +23,7 @@ from odoo_toolkit.po.common import get_cldr_lang, get_language_name
 from .common import (
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     UploadConflicts,
+    UploadFuzzy,
     UploadMethod,
     WeblateApi,
     WeblateApiError,
@@ -85,6 +87,15 @@ def upload(
             "overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).",
         ),
     ] = UploadConflicts.IGNORE,
+    fuzzy: Annotated[
+        UploadFuzzy,
+        Option(
+            "--fuzzy",
+            "-f",
+            help='Specify how fuzzy translations should be handled. Either ignore them (`ignore`), mark them as'
+            '"Needs editing" (`process`), or add them as a regular translation (`approve`).',
+        ),
+    ] = UploadFuzzy.PROCESS,
 ) -> None:
     """Upload specific PO files to Weblate.
 
@@ -116,6 +127,7 @@ def upload(
     skipped_count = 0
     not_found_count = 0
     failed_uploads = 0
+    missing_po_files: set[Path] = set()
 
     with TransientProgress() as progress:
         progress_task = progress.add_task(
@@ -127,7 +139,7 @@ def upload(
         params = {
             "method": method.value,
             "conflicts": conflicts.value,
-            "fuzzy": "process",
+            "fuzzy": "" if fuzzy.value == UploadFuzzy.IGNORE else fuzzy.value,
         }
         if author:
             params["author"] = author
@@ -140,13 +152,26 @@ def upload(
             file_path = Path(f"{project}-{component}-{language_code}.po")
 
             if not file_path.is_file():
-                failed_uploads += 1
-                upload_table.add_row(
-                    f"{project}/{component} ({language_name})",
-                    get_error_log_panel(f"PO file {file_path} does not exist!", "Uploading failed!"),
-                )
+                missing_po_files.add(file_path)
                 progress.advance(progress_task)
                 continue
+
+            po_bytes = None
+            if fuzzy == UploadFuzzy.APPROVE:
+                # Pre-process the PO file to remove fuzzy flags (because the API won't approve fuzzy translations).
+                try:
+                    po = pofile(file_path)
+                    for entry in po.fuzzy_entries():
+                        entry.flags.remove("fuzzy")
+                    po_bytes = str(po).encode("utf-8")
+                except (OSError, ValueError) as e:
+                    failed_uploads += 1
+                    upload_table.add_row(
+                        f"{project}/{component} ({language_name})",
+                        get_error_log_panel(str(e), "Reading PO file failed!"),
+                    )
+                    progress.advance(progress_task)
+                    continue
 
             progress.update(progress_task, description=f"Uploading [b]{language_code}.po[/b] for {project}/{component}...")
             try:
@@ -158,7 +183,11 @@ def upload(
                         language=language_code,
                     ),
                     params=params,
-                    files={"file": file_path.open("rb")},
+                    files={
+                        "file": (f"{project}-{component}-{language_code}.po", po_bytes)
+                            if po_bytes is not None
+                            else file_path.open("rb"),
+                    },
                 )
             except (WeblateApiError, OSError) as e:
                 failed_uploads += 1
@@ -180,6 +209,13 @@ def upload(
 
     print(upload_table, "")
 
+    if missing_po_files:
+        print_warning(
+            f"Missing {len(missing_po_files)} PO files that were not found in the current directory:",
+        )
+        for missing_file in sorted(missing_po_files):
+            print_warning(f" - {missing_file}")
+        print()
     if failed_uploads:
         print_error(f"Failed to upload {failed_uploads} translations due to errors.")
     if accepted_count:
