@@ -21,7 +21,7 @@ from .common import (
     WEBLATE_PROJECT_COMPONENTS_ENDPOINT,
     WeblateApi,
     WeblateApiError,
-    WeblateComponentResponse,
+    WeblateComponentData,
 )
 
 
@@ -149,9 +149,9 @@ def _get_project_components(api: WeblateApi, project: str) -> set[str]:
     """Fetch and return a set of component slugs for a given project."""
     try:
         component_generator = api.get_generator(
-            WeblateComponentResponse, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+            WeblateComponentData, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
         )
-        return {c.get("slug") for c in component_generator}
+        return {c.get("slug", "") for c in component_generator}
     except WeblateApiError as e:
         print_error(f"Weblate API Error: Failed to fetch components for project '{project}'.", str(e))
         raise Exit from e

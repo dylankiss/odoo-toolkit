@@ -23,7 +23,7 @@ from .common import (
     WeblateApi,
     WeblateApiError,
     WeblateTranslationsUploadResponse,
-    get_weblate_project_components,
+    get_weblate_project_component_slugs,
 )
 
 app = Typer()
@@ -149,9 +149,9 @@ def copy(
         components[src_components_set.pop()] = dest_component
     else:
         try:
-            dest_components = get_weblate_project_components(weblate_api, dest_project or src_project)
+            dest_components = get_weblate_project_component_slugs(weblate_api, dest_project or src_project)
             if dest_project != src_project:
-                remote_src_components = get_weblate_project_components(weblate_api, src_project)
+                remote_src_components = get_weblate_project_component_slugs(weblate_api, src_project)
             else:
                 remote_src_components = dest_components
         except WeblateApiError as e:

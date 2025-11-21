@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from enum import Enum
 from os import environ
 from pathlib import Path
@@ -13,6 +13,7 @@ WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
 
 WEBLATE_PROJECT_COMPONENTS_ENDPOINT = "/api/projects/{project}/components/"
+WEBLATE_COMPONENT_ENDPOINT = "/api/components/{project}/{component}/"
 WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{language}/autotranslate/"
 WEBLATE_GROUPS_ENDPOINT = "/api/groups/"
 WEBLATE_GROUP_ENDPOINT = "/api/groups/{group}/"
@@ -29,7 +30,6 @@ WEBLATE_TRANSLATIONS_FILE_ENDPOINT = "/api/translations/{project}/{component}/{l
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
 T = TypeVar("T")
-WeblateConfigType = dict[str, dict[str, list[dict[str, str]]]]
 
 
 class WeblatePagedResponse(TypedDict):
@@ -39,17 +39,44 @@ class WeblatePagedResponse(TypedDict):
     next: str | None
 
 
-class WeblateProjectResponse(TypedDict):
-    """Minimal response structure of a Weblate project."""
+class WeblateProjectData(TypedDict):
+    """Partial structure of a Weblate project."""
 
     id: int
     slug: str
 
 
-class WeblateComponentResponse(TypedDict):
-    """Minimal response structure of a Weblate component."""
+class WeblateComponentData(TypedDict, total=False):
+    """Partial structure of a Weblate component."""
 
+    allow_translation_propagation: bool
+    auto_lock_error: bool
+    branch: str
+    commit_pending_age: int
+    enable_suggestions: bool
+    file_format: str
+    filemask: str
+    language_code_style: str
+    language_regex: str
+    license: str
+    linked_component: str | None
+    merge_style: str
+    name: str
+    new_base: str
+    new_lang: str
+    project: WeblateProjectData
+    push: str
+    push_branch: str
+    push_on_commit: bool
+    repo: str
     slug: str
+    suggestion_voting: bool
+    suggestion_autoaccept: int
+    url: str
+    vcs: str
+
+
+WeblateConfigType = dict[str, dict[str, list[WeblateComponentData]]]
 
 
 class WeblateGroupResponse(TypedDict):
@@ -151,10 +178,10 @@ class WeblateApi:
         method: str,
         endpoint: str,
         *,
-        data: dict[str, Any] | None = None,
-        files: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
+        data: Mapping[str, Any] | None = None,
+        files: Mapping[str, Any] | None = None,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
     ) -> T:
         """Do an HTTP request and handle errors.
 
@@ -168,11 +195,11 @@ class WeblateApi:
         response = self.json_session.request(method, url, data=data, files=files, json=json, params=params)
         try:
             response.raise_for_status()
-            return response.json() if response.content else {} # pyright: ignore[reportReturnType]
+            return response.json() if response.content else {}  # pyright: ignore[reportReturnType]
         except (HTTPError, JSONDecodeError) as e:
             raise WeblateApiError(response) from e
 
-    def get_bytes(self, endpoint: str, *, params: dict[str, Any] | None = None) -> bytes:
+    def get_bytes(self, endpoint: str, *, params: Mapping[str, Any] | None = None) -> bytes:
         """Get the response from a Weblate API endpoint as bytes.
 
         :param endpoint: The API endpoint to access.
@@ -213,9 +240,9 @@ class WeblateApi:
         return_type: type[T],
         endpoint: str,
         *,
-        data: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
+        data: Mapping[str, Any] | None = None,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
     ) -> T:
         """Perform a GET request against a Weblate API endpoint.
 
@@ -231,10 +258,10 @@ class WeblateApi:
         return_type: type[T],
         endpoint: str,
         *,
-        data: dict[str, Any] | None = None,
-        files: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
+        data: Mapping[str, Any] | None = None,
+        files: Mapping[str, Any] | None = None,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
     ) -> T:
         """Perform a POST request against a Weblate API endpoint.
 
@@ -250,9 +277,9 @@ class WeblateApi:
         return_type: type[T],
         endpoint: str,
         *,
-        data: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
+        data: Mapping[str, Any] | None = None,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
     ) -> T:
         """Perform a PATCH request against a Weblate API endpoint.
 
@@ -268,9 +295,9 @@ class WeblateApi:
         return_type: type[T],
         endpoint: str,
         *,
-        data: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
+        data: Mapping[str, Any] | None = None,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
     ) -> T:
         """Perform a DELETE request against a Weblate API endpoint.
 
@@ -304,8 +331,8 @@ class WeblateConfig:
         :raises WeblateConfigError: If the given file could not be loaded or parsed.
         """
         self.file_path = file_path
-        self.config: dict[str, dict[str, list[dict[str, str]]]] = {
-            "projects": defaultdict[str, list[dict[str, str]]](list),
+        self.config: dict[str, dict[str, list[WeblateComponentData]]] = {
+            "projects": defaultdict[str, list[WeblateComponentData]](list),
         }
 
         if self.file_path.is_file():
@@ -331,25 +358,23 @@ class WeblateConfig:
         :return: True if the module was added or updated, False if it couldn't be added or updated, or was removed.
         """
         module_name = module_path.name
-        existing_module_config = next((c for c in self.config["projects"][project] if c["name"] == module_name), None)
+        existing_module_config = next(
+            (c for c in self.config["projects"][project] if c.get("name") == module_name), None,
+        )
         if not (module_path / "i18n" / f"{module_name}.pot").is_file():
             if existing_module_config:
                 self.config["projects"][project].remove(existing_module_config)
             return False
 
         relative_module_path = module_path.relative_to(self.file_path.parent)
-        module_config = {
+        module_config: WeblateComponentData = {
             "name": module_name,
             "filemask": f"{relative_module_path}/i18n/*.po",
             "new_base": f"{relative_module_path}/i18n/{module_name}.pot",
         }
         if not languages and "l10n_" in module_name:
             # If we are adding a l10n module, only add the available languages.
-            languages = sorted([
-                lang.stem
-                for lang in (module_path / "i18n").glob("*.po")
-                if lang.is_file()
-            ])
+            languages = sorted([lang.stem for lang in (module_path / "i18n").glob("*.po") if lang.is_file()])
         if languages:
             module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
         if existing_module_config:
@@ -363,6 +388,7 @@ class WeblateConfig:
 
         :raises WeblateConfigError: If the given file could not be saved.
         """
+
         def sort_config(config: WeblateConfigType) -> WeblateConfigType:
             return {
                 "projects": {
@@ -383,6 +409,14 @@ class WeblateConfig:
         else:
             self.config["projects"].clear()
 
+    def get_projects(self) -> list[str]:
+        """Get the list of projects in the config file."""
+        return list(self.config["projects"])
+
+    def get_components(self, project: str) -> list[WeblateComponentData]:
+        """Get the list of components for a given project."""
+        return self.config["projects"].get(project, [])
+
 
 class UploadMethod(str, Enum):
     """Upload methods available to the translation upload endpoint."""
@@ -400,7 +434,15 @@ class UploadConflicts(str, Enum):
     REPLACE_APPROVED = "replace-approved"
 
 
-def get_weblate_project_components(api: WeblateApi, project: str) -> set[str]:
+class UploadFuzzy(str, Enum):
+    """Fuzzy handling available to the translation upload endpoint."""
+
+    IGNORE = "ignore"
+    PROCESS = "process"
+    APPROVE = "approve"
+
+
+def get_weblate_project_component_slugs(api: WeblateApi, project: str) -> set[str]:
     """Fetch and return a set of component slugs for a given project.
 
     :param api: The Weblate API to use.
@@ -409,9 +451,25 @@ def get_weblate_project_components(api: WeblateApi, project: str) -> set[str]:
     :return: A set of component slugs for the given project.
     """
     return {
-        c["slug"]
+        c.get("slug", "")
         for c in api.get_generator(
-            WeblateComponentResponse,
+            WeblateComponentData,
             WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
         )
     }
+
+
+def get_weblate_components(api: WeblateApi, project: str) -> list[WeblateComponentData]:
+    """Fetch and return a list of components for a given project.
+
+    :param api: The Weblate API to use.
+    :param project: The project slug to find the components for.
+    :raises WeblateApiError: If the request returns an error.
+    :return: A list of components for the given project.
+    """
+    return list(
+        api.get_generator(
+            WeblateComponentData,
+            WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+        ),
+    )

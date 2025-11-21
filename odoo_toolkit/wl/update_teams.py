@@ -29,7 +29,7 @@ from .common import (
     WeblateApi,
     WeblateApiError,
     WeblateGroupResponse,
-    WeblateProjectResponse,
+    WeblateProjectData,
     WeblateRoleResponse,
 )
 
@@ -191,7 +191,7 @@ def _resolve_weblate_ids(
 
     if model == "project":
         endpoint = WEBLATE_PROJECTS_ENDPOINT
-        response_type = WeblateProjectResponse
+        response_type = WeblateProjectData
         compare_key = "slug"
     elif model == "role":
         endpoint = WEBLATE_ROLES_ENDPOINT

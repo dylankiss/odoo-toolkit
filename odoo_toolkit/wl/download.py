@@ -24,7 +24,7 @@ from .common import (
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     WeblateApi,
     WeblateApiError,
-    get_weblate_project_components,
+    get_weblate_project_component_slugs,
 )
 
 app = Typer()
@@ -82,7 +82,7 @@ def download(
             progress_task = progress.add_task(
                 "Fetching components...", total=None,
             )
-            components = filter_by_globs(get_weblate_project_components(weblate_api, project), components)
+            components = filter_by_globs(get_weblate_project_component_slugs(weblate_api, project), components)
             progress.update(progress_task, completed=1, total=1)
     except WeblateApiError as e:
         print_error("Weblate API Error: Failed to fetch components for project.", str(e))
