@@ -245,25 +245,18 @@ def get_valid_modules_to_path_mapping(
     all_modules.update(m for t in modules_path_tuples[3:] for m in t[0])
 
     # Determine all modules to consider.
-    if len(modules) == 1:
-        modules_text = next(iter(modules))
-        match modules_text:
-            case "all":
-                modules_to_consider = {m for m in all_modules if not filter_fn or filter_fn(m)}
-            case "community":
-                modules_to_consider = {m for m in com_modules if not filter_fn or filter_fn(m)}
-            case "enterprise":
-                modules_to_consider = {m for m in ent_modules if not filter_fn or filter_fn(m)}
-            case "community-l10n":
-                modules_to_consider = {m for m in com_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m))}
-            case "enterprise-l10n":
-                modules_to_consider = {m for m in ent_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m))}
-            case _:
-                modules = normalize_list_option(modules)
-                modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m))}
-    else:
-        modules = {re.sub(r",", "", m) for m in modules}
-        modules_to_consider = {m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m))}
+    modules_to_consider: set[str] = set()
+    if "all" in modules:
+        modules_to_consider.update(m for m in all_modules if not filter_fn or filter_fn(m))
+    if "community" in modules:
+        modules_to_consider.update(m for m in com_modules if not filter_fn or filter_fn(m))
+    if "enterprise" in modules:
+        modules_to_consider.update(m for m in ent_modules if not filter_fn or filter_fn(m))
+    if "community-l10n" in modules:
+        modules_to_consider.update(m for m in com_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m)))
+    if "enterprise-l10n" in modules:
+        modules_to_consider.update(m for m in ent_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m)))
+    modules_to_consider.update(m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m)))
 
     if not modules_to_consider:
         return {}

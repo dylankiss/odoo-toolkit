@@ -95,6 +95,14 @@ def export(
         bool,
         Option("--quick-install", help="Install only the modules to export.", rich_help_panel="Odoo Server Options"),
     ] = False,
+    single_server: Annotated[
+        bool,
+        Option(
+            "--single-server",
+            help="Start a single Odoo server to install all modules instead of separate servers per repo/type.",
+            rich_help_panel="Odoo Server Options",
+        ),
+    ] = False,
     com_path: Annotated[
         Path,
         Option(
@@ -244,6 +252,17 @@ def export(
         ent_modules_path = ent_path.expanduser().resolve()
         extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
         odoo_version = get_odoo_version(odoo_repo_path)
+
+        if single_server:
+        # Combine all modules to export and install into the CUSTOM server type.
+            all_modules_to_export: set[str] = set()
+            all_modules_to_install: set[str] = set()
+            for (modules_to_export, modules_to_install) in modules_per_server_type.values():
+                all_modules_to_export.update(modules_to_export)
+                all_modules_to_install.update(modules_to_install)
+            modules_per_server_type = {
+                _ServerType.CUSTOM: (all_modules_to_export, all_modules_to_install),
+            }
 
         # Gather all parameters per server type to run the processes in parallel later.
         params_per_server_type: list[dict[str, Any]] = []
