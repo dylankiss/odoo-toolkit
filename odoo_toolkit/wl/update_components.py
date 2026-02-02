@@ -31,6 +31,12 @@ WEBLATE_COMPONENT_COMMON_CONFIG: WeblateComponentData = {
     # We want to force-push the dev branch to keep it in sync with the main branch.
     "vcs": "git-force-push",
     "file_format": "po",
+    "file_format_params": {
+        "po_fuzzy_matching": False,
+        "po_keep_previous": False,
+        "po_line_wrap": 77,
+        "po_no_location": False,
+    },
     # Only admins should be able to add new languages.
     "new_lang": "contact",
     # Use the locale codes as used in Odoo for new languages.
@@ -88,6 +94,18 @@ def update_components(
             help="The specific keys to update in the component configuration. Updates all keys if none are specified.",
         ),
     ] = EMPTY_LIST,
+    git_url: Annotated[
+        str | None, Option("--git-url", help="Override the Git repo URL to use on the components."),
+    ] = None,
+    git_push_url: Annotated[
+        str | None, Option("--git-push-url", help="Override the Git repo push URL to use on the components."),
+    ] = None,
+    git_branch: Annotated[
+        str | None, Option("--git-branch", help="Override the Git branch to use on the components."),
+    ] = None,
+    git_push_branch: Annotated[
+        str | None, Option("--git-push-branch", help="Override the Git push branch to use on the components."),
+    ] = None,
 ) -> None:
     """Update Weblate components based on the `.weblate.json` configuration in the current folder."""
     print_command_title(":jigsaw: Odoo Weblate Update Components")
@@ -112,16 +130,21 @@ def update_components(
             print_error("No components match the given patterns.")
             raise Exit
 
-    try:
-        git_repo = Repo(Path())
-    except InvalidGitRepositoryError as e:
-        print_error("The current folder is not a valid Git repository.")
-        raise Exit from e
-    else:
-        git_url = git_repo.remote().url
-        git_push_url = git_repo.remote("dev").url if "dev" in git_repo.remotes else git_url
-        git_branch = git_repo.active_branch.name
-        git_push_branch = f"{git_branch}-i18n-staging-c3podoo"
+    if not (git_url and git_push_url and git_branch and git_push_branch):
+        try:
+            git_repo = Repo(Path())
+        except InvalidGitRepositoryError as e:
+            print_error("The current folder is not a valid Git repository.")
+            raise Exit from e
+        else:
+            if not git_url:
+                git_url = git_repo.remote().url
+            if not git_push_url:
+                git_push_url = git_repo.remote("dev").url if "dev" in git_repo.remotes else git_url
+            if not git_branch:
+                git_branch = git_repo.active_branch.name
+            if not git_push_branch:
+                git_push_branch = f"{git_branch}-i18n-staging-c3podoo"
 
     if not git_url.startswith("git@github.com:odoo/"):
         print_error(f"The current Git repository '{git_url}' is not an Odoo repository.")
@@ -155,6 +178,8 @@ def update_components(
     config_table.add_column(justify="right")
     config_table.add_column()
     for key, value in WEBLATE_COMPONENT_COMMON_CONFIG.items():
+        if keys and key not in keys:
+            continue
         config_table.add_row(f"[b]{key}[/b]", str(value))
     print(config_table, "")
     confirm("Do you want to continue?", abort=True)

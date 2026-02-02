@@ -39,6 +39,14 @@ class WeblatePagedResponse(TypedDict):
     next: str | None
 
 
+class WeblateFileFormatParamsData(TypedDict, total=False):
+    """Partial structure of Weblate file format parameters."""
+
+    po_fuzzy_matching: bool
+    po_keep_previous: bool
+    po_line_wrap: int
+    po_no_location: bool
+
 class WeblateProjectData(TypedDict):
     """Partial structure of a Weblate project."""
 
@@ -55,6 +63,7 @@ class WeblateComponentData(TypedDict, total=False):
     commit_pending_age: int
     enable_suggestions: bool
     file_format: str
+    file_format_params: WeblateFileFormatParamsData
     filemask: str
     language_code_style: str
     language_regex: str
