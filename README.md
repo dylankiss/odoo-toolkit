@@ -59,11 +59,15 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
-| Command                                       | Purpose                                                           |
-| --------------------------------------------- | ----------------------------------------------------------------- |
-| [`otk wl config`](#otk-wl-config)             | Update modules in the Weblate config file.                        |
-| [`otk wl copy`](#otk-wl-copy)                 | Copy translations between languages, components, and/or projects. |
-| [`otk wl update-teams`](#otk-wl-update-teams) | Update Weblate teams permissions.                                 |
+| Command                                                 | Purpose                                                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [`otk wl autotranslate`](#otk-wl-autotranslate)         | Autotranslate translations for components in a Weblate project.                             |
+| [`otk wl config`](#otk-wl-config)                       | Update modules in the Weblate config file.                                                  |
+| [`otk wl copy`](#otk-wl-copy)                           | Copy translations between languages, components, and/or projects.                           |
+| [`otk wl download`](#otk-wl-download)                   | Download specific PO files from Weblate.                                                    |
+| [`otk wl update-components`](#otk-wl-update-components) | Update Weblate components based on the `.weblate.json` configuration in the current folder. |
+| [`otk wl update-teams`](#otk-wl-update-teams)           | Update Weblate teams permissions.                                                           |
+| [`otk wl upload`](#otk-wl-upload)                       | Upload specific PO files to Weblate.                                                        |
 
 ### [Odoo Multiverse (`otk mv`)](#odoo-multiverse-otk-mv-1)
 
@@ -111,7 +115,8 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 ### Options
 
-* `-x, --exclude TEXT`: Exclude these modules from being installed and exported, or `default`.  [default: `[]`]
+* `-x, --exclude TEXT`: Exclude these modules from being installed and exported, or `default`.
+* `-f, --path-filter PATH`: Only include modules within these paths.
 
 **Odoo Server Options**:
 
@@ -120,7 +125,7 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 * `--quick-install`: Install only the modules to export.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `-u, --username TEXT`: Specify the username to log in to Odoo.  [default: `admin`]
 * `-p, --password TEXT`: Specify the password to log in to Odoo.  [default: `admin`]
 * `--host TEXT`: Specify the hostname of your Odoo server.  [default: `localhost`]
@@ -168,9 +173,11 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 ### Options
 
 * `-l, --languages TEXT`: Create .po files for these language codes, or `all`.  **[required]**
+* `-x, --exclude TEXT`: Exclude these modules from being updated.
+* `-f, --path-filter PATH`: Only include modules within these paths.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -203,9 +210,11 @@ $ otk po update -l nl -l fr account account_accountant
 ### Options
 
 * `-l, --languages TEXT`: Update .po files for these language codes, or `all`.  [default: `all`]
+* `-x, --exclude TEXT`: Exclude these modules from being updated.
+* `-f, --path-filter PATH`: Only include modules within these paths.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -391,6 +400,40 @@ or make the variable available to your execution environment by putting it in yo
 configuration file for your shell.
 
 
+## `otk wl autotranslate`
+
+**Autotranslate translations for components in a Weblate project.**
+
+This command allows you to autotranslate existing components in a Weblate project using various translation engines. You need to specify for which language(s) you want the translations autotranslated.
+
+You can provide specific components or none at all. In that case, all components will be autotranslated. You can also specify which type of strings you want to have translated in the project and how the translations should be added. Finally, you can choose which translation engines to use for the autotranslation.
+
+### Usage
+
+```console
+$ otk wl autotranslate [OPTIONS] PROJECT
+```
+e.g.
+
+```console
+$ otk wl autotranslate all odoo-19 -q "state:empty" -m translate -e weblate -e deepl
+```
+
+### Arguments
+
+* `PROJECT`: The Weblate project to autotranslate.  **[required]**
+
+### Options
+
+* `-l, --language TEXT`: The languages to autotranslate.  **[required]**
+* `-c, --component TEXT`: The Weblate components to autotranslate. You can use glob patterns. Translates all components if none are specified.
+* `-q, --query TEXT`: Specify which strings need to be translated by using a Weblate search string. Translates all strings if not specified.
+* `-m, --mode [suggest|translate|fuzzy|approved]`: Specify the translation mode to use. Either add translations as suggestions (`suggest`), as translations (`translate`), as "Needing edit" (`fuzzy`), or as approved translations (`approved`).  [default: `suggest`]
+* `-e, --engine [alibaba|apertium-apy|aws|azure-openai|baidu|cyrtranslit|deepl|glosbe|google-translate|google-translate-api-v3|libretranslate|microsoft-translator|modernmt|mymemory|netease-sight|openai|sap-translation-hub|systran|tmserver|weblate|weblate-translation-memory|yandex|yandex-v2|youdao-zhiyun]`: Specify which translation engines to use. They need to be activated in your Weblate instance. You can provide multiple engines.  [default: `[weblate]`]
+* `-t, --threshold INTEGER`: Specify the minimum match percentage threshold for using translation memory engines.  [default: `100`]
+* `--help`: Show this message and exit.
+
+
 ## `otk wl config`
 
 **Update modules in the Weblate config file.**
@@ -418,11 +461,12 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 ### Options
 
 * `-p, --project TEXT`: Specify the Weblate project slug.  **[required]**
-* `-x, --exclude TEXT`: Exclude these modules from being added or updated.  [default: `[]`]
-* `-l, --language TEXT`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate.  [default: `[]`]
+* `-x, --exclude TEXT`: Exclude these modules from being added or updated.
+* `-f, --path-filter PATH`: Only add or update modules within these paths.
+* `-l, --language TEXT`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate. If you want the specific PO file languages added as a filter, use `filter`.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.  [default: `[]`]
+* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -459,6 +503,61 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
 * `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
 * `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
+* `--help`: Show this message and exit.
+
+
+## `otk wl download`
+
+**Download specific PO files from Weblate.**
+
+This command can be useful to bulk download specific PO files from Weblate, and filtering the strings using a Weblate query. The files will be saved in the current working directory with the name pattern `<project>-<component>-<language>.po`.
+
+### Usage
+
+```console
+$ otk wl download [OPTIONS]
+```
+e.g.
+
+```console
+$ otk wl download -p odoo-19 -l fr -q "state:<translated" --filter-empty
+```
+
+### Options
+
+* `-p, --project TEXT`: The Weblate project to download translations from.  **[required]**
+* `-l, --language TEXT`: The languages to download translations for. At least one language must be specified.  **[required]**
+* `-c, --component TEXT`: The Weblate components to download translations from. You can use glob patterns. Downloads all components if none are specified.
+* `-q, --query TEXT`: A Weblate query to filter strings.
+* `--filter-empty`: If set, only download PO files that are not empty after applying the query filter.
+* `--help`: Show this message and exit.
+
+
+## `otk wl update-components`
+
+**Update Weblate components based on the `.weblate.json` configuration in the current folder.**
+
+### Usage
+
+```console
+$ otk wl update-components [OPTIONS]
+```
+e.g.
+
+```console
+$ otk wl update-components -p odoo-19 -l ar,az,bg,bs,ca,cs,da,de,el,es,es_419,et,fa,fi,fr,he,hi,hr,hu,id,it,ja,kab,ko,ku,lt,lv,mn,my,nb,nl,pl,pt,pt_BR,ro,ru,sk,sl,sr@latin,sv,th,tr,uk,vi,zh_CN,zh_TW
+```
+
+### Options
+
+* `-p, --project TEXT`: The Weblate project to update components in.  **[required]**
+* `-l, --language TEXT`: The default languages to apply to components if not specified in the `.weblate.json` configuration.  **[required]**
+* `-c, --component TEXT`: The Weblate components to update. You can use glob patterns. Updates all components if none are specified.
+* `-k, --key TEXT`: The specific keys to update in the component configuration. Updates all keys if none are specified.
+* `--git-url`: Override the Git repo URL to use on the components.
+* `--git-push-url`: Override the Git repo push URL to use on the components.
+* `--git-branch`: Override the Git branch to use on the components.
+* `--git-push-branch`: Override the Git push branch to use on the components.
 * `--help`: Show this message and exit.
 
 
