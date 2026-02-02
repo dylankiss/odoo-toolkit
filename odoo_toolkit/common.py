@@ -1,5 +1,4 @@
 import importlib.util
-import re
 import time
 from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future
@@ -214,7 +213,7 @@ def get_valid_modules_to_path_mapping(
     com_path: Path,
     ent_path: Path,
     extra_addons_paths: Iterable[Path] = EMPTY_LIST,
-    filter_fn: Callable[[str], bool] | None = None,
+    filter_fn: Callable[[Path], bool] | None = None,
 ) -> dict[str, Path]:
     """Determine the valid modules and their directories.
 
@@ -231,42 +230,34 @@ def get_valid_modules_to_path_mapping(
     ent_modules_path = ent_path.expanduser().resolve()
     extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
 
-    com_modules = {f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
-    ent_modules = {f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
+    com_modules = {f.parent.name: com_modules_path / f.parent.name for f in com_modules_path.glob("*/__manifest__.py")}
+    ent_modules = {f.parent.name: ent_modules_path / f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
+    extra_modules = {f.parent.name: p / f.parent.name for p in extra_modules_paths for f in p.glob("*/__manifest__.py")}
 
-    modules_path_tuples = [
-        ({"base"}, base_module_path),
-        (com_modules, com_modules_path),
-        (ent_modules, ent_modules_path),
-    ]
-    modules_path_tuples.extend(({f.parent.name for f in p.glob("*/__manifest__.py")}, p) for p in extra_modules_paths)
-
-    all_modules = {"base"} | com_modules | ent_modules
-    all_modules.update(m for t in modules_path_tuples[3:] for m in t[0])
+    all_modules = {"base": base_module_path / "base"} | com_modules | ent_modules | extra_modules
 
     # Determine all modules to consider.
-    modules_to_consider: set[str] = set()
+    modules_to_consider: dict[str, Path] = {}
     if "all" in modules:
-        modules_to_consider.update(m for m in all_modules if not filter_fn or filter_fn(m))
+        modules_to_consider.update((m, p) for m, p in all_modules.items() if not filter_fn or filter_fn(p))
     if "community" in modules:
-        modules_to_consider.update(m for m in com_modules if not filter_fn or filter_fn(m))
+        modules_to_consider.update((m, p) for m, p in com_modules.items() if not filter_fn or filter_fn(p))
     if "enterprise" in modules:
-        modules_to_consider.update(m for m in ent_modules if not filter_fn or filter_fn(m))
+        modules_to_consider.update((m, p) for m, p in ent_modules.items() if not filter_fn or filter_fn(p))
     if "community-l10n" in modules:
-        modules_to_consider.update(m for m in com_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m)))
+        modules_to_consider.update(
+            (m, p) for m, p in com_modules.items() if is_l10n_module(m) and (not filter_fn or filter_fn(p))
+        )
     if "enterprise-l10n" in modules:
-        modules_to_consider.update(m for m in ent_modules if is_l10n_module(m) and (not filter_fn or filter_fn(m)))
-    modules_to_consider.update(m for m in all_modules if any(fnmatch(m, p) for p in modules) and (not filter_fn or filter_fn(m)))
+        modules_to_consider.update(
+            (m, p) for m, p in ent_modules.items() if is_l10n_module(m) and (not filter_fn or filter_fn(p))
+        )
+    modules_to_consider.update(
+        (m, p) for m, p in all_modules.items()
+        if any(fnmatch(m, mp) for mp in modules) and (not filter_fn or filter_fn(p))
+    )
 
-    if not modules_to_consider:
-        return {}
-
-    # Map each module to its directory.
-    return {
-        module: path / module
-        for modules, path in modules_path_tuples
-        for module in modules & modules_to_consider
-    }
+    return modules_to_consider
 
 
 def update_remote_progress(

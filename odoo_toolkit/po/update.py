@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
@@ -42,6 +43,13 @@ def update(
         list[str],
         Option("--language", "-l", help="Update `.po` files for these language codes, or `all`."),
     ] = ["all"],  # noqa: B006
+    exclude: Annotated[
+        list[str], Option("--exclude", "-x", help="Exclude these modules from being updated."),
+    ] = EMPTY_LIST,
+    path_filters: Annotated[
+        list[Path],
+        Option("--path-filter", "-f", help="Only include modules within these paths."),
+    ] = EMPTY_LIST,
     com_path: Annotated[
         Path,
         Option(
@@ -80,12 +88,21 @@ def update(
     print_command_title(":arrows_counterclockwise: Odoo PO Update")
 
     languages = sorted(normalize_list_option(languages))
+    exclude = normalize_list_option(exclude)
+
+    def filter_fn(p: Path) -> bool:
+        if exclude and any(fnmatch(p.name, e) for e in exclude):
+            return False
+        if path_filters:
+            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
+        return True
 
     module_to_path = get_valid_modules_to_path_mapping(
         modules=normalize_list_option(modules),
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
+        filter_fn=filter_fn,
     )
 
     if not module_to_path:
@@ -99,6 +116,7 @@ def update(
 
     status = None
     failed_langs_per_module: dict[str, list[str]] = {}
+    all_failed_langs: set[str] = set()
     with TransientProgress() as progress:
         progress_task = progress.add_task("Updating .po files", total=len(modules))
         for module in modules:
@@ -123,6 +141,7 @@ def update(
             )
             if failed_langs:
                 failed_langs_per_module[module] = failed_langs
+                all_failed_langs.update(failed_langs)
             print(module_tree, "")
             status = Status.PARTIAL if status and status != update_status else update_status
             progress.advance(progress_task, 1)
@@ -130,6 +149,8 @@ def update(
     failed_langs_per_module_str = "\n".join(
         f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failed_langs_per_module.items()
     )
+    addons_paths_str = "".join(f"-a {p} " for p in extra_addons_paths)
+    langs_str = " ".join(f"-l {lang}" for lang in sorted(all_failed_langs))
     match status:
         case Status.SUCCESS:
             print_success("All translation files were updated correctly!\n")
@@ -138,7 +159,7 @@ def update(
                 "Some translation files were updated correctly, while others weren't!\n\n"
                 f"{failed_langs_per_module_str}\n\n"
                 "You can run the command again for the failed modules using:\n"
-                f"[b]otk po update {' '.join(failed_langs_per_module.keys())}[/b]\n",
+                f"[b]otk po update {addons_paths_str}{langs_str} {' '.join(failed_langs_per_module.keys())}[/b]\n",
             )
         case _:
             print_error("No translation files were updated!\n")

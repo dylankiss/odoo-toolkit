@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
@@ -46,6 +47,13 @@ def create(
             help="Create `.po` files for these language codes, or `all` available languages in Odoo.",
         ),
     ],
+    exclude: Annotated[
+        list[str], Option("--exclude", "-x", help="Exclude these modules from being updated."),
+    ] = EMPTY_LIST,
+    path_filters: Annotated[
+        list[Path],
+        Option("--path-filter", "-f", help="Only include modules within these paths."),
+    ] = EMPTY_LIST,
     com_path: Annotated[
         Path,
         Option(
@@ -86,11 +94,19 @@ def create(
 
     languages = normalize_list_option(languages)
 
+    def filter_fn(p: Path) -> bool:
+        if exclude and any(fnmatch(p.name, e) for e in exclude):
+            return False
+        if path_filters:
+            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
+        return True
+
     module_to_path = get_valid_modules_to_path_mapping(
         modules=normalize_list_option(modules),
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
+        filter_fn=filter_fn,
     )
 
     if not module_to_path:

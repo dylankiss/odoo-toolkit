@@ -75,6 +75,10 @@ def export(
     exclude: Annotated[
         list[str], Option("--exclude", "-x", help="Exclude these modules from being installed and exported, or `default`."),
     ] = EMPTY_LIST,
+    path_filters: Annotated[
+        list[Path],
+        Option("--path-filter", "-f", help="Only include modules within these paths."),
+    ] = EMPTY_LIST,
     start_server: Annotated[
         bool,
         Option(
@@ -202,8 +206,12 @@ def export(
     exclude = normalize_list_option(exclude)
     if "default" in exclude:
         exclude = DEFAULT_EXCLUDE
-    def filter_fn(m: str) -> bool:
-        return not any(fnmatch(m, p) for p in exclude)
+    def filter_fn(p: Path) -> bool:
+        if exclude and any(fnmatch(p.name, e) for e in exclude):
+            return False
+        if path_filters:
+            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
+        return True
 
     module_to_path = get_valid_modules_to_path_mapping(
         modules=normalize_list_option(modules),
@@ -656,7 +664,7 @@ def _get_modules_per_server_type(
     extra_addons_paths: Iterable[Path] = EMPTY_LIST,
     full_install: bool = False,
     quick_install: bool = False,
-    filter_fn: Callable[[str], bool] | None = None,
+    filter_fn: Callable[[Path], bool] | None = None,
 ) -> dict[_ServerType, tuple[set[str], set[str]]]:
     """Get all modules to export and install per server type.
 
@@ -809,13 +817,13 @@ def _find_all_dependents(
 def _get_full_install_modules_per_server_type(
     com_modules_path: Path,
     ent_modules_path: Path,
-    filter_fn: Callable[[str], bool] | None = None,
+    filter_fn: Callable[[Path], bool] | None = None,
 ) -> dict[_ServerType, set[str]]:
     """Get all modules to install per server type for .pot export with `full_install = True`."""
     modules: dict[_ServerType, set[str]] = defaultdict(set)
 
     for m in (f.parent.name for f in com_modules_path.glob("*/__manifest__.py")):
-        if filter_fn and not filter_fn(m):
+        if filter_fn and not filter_fn(com_modules_path / m):
             # Skip module if it doesn't pass the filter.
             continue
         # Add each Community module to the right server types.
@@ -828,7 +836,7 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.CUSTOM].add(m)
 
     for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
-        if filter_fn and not filter_fn(m):
+        if filter_fn and not filter_fn(ent_modules_path / m):
             # Skip module if it doesn't pass the filter.
             continue
         # Add each Enterprise module to the right server types.
