@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Annotated
 
-from typer import Argument, Exit, Option, Typer
+from typer import Argument, Exit, Option, Typer, confirm
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
@@ -25,15 +25,6 @@ from .common import (
 )
 
 
-class FilterType(str, Enum):
-    """Filter types available for the autotranslate endpoint."""
-
-    ALL = "all"
-    NOTTRANSLATED = "nottranslated"
-    TODO = "todo"
-    FUZZY = "fuzzy"
-
-
 class TranslationMode(str, Enum):
     """Translation modes available for the autotranslate endpoint."""
 
@@ -46,8 +37,31 @@ class TranslationMode(str, Enum):
 class TranslationEngines(str, Enum):
     """Translation engines available for the autotranslate endpoint."""
 
-    WEBLATE = "weblate"
+    ALIBABA = "alibaba"
+    APERTIUM_APY = "apertium-apy"
+    AWS = "aws"
+    AZURE_OPENAI = "azure-openai"
+    BAIDU = "baidu"
+    CYRTRANSLIT = "cyrtranslit"
     DEEPL = "deepl"
+    GLOSBE = "glosbe"
+    GOOGLE_TRANSLATE = "google-translate"
+    GOOGLE_TRANSLATE_API_V3 = "google-translate-api-v3"
+    LIBRETRANSLATE = "libretranslate"
+    MICROSOFT_TRANSLATOR = "microsoft-translator"
+    MODERNMT = "modernmt"
+    MYMEMORY = "mymemory"
+    NETEASE_SIGHT = "netease-sight"
+    OPENAI = "openai"
+    SAP_TRANSLATION_HUB = "sap-translation-hub"
+    SYSTRAN = "systran"
+    TMSERVER = "tmserver"
+    WEBLATE = "weblate"
+    WEBLATE_TRANSLATION_MEMORY = "weblate-translation-memory"
+    YANDEX = "yandex"
+    YANDEX_V2 = "yandex-v2"
+    YOUDAO_ZHIYUN = "youdao-zhiyun"
+
 
 DEFAULT_TRANSLATION_ENGINES = [TranslationEngines.WEBLATE]
 
@@ -63,18 +77,19 @@ def autotranslate(
         Option(
             "--component",
             "-c",
-            help="The Weblate components to autotranslate. You can use glob patterns. Translates all components if none are specified.",
+            help="The Weblate components to autotranslate. You can use glob patterns. Translates all components if "
+            "none are specified.",
         ),
     ] = EMPTY_LIST,
-    filter_type: Annotated[
-        FilterType,
+    query: Annotated[
+        str | None,
         Option(
-            "--filter",
-            "-f",
-            help="Specify which strings need to be translated. Either all strings (`all`), untranslated strings "
-            "(`nottranslated`), unfinished strings (`todo`), or strings marked for edit (`fuzzy`).",
+            "--query",
+            "-q",
+            help="Specify which strings need to be translated by using a Weblate search string. Translates all strings "
+            "if not specified.",
         ),
-    ] = FilterType.NOTTRANSLATED,
+    ] = None,
     translation_mode: Annotated[
         TranslationMode,
         Option(
@@ -89,7 +104,8 @@ def autotranslate(
         Option(
             "--engine",
             "-e",
-            help="Specify which translation engines to use. You can provide multiple engines.",
+            help="Specify which translation engines to use. They need to be activated in your Weblate instance. You "
+            "can provide multiple engines.",
         ),
     ] = DEFAULT_TRANSLATION_ENGINES,
     threshold: Annotated[
@@ -113,6 +129,13 @@ def autotranslate(
     """
     print_command_title(":robot: Odoo Weblate Autotranslate")
 
+    if not query:
+        confirm(
+            "No query parameter was specified. This will autotranslate [b]all[/b] strings, translated or not.\n"
+            "Are you sure you want to continue?",
+            abort=True,
+        )
+
     # Support comma-separated values as well.
     languages = sorted(normalize_list_option(languages))
     components = normalize_list_option(components)
@@ -124,7 +147,7 @@ def autotranslate(
         raise Exit from e
 
     success_count, partial_count, failure_count = _process_components(
-        weblate_api, project, components, languages, filter_type, translation_mode, translation_engines, threshold,
+        weblate_api, project, components, languages, query, translation_mode, translation_engines, threshold,
     )
 
     total_processed = success_count + partial_count + failure_count
@@ -162,7 +185,7 @@ def _autotranslate_languages(
     project: str,
     component: str,
     languages: list[str],
-    filter_type: FilterType,
+    query: str | None,
     translation_mode: TranslationMode,
     translation_engines: list[TranslationEngines],
     threshold: int,
@@ -173,6 +196,14 @@ def _autotranslate_languages(
 
     success_count = 0
     failure_count = 0
+    json: dict[str, str|int|list[str]] = {
+        "mode": translation_mode.value,
+        "auto_source": "mt",
+        "engines": [engine.value for engine in translation_engines],
+        "threshold": threshold,
+    }
+    if query:
+        json["q"] = query
     for language in languages:
         try:
             api.post(
@@ -180,13 +211,7 @@ def _autotranslate_languages(
                 WEBLATE_AUTOTRANSLATE_ENDPOINT.format(
                     project=project, component=component, language=get_cldr_lang(language),
                 ),
-                json={
-                    "mode": translation_mode.value,
-                    "filter_type": filter_type.value,
-                    "auto_source": "mt",
-                    "engines": [engine.value for engine in translation_engines],
-                    "threshold": threshold,
-                },
+                json=json,
             )
             success_count += 1
         except WeblateApiError as e:  # noqa: PERF203
@@ -205,7 +230,7 @@ def _process_components(
     project: str,
     components: list[str],
     languages: list[str],
-    filter_type: FilterType,
+    query: str | None,
     translation_mode: TranslationMode,
     translation_engines: list[TranslationEngines],
     threshold: int,
@@ -233,7 +258,7 @@ def _process_components(
             )
 
             status = _autotranslate_languages(
-                api, project, component, languages, filter_type, translation_mode, translation_engines, threshold,
+                api, project, component, languages, query, translation_mode, translation_engines, threshold,
             )
             counts[status] += 1
 
