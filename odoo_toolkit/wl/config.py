@@ -30,8 +30,11 @@ def config(
     ],
     project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
     exclude: Annotated[
-        list[str],
-        Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
+        list[str], Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
+    ] = EMPTY_LIST,
+    path_filters: Annotated[
+        list[Path],
+        Option("--path-filter", "-f", help="Only add or update modules within these paths."),
     ] = EMPTY_LIST,
     languages: Annotated[
         list[str],
@@ -39,7 +42,8 @@ def config(
             "--language",
             "-l",
             help="Define specific language codes for this component. Mostly used for localizations. "
-            "If none are given, it follows the default languages on Weblate.",
+            "If none are given, it follows the default languages on Weblate. "
+            "If you want the specific PO file languages added as a filter, use `filter`.",
         ),
     ] = EMPTY_LIST,
     reset: Annotated[
@@ -83,12 +87,26 @@ def config(
     """
     print_command_title(":memo: Odoo Weblate Config")
 
+    languages = sorted(normalize_list_option(languages))
+    exclude = normalize_list_option(exclude)
+    lang_filter = False
+    if "filter" in languages:
+        languages = EMPTY_LIST
+        lang_filter = True
+
+    def filter_fn(p: Path) -> bool:
+        if exclude and any(fnmatch(p.name, e) for e in exclude):
+            return False
+        if path_filters:
+            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
+        return True
+
     module_to_path = get_valid_modules_to_path_mapping(
         modules=normalize_list_option(modules),
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        filter_fn=lambda m: not any(fnmatch(m, p) for p in normalize_list_option(exclude)),
+        filter_fn=filter_fn,
     )
 
     print(f"Modules to include: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
@@ -115,6 +133,15 @@ def config(
             weblate_config.clear(project)
         updated, skipped = 0, 0
         for m in TransientProgress().track(local_modules, description="Updating modules ..."):
+            if lang_filter:
+                i18n_folder = module_to_path[m] / "i18n"
+                if i18n_folder.is_dir():
+                    languages = [po.stem for po in (module_to_path[m] / "i18n").glob("*.po")]
+                else:
+                    languages = EMPTY_LIST
+                if not languages and (i18n_folder / f"{m}.pot").is_file():
+                    skipped += 1
+                    continue
             if weblate_config.update_module(module_to_path[m], project, normalize_list_option(languages)):
                 updated += 1
             else:
