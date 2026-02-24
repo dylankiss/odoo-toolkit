@@ -194,7 +194,6 @@ def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[b
                 "msgattrib",
                 "--no-obsolete",
                 f"--output-file={po_path}",
-                "--sort-output",
                 str(po_path),
             ]
             subprocess.run(cmd, capture_output=True, check=True)

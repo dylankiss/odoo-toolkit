@@ -121,6 +121,7 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 **Odoo Server Options**:
 
 * `--start-server / --own-server`: Start an Odoo server automatically or connect to your own server.  [default: `start-server`]
+* `--keep-db`: Keep the database after exporting the `.pot` files.
 * `--full-install`: Install every available Odoo module.
 * `--quick-install`: Install only the modules to export.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]

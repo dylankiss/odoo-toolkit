@@ -87,6 +87,14 @@ def export(
             rich_help_panel="Odoo Server Options",
         ),
     ] = True,
+    keep_db: Annotated[
+        bool,
+        Option(
+            "--keep-db",
+            help="Keep the database after exporting the `.pot` files.",
+            rich_help_panel="Odoo Server Options",
+        ),
+    ] = False,
     full_install: Annotated[
         bool,
         Option(
@@ -309,9 +317,11 @@ def export(
             if odoo_version and odoo_version >= WITH_DEMO_VERSION:
                 odoo_cmd.extend(["--with-demo"])
 
-            dropdb_cmd = ["dropdb", cur_database, "--host", db_host, "--port", str(db_port)]
-            if db_username:
-                dropdb_cmd.extend(["--username", db_username])
+            dropdb_cmd = None
+            if not keep_db:
+                dropdb_cmd = ["dropdb", cur_database, "--host", db_host, "--port", str(db_port)]
+                if db_username:
+                    dropdb_cmd.extend(["--username", db_username])
             if db_password:
                 cmd_env |= {"PGPASSWORD": db_password}
 
@@ -358,7 +368,7 @@ def _run_server_and_export_terms(
     server_name: str,
     server_formatted: str,
     odoo_cmd: Sequence[str | Path],
-    dropdb_cmd: Sequence[str | Path],
+    dropdb_cmd: Sequence[str | Path] | None,
     env: Mapping[str, str],
     url: str,
     database: str,
@@ -451,13 +461,16 @@ def _run_server_and_export_terms(
             "You can delete it manually afterwards.",
         )
     elif data.database_created:
-        try:
-            subprocess.run(dropdb_cmd, env=env, capture_output=True, check=True)
-            print(f"{server_formatted} Database [b]{database}[/b] has been deleted :white_check_mark:\n")
-        except CalledProcessError as e:
-            print_error(
-                f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.", e.stderr.strip(),
-            )
+        if not dropdb_cmd:
+            print(f"{server_formatted} Database [b]{database}[/b] has been kept to re-use or inspect later :white_check_mark:\n")
+        else:
+            try:
+                subprocess.run(dropdb_cmd, env=env, capture_output=True, check=True)
+                print(f"{server_formatted} Database [b]{database}[/b] has been deleted :white_check_mark:\n")
+            except CalledProcessError as e:
+                print_error(
+                    f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.", e.stderr.strip(),
+                )
 
 
 def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
