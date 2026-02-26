@@ -675,7 +675,7 @@ $ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgra
 
 ### Options
 
-* `-b, --branches TEXT`: Specify the Odoo branches you want to add.  [default: `16.0`, `17.0`, `saas-17.2`, `saas-17.4`, `18.0`, `master`]
+* `-b, --branches TEXT`: Specify the Odoo branches you want to add.  [default: `17.0`, `18.0`, `saas-18.2`, `saas-18.3`, `saas-18.4`, `19.0`, `saas-19.1`, `saas-19.2`, `master`]
 * `-r, --repositories REPO`: Specify the Odoo repositories you want to sync.  [default: `odoo`, `enterprise`, `design-themes`, `upgrade`, `upgrade-util`]
 * `-d, --multiverse-dir PATH`: Specify the directory in which you want to install the multiverse setup.  [default: `<current working directory>`]
 * `--reset-config`: Reset every specified worktree's Ruff config, Python virtual environment and dependencies, and optional Visual Studio Code config.
