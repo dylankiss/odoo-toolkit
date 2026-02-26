@@ -117,6 +117,7 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 * `-x, --exclude TEXT`: Exclude these modules from being installed and exported, or `default`.
 * `-f, --path-filter PATH`: Only include modules within these paths.
+* `--help`: Show this message and exit.
 
 **Odoo Server Options**:
 
@@ -139,10 +140,6 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 * `--db-port INTEGER`: Specify the PostgreSQL server's port.  [default: `5432`]
 * `--db-username TEXT`: Specify the PostgreSQL server's username.
 * `--db-password TEXT`: Specify the PostgreSQL user's password.
-
-**Options:**
-
-* `--help`: Show this message and exit.
 
 ## `otk po create`
 
@@ -465,6 +462,7 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 * `-x, --exclude TEXT`: Exclude these modules from being added or updated.
 * `-f, --path-filter PATH`: Only add or update modules within these paths.
 * `-l, --language TEXT`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate. If you want the specific PO file languages added as a filter, use `filter`.
+* `-r, --reset`: Reset the config file for the given project and only add the given modules.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
@@ -502,6 +500,8 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 * `-L, --dest-language TEXT`: The language code to copy translations to.
 * `-c, --src-component TEXT`: The Weblate components to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
+* `-a, --author TEXT`: The author name to use for the uploaded translations. If not set, the API key user will be used.
+* `-e, --email TEXT`: The author email to use for the uploaded translations. If not set, the API key user will be used.
 * `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
 * `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
 * `--help`: Show this message and exit.
@@ -621,7 +621,7 @@ The command will basically do the following:
 
 1. Clone the repositories that have multiple active branches (among `odoo`, `enterprise`, `design-themes`, `documentation`, `industry` and `o-spreadsheet`) as [bare repositories](https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-code--barecode) to a `.multiverse-source/<repository>` folder (we don't need the source files themselves here). We set them up in a way that we can correctly create worktrees for each branch. We add the remote `origin` (`git@github.com:odoo/<repository>.git`) for all repositories and the remote `dev` (`git@github.com:odoo-dev/<repository>.git`) for all except the `documentation` and `o-spreadsheet` repositories.
 
-2. Clone the single-branch repositories (among `upgrade`, `upgrade-util`, `odoofin` and `internal`) to the root of your multiverse directory.
+2. Clone the single-branch repositories (among `upgrade`, `upgrade-util`, `odoofin`, `iap-apps`, `mobile`, and `internal`) to the root of your multiverse directory.
 
 3. Create a directory per branch in your multiverse directory, and a directory per multi-branch repository inside each branch directory. We use [`git worktree add`](https://git-scm.com/docs/git-worktree#Documentation/git-worktree.txt-addltpathgtltcommit-ishgt) to add a worktree for the correct branch for each repository.
 
@@ -640,23 +640,23 @@ After all that is done, your directory structure should look like this with the 
 │   ├── odoo (bare)
 │   ├── enterprise (bare)
 │   └── design-themes (bare)
-├── 16.0
-│   └── ...
 ├── 17.0
 │   └── ...
-├── saas-17.2
-│   └── ...
-├── saas-17.4
-│   └── ...
 ├── 18.0
+│   └── ...
+├── saas-18.2
+│   └── ...
+├── ...
+├── 19.0
 │   ├── .venv (Python virtual environment)
-│   ├── odoo (18.0)
-│   ├── enterprise (18.0)
-│   ├── design-themes (18.0)
+│   ├── odoo (19.0)
+│   ├── enterprise (19.0)
+│   ├── design-themes (19.0)
 │   ├── upgrade (symlink to ../upgrade)
 │   ├── upgrade-util (symlink to ../upgrade-util)
 │   ├── pyproject.toml
 │   └── requirements.txt
+├── ...
 ├── master
 │   └── ...
 ├── upgrade (master)
@@ -742,4 +742,5 @@ $ otk mv switch odoo-dev:master-fix-abc
 
 ### Options
 
+* `-r, --remote [dev|origin]`: Use this local remote for finding the given branch.
 * `--help`: Show this message and exit.
