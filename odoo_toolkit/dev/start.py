@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 from python_on_whales import DockerException
-from typer import Exit, Option, Typer
+from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     APP_DIR,
@@ -17,9 +17,10 @@ from odoo_toolkit.common import (
     print_error,
     print_header,
     print_success,
+    print_warning,
 )
 
-from .common import DOCKER, UbuntuVersion
+from .common import DOCKER
 from .stop import stop_containers
 
 app = Typer()
@@ -27,6 +28,12 @@ app = Typer()
 
 @app.command()
 def start(
+    odoo_branch: Annotated[
+        str,
+        Argument(
+            help="The Odoo branch to start a development server for, like `19.0`, `saas-19.1`, `master`.",
+        ),
+    ],
     workspace: Annotated[
         Path,
         Option(
@@ -36,15 +43,6 @@ def start(
             "directory.",
         ),
     ] = Path("~/code/odoo-mv"),
-    ubuntu_version: Annotated[
-        UbuntuVersion,
-        Option(
-            "--ubuntu-version",
-            "-u",
-            help="Specify the Ubuntu version to run in this container.",
-            case_sensitive=False,
-        ),
-    ] = UbuntuVersion.NOBLE,
     db_port: Annotated[
         int,
         Option(
@@ -121,6 +119,7 @@ def start(
     os.environ["GITCONFIG_PATH"] = str(gitconfig_path.expanduser().resolve())
 
     print_header(":rocket: Start Odoo Development Server")
+    odoo_version = _get_odoo_container_version_from_branch(odoo_branch)
 
     try:
         with TransientProgress() as progress:
@@ -128,7 +127,7 @@ def start(
                 progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
                 # Build Docker image if it wasn't already or when forced.
                 output_generator = DOCKER.compose.build(
-                    [f"odoo-{ubuntu_version.value}"],
+                    [f"odoo-{odoo_version}"],
                     stream_logs=True,
                     cache=not build_no_cache,
                 )
@@ -151,22 +150,22 @@ def start(
                 progress.update(progress_task, description="Building Docker image :coffee: ...", total=1, completed=1)
                 print_success("Docker image built")
 
-            if not DOCKER.image.exists(f"dylankiss/odoo-{ubuntu_version.value}:dev"):
+            if not DOCKER.image.exists(f"dylankiss/odoo-dev:{odoo_version}"):
                 progress_task = progress.add_task("Pulling Docker image :coffee: ...", total=None)
-                DOCKER.image.pull([f"dylankiss/odoo-{ubuntu_version.value}:dev"], quiet=True, platform="linux/amd64")
+                DOCKER.image.pull([f"dylankiss/odoo-dev:{odoo_version}"], quiet=True, platform="linux/amd64")
                 progress.update(progress_task, total=1, completed=1)
                 print_success("Docker image pulled")
 
             progress_task = progress.add_task("Starting containers ...", total=None)
             # Start the container in the background.
-            DOCKER.compose.up([f"odoo-{ubuntu_version.value}"], detach=True, quiet=True)
+            DOCKER.compose.up([f"odoo-{odoo_version}"], detach=True, quiet=True)
             progress.update(progress_task, total=1, completed=1)
             print_success("Containers started\n")
 
         print_header(":computer: Start Session")
 
         # Start a bash session in the container and let the user interact with it.
-        DOCKER.compose.execute(f"odoo-{ubuntu_version.value}", ["bash"], tty=True)
+        DOCKER.compose.execute(f"odoo-{odoo_version}", ["bash"], tty=True)
         print("\nSession ended :white_check_mark:\n")
 
     except DockerException as e:
@@ -176,3 +175,27 @@ def start(
             "\n\n".join(o for o in (e.stderr, e.stdout) if o),
         )
         raise Exit from e
+
+
+def _get_odoo_container_version_from_branch(odoo_branch: str) -> str:
+    """Get the Odoo version to use for the container based on the provided Odoo branch."""
+    if odoo_branch in ("master", "main"):
+        return "master"
+    match = re.search(r"(\d+\.\d+)", odoo_branch)
+    if match:
+        version = float(match.group(1))
+        if version <= 17.0:  # noqa: PLR2004
+            return "17.0"
+        if version <= 18.0:  # noqa: PLR2004
+            return "18.0"
+        if version <= 18.4:  # noqa: PLR2004
+            return "18.4"
+        if version <= 19.0:  # noqa: PLR2004
+            return "19.0"
+        if version > 19.0:  # noqa: PLR2004
+            return "master"
+    print_warning(
+        f"Could not determine Odoo version from branch '{odoo_branch}'. "
+        "Falling back to 'master' version for the container.",
+    )
+    return "master"

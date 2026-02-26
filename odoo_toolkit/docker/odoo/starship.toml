@@ -15,4 +15,12 @@ truncation_symbol = '…/'
 ssh_only = false
 
 [username]
+format = '[$user]($style) on '
 show_always = true
+
+[custom.odoo]
+command = 'echo "localhost:$ODOO_PORT"'
+when = true
+symbol = '🟣 '
+style = 'bold purple'
+format = 'at [$symbol($output)]($style) '

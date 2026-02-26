@@ -2,7 +2,61 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Odoo: Docker [Noble]",
+            "name": "Debug Odoo: Docker [19.1 to master]",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5682
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "redirectOutput": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "justMyCode": false,
+        },
+        {
+            "name": "Debug Odoo: Docker [19.0]",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5681
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "redirectOutput": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "justMyCode": false,
+        },
+        {
+            "name": "Debug Odoo: Docker [18.1 to 18.4]",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5680
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "redirectOutput": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "justMyCode": false,
+        },
+        {
+            "name": "Debug Odoo: Docker [18.0]",
             "type": "debugpy",
             "request": "attach",
             "connect": {
@@ -20,7 +74,7 @@
             "justMyCode": false,
         },
         {
-            "name": "Debug Odoo: Docker [Jammy]",
+            "name": "Debug Odoo: Docker [17.0]",
             "type": "debugpy",
             "request": "attach",
             "connect": {

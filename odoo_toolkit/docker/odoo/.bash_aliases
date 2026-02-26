@@ -1,8 +1,12 @@
-if [[ "$(hostname)" == "odoo-jammy" ]]; then
-    port_opt="--http-port=8070"
-else
-    port_opt="--http-port=8075"
-fi
+case "$(hostname)" in
+    "odoo-17") export ODOO_PORT="8070" ;;
+    "odoo-18") export ODOO_PORT="8071" ;;
+    "odoo-18-1-18-4") export ODOO_PORT="8072" ;;
+    "odoo-19") export ODOO_PORT="8073" ;;
+    *)           export ODOO_PORT="8074" ;;
+esac
+
+port_opt="--http-port=$ODOO_PORT --http-interface=0.0.0.0"
 com_addons_opt="--addons-path=odoo/addons"
 ent_addons_opt="--addons-path=enterprise,odoo/addons"
 upgrade_opt="--upgrade-path=upgrade-util/src,upgrade/migrations"

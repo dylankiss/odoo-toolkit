@@ -1,3 +1,6 @@
+# Container definition for Odoo >18.0 and <=saas-18.4
+# Last updated: 2026-02-25
+
 # Use Ubuntu 24.04 LTS (Noble Numbat)
 FROM ubuntu:noble
 
@@ -106,22 +109,18 @@ RUN npm install --force -g \
         eslint-plugin-prettier@4.2.1
 
 # Install Debian packages in debian/control and get latest postgresql-client
-ADD https://raw.githubusercontent.com/odoo/odoo/18.0/debian/control /tmp/control_18.txt
-ADD https://raw.githubusercontent.com/odoo/odoo/master/debian/control /tmp/control_master.txt
+ADD https://raw.githubusercontent.com/odoo/odoo/saas-18.4/debian/control /tmp/control.txt
 RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/trusted.gpg.d/psql_client.asc \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -s -c`-pgdg main" > /etc/apt/sources.list.d/pgclient.list \
     && apt-get update \
-    && sed -n '/^Depends:/,/^[A-Z]/p' /tmp/control_18.txt \
-        | awk '/^ [a-z]/ { gsub(/,/,"") ; gsub(" ", "") ; print $NF }' | sort -u \
-        | DEBIAN_FRONTEND=noninteractive xargs apt-get install -y -qq --no-install-recommends \
-    && sed -n '/^Depends:/,/^[A-Z]/p' /tmp/control_master.txt \
+    && sed -n '/^Depends:/,/^[A-Z]/p' /tmp/control.txt \
         | awk '/^ [a-z]/ { gsub(/,/,"") ; gsub(" ", "") ; print $NF }' | sort -u \
         | DEBIAN_FRONTEND=noninteractive xargs apt-get install -y -qq --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
-RUN curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb \
+RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_141.0.7390.54-1_amd64.deb -o /tmp/chrome.deb \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
         /tmp/chrome.deb \
@@ -144,28 +143,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 RUN uv venv /venv/odoo --system-site-packages \
     && uv venv /venv/odoo-doc --system-site-packages
 
-# Install Odoo Python requirements
-ADD https://raw.githubusercontent.com/odoo/odoo/18.0/requirements.txt /tmp/18_requirements.txt
-ADD https://raw.githubusercontent.com/odoo/odoo/master/requirements.txt /tmp/master_requirements.txt
-ADD https://raw.githubusercontent.com/odoo/documentation/master/requirements.txt /tmp/doc_requirements.txt
-ADD https://raw.githubusercontent.com/odoo/documentation/master/tests/requirements.txt /tmp/doctests_requirements.txt
-RUN VIRTUAL_ENV=/venv/odoo uv pip install --no-cache-dir \
-        -r /tmp/18_requirements.txt \
-        -r /tmp/master_requirements.txt \
-    && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
-        -r /tmp/18_requirements.txt \
-        -r /tmp/master_requirements.txt \
-    && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
-        -r /tmp/doc_requirements.txt \
-        -r /tmp/doctests_requirements.txt
-
 # Install pip packages
 RUN uv pip install --no-cache-dir \
         # Runbot packages
         ebaysdk==2.1.5 \
         pdf417gen==0.7.1 \
         astroid==3.3.9 \
-        pylint==3.3.6 \
+        pylint==3.3.8 \
         unidiff==0.7.3 \
         paramiko==2.12.0 \
         markdown2==2.4.11 \
@@ -174,6 +158,18 @@ RUN uv pip install --no-cache-dir \
         pydevd-odoo \
         watchdog \
         inotify
+
+# Install Odoo Python requirements
+ADD https://raw.githubusercontent.com/odoo/odoo/saas-18.4/requirements.txt /tmp/requirements.txt
+ADD https://raw.githubusercontent.com/odoo/documentation/saas-18.4/requirements.txt /tmp/doc_requirements.txt
+ADD https://raw.githubusercontent.com/odoo/documentation/saas-18.4/tests/requirements.txt /tmp/doctests_requirements.txt
+RUN VIRTUAL_ENV=/venv/odoo uv pip install --no-cache-dir \
+        -r /tmp/requirements.txt \
+    && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
+        -r /tmp/requirements.txt \
+    && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
+        -r /tmp/doc_requirements.txt \
+        -r /tmp/doctests_requirements.txt
 
 # Remove the default Ubuntu user, add an Odoo user and set up their environment
 RUN --mount=type=bind,source=append.bashrc,target=/tmp/append.bashrc \

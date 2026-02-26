@@ -1,15 +1,15 @@
 name: odoo-dev
 
 services:
-  odoo-noble:
+  odoo-master:
     build:
       context: ./odoo
-      dockerfile: noble.Dockerfile
+      dockerfile: master.Dockerfile
       platforms:
         - linux/amd64
-    image: dylankiss/odoo-noble:dev
-    container_name: odoo-noble
-    hostname: odoo-noble
+    image: dylankiss/odoo-dev:master
+    container_name: odoo-master
+    hostname: odoo-19-1-master
     platform: linux/amd64
     depends_on:
       - postgres
@@ -23,25 +23,105 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5679:5678
-      - 8075:8075
-      - 8076:8076
-      - 8077:8077
-      - 8078:8078
-      - 8079:8079
+      - 5682:5678  # debugpy
+      - 8074:8074  # odoo
     working_dir: /code
     stdin_open: true
     tty: true
 
-  odoo-jammy:
+  odoo-19.0:
     build:
       context: ./odoo
-      dockerfile: jammy.Dockerfile
+      dockerfile: 19.0.Dockerfile
       platforms:
         - linux/amd64
-    image: dylankiss/odoo-jammy:dev
-    container_name: odoo-jammy
-    hostname: odoo-jammy
+    image: dylankiss/odoo-dev:19.0
+    container_name: odoo-19.0
+    hostname: odoo-19
+    platform: linux/amd64
+    depends_on:
+      - postgres
+      - mailpit
+      - pgadmin
+    volumes:
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
+      - odoo-postgres-sockets:/var/run/postgresql
+      - odoo-ssh-keys:/home/odoo/.ssh
+    ports:
+      - 5681:5678  # debugpy
+      - 8073:8073  # odoo
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  odoo-18.4:
+    build:
+      context: ./odoo
+      dockerfile: 18.4.Dockerfile
+      platforms:
+        - linux/amd64
+    image: dylankiss/odoo-dev:18.4
+    container_name: odoo-18.1-18.4
+    hostname: odoo-18-1-18-4
+    platform: linux/amd64
+    depends_on:
+      - postgres
+      - mailpit
+      - pgadmin
+    volumes:
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
+      - odoo-postgres-sockets:/var/run/postgresql
+      - odoo-ssh-keys:/home/odoo/.ssh
+    ports:
+      - 5680:5678  # debugpy
+      - 8072:8072  # odoo
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  odoo-18.0:
+    build:
+      context: ./odoo
+      dockerfile: 18.0.Dockerfile
+      platforms:
+        - linux/amd64
+    image: dylankiss/odoo-dev:18.0
+    container_name: odoo-18.0
+    hostname: odoo-18
+    platform: linux/amd64
+    depends_on:
+      - postgres
+      - mailpit
+      - pgadmin
+    volumes:
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
+      - odoo-postgres-sockets:/var/run/postgresql
+      - odoo-ssh-keys:/home/odoo/.ssh
+    ports:
+      - 5679:5678  # debugpy
+      - 8071:8071  # odoo
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  odoo-17.0:
+    build:
+      context: ./odoo
+      dockerfile: 17.0.Dockerfile
+      platforms:
+        - linux/amd64
+    image: dylankiss/odoo-dev:17.0
+    container_name: odoo-17.0
+    hostname: odoo-17
     platform: linux/amd64
     depends_on:
       - postgres
@@ -55,12 +135,8 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5678:5678
-      - 8070:8070
-      - 8071:8071
-      - 8072:8072
-      - 8073:8073
-      - 8074:8074
+      - 5678:5678  # debugpy
+      - 8070:8070  # odoo
     working_dir: /code
     stdin_open: true
     tty: true

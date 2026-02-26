@@ -1,10 +1,15 @@
-# Use Ubuntu 22.04 LTS (Jammy Jellyfish)
-FROM ubuntu:jammy
+# Container definition for Odoo >17.0 and <=18.0
+# Last updated: 2026-02-25
+
+# Use Ubuntu 24.04 LTS (Noble Numbat)
+FROM ubuntu:noble
 
 ENV LANG=C.UTF-8 \
     TERM=xterm-256color \
     PYTHONUNBUFFERED=1 \
     PYTHONHASHSEED=0 \
+    NODE_PATH=/usr/lib/node_modules/ \
+    npm_config_prefix=/usr \
     PATH="/venv/odoo/bin:/venv/odoo-doc/bin:/home/odoo/.local/bin:$PATH"
 
 # Add GeoIP databases
@@ -24,9 +29,7 @@ RUN set -x; \
         ca-certificates \
         curl \
         faketime \
-        ffmpeg \
         file \
-        flake8 \
         fonts-freefont-ttf \
         fonts-noto-cjk \
         gawk \
@@ -37,6 +40,7 @@ RUN set -x; \
         libsasl2-dev \
         libxslt1-dev \
         lsb-release \
+        npm \
         ocrmypdf \
         sed \
         sudo \
@@ -58,7 +62,9 @@ RUN set -x; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         # Runbot packages
+        publicsuffix \
         python3 \
+        flake8 \
         python3-dbfread \
         python3-dev \
         python3-gevent \
@@ -71,10 +77,13 @@ RUN set -x; \
         python3-websocket \
         python3-google-auth \
         libpq-dev \
-        python3-asn1crypto \
+        pylint \
         python3-jwt \
-        publicsuffix \
+        python3-asn1crypto \
+        python3-html2text \
+        python3-suds \
         python3-xmlsec \
+        python3-markdown2 \
         python3-aiosmtpd \
         # Moved packages
         python3-venv \
@@ -83,18 +92,12 @@ RUN set -x; \
     && rm -rf /var/lib/apt/lists/*
 
 # Install wkhtmltopdf
-RUN curl -sSL https://nightly.odoo.com/deb/jammy/wkhtmltox_0.12.5-2.jammy_amd64.deb -o /tmp/wkhtml.deb \
+RUN curl -sSL https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.jammy_amd64.deb -o /tmp/wkhtml.deb \
     && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends --fix-missing -qq \
         /tmp/wkhtml.deb \
     && rm -rf /var/lib/apt/lists/* \
     && rm /tmp/wkhtml.deb
-
-# Install nodejs
-RUN curl -s https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor | tee /usr/share/keyrings/nodesource.gpg >/dev/null \
-    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x `lsb_release -c -s` main" > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs
 
 # Install npm packages
 RUN npm install --force -g \
@@ -106,7 +109,7 @@ RUN npm install --force -g \
         eslint-plugin-prettier@4.2.1
 
 # Install Debian packages in debian/control and get latest postgresql-client
-ADD https://raw.githubusercontent.com/odoo/odoo/17.0/debian/control /tmp/control.txt
+ADD https://raw.githubusercontent.com/odoo/odoo/saas-18.4/debian/control /tmp/control.txt
 RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/trusted.gpg.d/psql_client.asc \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -s -c`-pgdg main" > /etc/apt/sources.list.d/pgclient.list \
     && apt-get update \
@@ -117,7 +120,7 @@ RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/tru
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
-RUN curl -sSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb \
+RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_141.0.7390.54-1_amd64.deb -o /tmp/chrome.deb \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
         /tmp/chrome.deb \
@@ -145,23 +148,20 @@ RUN uv pip install --no-cache-dir \
         # Runbot packages
         ebaysdk==2.1.5 \
         pdf417gen==0.7.1 \
-        ruff==0.6.5 \
         astroid==3.3.9 \
         pylint==3.3.6 \
+        paramiko==2.12.0 \
         # Extra packages
         debugpy \
         pydevd-odoo \
         watchdog \
-        inotify \
-        # Install specific version to prevent build errors
-        gevent==22.10.2
+        inotify
 
 # Install Odoo Python requirements
-ADD https://raw.githubusercontent.com/odoo/odoo/17.0/requirements.txt /tmp/requirements.txt
-ADD https://raw.githubusercontent.com/odoo/documentation/17.0/requirements.txt /tmp/doc_requirements.txt
-ADD https://raw.githubusercontent.com/odoo/documentation/17.0/tests/requirements.txt /tmp/doctests_requirements.txt
-RUN sed -i '/gevent/d' /tmp/requirements.txt \
-    && VIRTUAL_ENV=/venv/odoo uv pip install --no-cache-dir \
+ADD https://raw.githubusercontent.com/odoo/odoo/18.0/requirements.txt /tmp/requirements.txt
+ADD https://raw.githubusercontent.com/odoo/documentation/18.0/requirements.txt /tmp/doc_requirements.txt
+ADD https://raw.githubusercontent.com/odoo/documentation/18.0/tests/requirements.txt /tmp/doctests_requirements.txt
+RUN VIRTUAL_ENV=/venv/odoo uv pip install --no-cache-dir \
         -r /tmp/requirements.txt \
     && VIRTUAL_ENV=/venv/odoo-doc uv pip install --no-cache-dir \
         -r /tmp/requirements.txt \
@@ -171,7 +171,8 @@ RUN sed -i '/gevent/d' /tmp/requirements.txt \
 
 # Remove the default Ubuntu user, add an Odoo user and set up their environment
 RUN --mount=type=bind,source=append.bashrc,target=/tmp/append.bashrc \
-    groupadd -g 1000 odoo \
+    userdel ubuntu \
+    && groupadd -g 1000 odoo \
     && useradd --create-home -u 1000 -g odoo -G audio,video odoo \
     && passwd -d odoo \
     && echo odoo ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/odoo \
@@ -203,7 +204,7 @@ COPY startup.sh /home/odoo/.local/bin/startup.sh
 WORKDIR /code
 
 # Expose useful ports
-EXPOSE 5678 8070 8071 8072 8073 8074
+EXPOSE 5678 8075 8076 8077 8078 8079
 
 # Set Tini as the entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--"]

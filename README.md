@@ -263,17 +263,15 @@ The Docker container is configured to resemble Odoo's CI or production servers a
 
 This command will start both PostgreSQL, Mailhog, and pgAdmin containers, and an Odoo container containing your source code, located on your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the location `/code` and allows live code updates during local development.
 
-You can choose to launch a container using Ubuntu 24.04 [`-u noble`] (default, recommended starting from version 18.0) or 22.04 [`-u jammy`] (for earlier versions).
+The container started will be tailored to the version you want to run in it. The containers are based on our Runbot containers, with some added tools.
 
 When you're done with the container, you can exit the session by running the `exit` command. At this point, the container will still be running and you can start a new session using the same `otk dev start` command.
 
 ### Port Mapping
 
-The `jammy` container exposes ports `8070`, `8071`, `8072`, `8073` and `8074`. The default port inside the container when using the `o-bin-*` commands, is `8070`. When not using the `o-bin-*` commands, or when starting another server, you need to use the `--http-port` option to run on one of the available ports.
+Every container exposes a different port for the Odoo server, starting at `8070` for Odoo 17.0. The port used is displayed on the command line in your container. You can access the server on your local machine using `localhost:<port>`. When using the `o-bin-*` commands to run your server, the port is automatically set. When not using the `o-bin-*` command, you need to use the `--http-port` option to run on the right port.
 
-The `noble` container exposes ports `8075`, `8076`, `8077`, `8078` and `8079`. The default port inside the container when using the `o-bin-*` commands, is `8075`. When not using the `o-bin-*` commands, or when starting another server, you need to use the `--http-port` option to run on one of the available ports.
-
-This allows you to run up to 5 different servers per Docker container, all accessible on your local machine. If you also have a local server running on default port `8069`, it will not clash with the Docker ports.
+This allows you to run multiple Odoo servers (one per container), all accessible on your local machine. If you also have a local server running on default port `8069`, it will not clash with the Docker ports.
 
 ### PostgreSQL Container
 
@@ -316,28 +314,28 @@ The container contains some helpful aliases that you can use to run and debug Od
 > [!TIP]
 > Compatible [Visual Studio Code](https://code.visualstudio.com/) debug configurations are available in [`launch.json`](odoo_toolkit/multiverse_config/.vscode/launch.json).
 
-The most common PostgreSQL commands have also been aliased to use the right database and credentials, so you could just run e.g. `dropdb <database>`.
-
 ### Docker Configuration
 
-The configuration for the Docker containers is located in the `odoo_toolkit/docker` folder in this repository. The [`compose.yaml`](odoo_toolkit/docker/compose.yaml) file defines an `odoo-noble` and `odoo-jammy` service that run the development containers with the right configuration and file mounts, and a `postgres`, `mailpit`, and `pgadmin` service that run the PostgreSQL server, the Mailpit server, and the pgAdmin server respectively.
+The configuration for the Docker containers is located in the `odoo_toolkit/docker` folder in this repository. The [`compose.yaml`](odoo_toolkit/docker/compose.yaml) file defines an `odoo-<version>` service for each set of versions that need a slightly different environment. They run the development containers with the right configuration and file mounts, and a `postgres`, `mailpit`, and `pgadmin` service that run the PostgreSQL server, the Mailpit server, and the pgAdmin server respectively.
 
-The development container configuration is laid out in [`noble.Dockerfile`](odoo_toolkit/docker/odoo/noble.Dockerfile) and [`jammy.Dockerfile`](odoo_toolkit/docker/odoo/jammy.Dockerfile).
+The development container configuration is laid out in e.g. [`master.Dockerfile`](odoo_toolkit/docker/odoo/master.Dockerfile) all other versions.
 
 ### Usage
 
 ```console
-$ otk dev start [OPTIONS]
+$ otk dev start [OPTIONS] ODOO_BRANCH
 ```
 e.g.
 ```console
-$ otk dev start -u jammy
+$ otk dev start 18.0
 ```
+### Arguments
+
+* `ODOO_BRANCH`: The Odoo branch to start a development server for, like `19.0`, `saas-19.1`, `master`.  **[required]**
 
 ### Options
 
 * `-w, --workspace PATH`: Specify the path to your development workspace that will be mounted in the container's `/code` directory.  [default: `~/code/odoo`]
-* `-u, --ubuntu-version [noble|jammy]`: Specify the Ubuntu version to run in this container.  [default: `noble`]
 * `-p, --db-port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
 * `--git-name TEXT`: Specify the Git user.name to be used within the container.
 * `--git-email TEXT`: Specify the Git user.email to be used within the container.
