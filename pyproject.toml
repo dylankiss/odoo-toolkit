@@ -1,16 +1,16 @@
 [project]
 name = "odoo-toolkit"
-version = "2.1.0"
+version = "3.0.0"
 description = "This toolkit contains a few useful tools for Odoo development."
 authors = [{ name = "Dylan Kiss", email = "dyki@odoo.com" }]
 requires-python = "~=3.10"
 readme = "README.md"
 dependencies = [
-    "typer==0.15.4",
-    "polib>=1.2.0,<2",
-    "python-on-whales>=0.76.1,<0.77",
-    "gitpython>=3.1.44,<4",
     "requests>=2.32.4",
+    "typer>=0.15.4",
+    "python-on-whales>=0.76.1",
+    "gitpython>=3.1.46",
+    "polib>=1.2.0",
 ]
 
 [project.scripts]
