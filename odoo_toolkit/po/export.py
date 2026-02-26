@@ -139,6 +139,7 @@ def export(
             "--addons-path",
             "-a",
             help="Specify extra addons paths if your modules are not in Community or Enterprise.",
+            rich_help_panel="Odoo Server Options",
         ),
     ] = EMPTY_LIST,
     username: Annotated[
@@ -302,13 +303,15 @@ def export(
             cur_suffix = f"{cur_port}_{cur_server_name}"
             cur_database = database.format(port=cur_suffix) if "{port}" in database else f"{database}_{cur_suffix}"
             odoo_cmd: list[str | Path] = [
-                "python3",       odoo_bin_path,
-                "--addons-path", addons_path,
-                "--database",    cur_database,
-                "--init",        ",".join(modules_to_install),
-                "--http-port",   str(cur_port),
-                "--db_host",     db_host,
-                "--db_port",     str(db_port),
+                "python3",           odoo_bin_path,
+                "--addons-path",     addons_path,
+                "--database",        cur_database,
+                "--init",            ",".join(modules_to_install),
+                "--http-port",       str(cur_port),
+                "--db_host",         db_host,
+                "--db_port",         str(db_port),
+                "--limit-time-cpu",  "99999999",
+                "--limit-time-real", "99999999",
             ]
             if db_username:
                 odoo_cmd.extend(["--db_user", db_username])
