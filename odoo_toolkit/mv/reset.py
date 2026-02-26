@@ -1,9 +1,10 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import chain
 from pathlib import Path
+from typing import Annotated
 
 from git import GitCommandError, InvalidGitRepositoryError, Repo
-from typer import Typer
+from typer import Option, Typer
 
 from odoo_toolkit.common import (
     Status,
@@ -21,11 +22,14 @@ app = Typer()
 
 
 @app.command()
-def reset() -> None:
+def reset(
+    all: Annotated[bool, Option("--all", help="Also reset the single-branch repositories.")] = False,
+) -> None:
     """Reset :arrows_counterclockwise: the repositories inside an Odoo Multiverse branch directory.
 
     You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through
-    all repositories inside the directory and reset them to their original branch.\n
+    all repositories inside the directory and reset them to their original branch. By default it will only reset the
+    multi-branch repositories. If you pass the `--all` flag, it will also reset the single-branch repositories.\n
     \n
     Meanwhile, it will pull the latest changes from `origin` so you're ready to start with a clean slate.
     """
@@ -33,9 +37,10 @@ def reset() -> None:
 
     branch_dir = Path.cwd()
     branch = branch_dir.name
+    repos = chain(MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS) if all else MULTI_BRANCH_REPOS
     repo_dirs = [
         (branch_dir / repo.value, branch if repo in MULTI_BRANCH_REPOS else None)
-        for repo in chain(MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS)
+        for repo in repos
         if (branch_dir / repo.value).is_dir()
     ]
 

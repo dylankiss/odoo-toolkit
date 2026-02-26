@@ -703,7 +703,7 @@ $ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgra
 
 **Reset the repositories inside an Odoo Multiverse branch directory.**
 
-You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through all repositories inside the directory and reset them to their original branch.
+You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through all repositories inside the directory and reset them to their original branch. By default it will only reset the multi-branch repositories. If you pass the `--all` flag, it will also reset the single-branch repositories.
 
 Meanwhile, it will pull the latest changes from `origin` so you're ready to start with a clean slate.
 
@@ -715,6 +715,7 @@ $ otk mv reset [OPTIONS]
 
 ### Options
 
+* `--all`: Also reset the single-branch repositories.
 * `--help`: Show this message and exit.
 
 
