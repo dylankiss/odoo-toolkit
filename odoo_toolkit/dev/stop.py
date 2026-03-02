@@ -33,8 +33,8 @@ def stop_containers() -> None:
             print_success("Containers stopped and deleted\n")
     except DockerException as e:
         print_error(
-            "Stopping the development server failed. The command that failed was:\n\n"
-            f"[b]{' '.join(e.docker_command)}[/b]",
+            "Stopping the development server failed. The command that failed was:\n"
+            f"[b]{' '.join(e.docker_command)}[/b]\n",
             "\n\n".join(o for o in (e.stderr, e.stdout) if o),
         )
         raise Exit from e

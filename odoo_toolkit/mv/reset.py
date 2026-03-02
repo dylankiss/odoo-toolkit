@@ -108,8 +108,8 @@ def _reset_repo(*, repo_dir: Path, branch: str | None = None, progress: StickyPr
 
     except GitCommandError as e:
         print_error(
-            f"Resetting the repository [u]{repo_dir}[/u] failed with [b]{e.status}[/b]. "
-            f"The command that failed was:\n\n[b]{e.command}[/b]",
+            f"Resetting the repository [u]{repo_dir}[/u] failed with [b]{e.status}[/b].\n"
+            f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
             e.stderr.strip(),
         )
 

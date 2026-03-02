@@ -237,7 +237,7 @@ def setup(
         print_error(
             f"Setting up the multiverse environment failed during file handling ([b]{e.errno}[/b]):\n"
             f"\t{e.filename}\n"
-            f"\t{e.filename2}",
+            f"\t{e.filename2}\n",
             str(e),
         )
         raise Exit from e
@@ -311,8 +311,8 @@ def _clone_bare_multi_branch_repo(  # noqa: C901, PLR0915
                 completed=1,
                 total=1,
                 status=Status.FAILURE,
-                message=f"Cloning the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
-                    f"The command that failed was:\n\n[b]{e.command}[/b]",
+                message=f"Cloning the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b].\n"
+                    f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
                 stacktrace=e.stderr.strip(),
             )
             raise Exit from e
@@ -400,8 +400,8 @@ def _clone_bare_multi_branch_repo(  # noqa: C901, PLR0915
             completed=1,
             total=1,
             status=Status.FAILURE,
-            message=f"Setting up the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
-                f"The command that failed was:\n\n[b]{e.command}[/b]",
+            message=f"Setting up the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b].\n"
+                f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
             stacktrace=e.stderr.strip(),
         )
         raise Exit from e
@@ -485,8 +485,8 @@ def _clone_single_branch_repo(
             completed=1,
             total=1,
             status=Status.FAILURE,
-            message=f"Cloning the repository [b]{repo.value}[/b] failed with [b]{e.status}[/b]. "
-                f"The command that failed was:\n\n[b]{e.command}[/b]",
+            message=f"Cloning the repository [b]{repo.value}[/b] failed with [b]{e.status}[/b].\n"
+                f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
             stacktrace=e.stderr.strip(),
         )
         raise Exit from e
@@ -586,8 +586,8 @@ def _add_worktree_for_branch(
             completed=1,
             total=1,
             status=Status.FAILURE,
-            message=f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed: {e.status}. "
-            f"The command that failed was:\n\n[b]{e.command}[/b]",
+            message=f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed: [b]{e.status}[/b].\n"
+            f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
             stacktrace=e.stderr.strip(),
         )
         return
@@ -837,8 +837,8 @@ def _configure_python_env_for_branch(
             completed=1,
             total=1,
             status=Status.FAILURE,
-            message=f"Installing Python dependencies for [b]{branch}[/b] failed.\nThe command that failed was:\n\n"
-                f"[b]{' '.join(cmd)}[/b]",
+            message=f"Installing Python dependencies for [b]{branch}[/b] failed.\nThe command that failed was:\n"
+                f"[b]{' '.join(cmd)}[/b]\n",
             stacktrace=e.stderr.strip(),
         )
 
