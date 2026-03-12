@@ -52,18 +52,18 @@ def copy(
         str | None,
         Option("--dest-component", "-C", help="The Weblate component to copy translations to."),
     ] = None,
-    author: Annotated[
+    author_name: Annotated[
         str | None,
         Option(
-            "--author",
-            "-a",
+            "--author-name",
+            "-n",
             help="The author name to use for the uploaded translations. If not set, the API key user will be used.",
         ),
     ] = None,
-    email: Annotated[
+    author_email: Annotated[
         str | None,
         Option(
-            "--email",
+            "--author-email",
             "-e",
             help="The author email to use for the uploaded translations. If not set, the API key user will be used.",
         ),
@@ -131,10 +131,10 @@ def copy(
         "method": method.value,
         "fuzzy": "process",
     }
-    if author:
-        upload_data["author"] = author
-    if email:
-        upload_data["email"] = email
+    if author_name:
+        upload_data["author_name"] = author_name
+    if author_email:
+        upload_data["author_email"] = author_email
 
     try:
         weblate_api = WeblateApi()

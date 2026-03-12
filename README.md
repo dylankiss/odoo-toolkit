@@ -498,8 +498,8 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 * `-L, --dest-language TEXT`: The language code to copy translations to.
 * `-c, --src-component TEXT`: The Weblate components to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
-* `-a, --author TEXT`: The author name to use for the uploaded translations. If not set, the API key user will be used.
-* `-e, --email TEXT`: The author email to use for the uploaded translations. If not set, the API key user will be used.
+* `-n, --author-name TEXT`: The author name to use for the uploaded translations. If not set, the API key user will be used.
+* `-e, --author-email TEXT`: The author email to use for the uploaded translations. If not set, the API key user will be used.
 * `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
 * `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
 * `--help`: Show this message and exit.
