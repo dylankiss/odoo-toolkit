@@ -11,6 +11,7 @@ from odoo_toolkit.common import (
     normalize_list_option,
     print_command_title,
     print_error,
+    print_header,
     print_success,
     print_warning,
 )
@@ -36,10 +37,10 @@ def copy(
     src_languages: Annotated[
         list[str], Option("--src-language", "-l", help="The language codes to copy translations from."),
     ],
-    dest_project: Annotated[
-        str | None,
-        Option("--dest-project", "-P", help="The Weblate project to copy translations to."),
-    ] = None,
+    dest_projects: Annotated[
+        list[str],
+        Option("--dest-project", "-P", help="The Weblate projects to copy translations to."),
+    ] = EMPTY_LIST,
     dest_language: Annotated[
         str | None,
         Option("--dest-language", "-L", help="The language code to copy translations to."),
@@ -119,7 +120,7 @@ def copy(
             raise Exit
 
     if (
-        (not dest_project or dest_project == src_project)
+        (not dest_projects or src_project in dest_projects)
         and (not dest_language or dest_language in src_languages_set)
         and (not dest_component or dest_component in src_components_set)
     ):
@@ -149,22 +150,18 @@ def copy(
         components[src_components_set.pop()] = dest_component
     else:
         try:
-            dest_components = get_weblate_project_component_slugs(weblate_api, dest_project or src_project)
-            if dest_project != src_project:
-                remote_src_components = get_weblate_project_component_slugs(weblate_api, src_project)
-            else:
-                remote_src_components = dest_components
+            remote_src_components = get_weblate_project_component_slugs(weblate_api, src_project)
         except WeblateApiError as e:
             print_error("Weblate API Error: Failed to fetch components for project.", str(e))
             raise Exit from e
 
         if not src_components_set:
-            components.update({c: c for c in remote_src_components if c in dest_components})
+            components.update({c: c for c in remote_src_components})
         else:
             components.update({
                 c: c
                 for c in remote_src_components
-                if any(fnmatch(c, pattern) for pattern in src_components_set) and c in dest_components
+                if any(fnmatch(c, pattern) for pattern in src_components_set)
             })
 
     # Map the languages to process.
@@ -181,51 +178,59 @@ def copy(
     skipped_count = 0
     not_found_count = 0
 
-    with TransientProgress() as progress:
-        progress_task = progress.add_task(
-            f"Copy translations from {src_project} to {dest_project or src_project}",
-            total=len(components) * len(languages),
-        )
+    if not dest_projects:
+        dest_projects = [src_project]
 
-        for (src_component, dest_component), (src_language, dest_language) in itertools.product(  # noqa: PLR1704
-            sorted(components.items(), key=lambda c: c[0]),
-            sorted(languages.items(), key=lambda lang: lang[0]),
-        ):
-            progress.update(
-                progress_task,
-                description=f"Copying [b]{src_component}[/b] ([b]{src_language}[/b], [b]{src_project}[/b]) "
-                f"to [b]{dest_component}[/b] ([b]{dest_language}[/b], [b]{dest_project or src_project}[/b])",
+    for dest_project in dest_projects:
+        print_header(f"Copy from project [b]{src_project}[/b] to project [b]{dest_project}[/b]")
+        with TransientProgress() as progress:
+            progress_task = progress.add_task(
+                f"Copy translations from {src_project} to {dest_project}",
+                total=len(components) * len(languages),
             )
-            progress.advance(progress_task)
 
-            try:
-                response = _upload_translations(
-                    weblate_api,
-                    src_project,
-                    src_component,
-                    src_language,
-                    dest_project or src_project,
-                    dest_component,
-                    dest_language,
-                    upload_data,
+            for (src_component, dest_component), (src_language, dest_language) in itertools.product(  # noqa: PLR1704
+                sorted(components.items(), key=lambda c: c[0]),
+                sorted(languages.items(), key=lambda lang: lang[0]),
+            ):
+                progress.update(
+                    progress_task,
+                    description=f"Copying [b]{src_component}[/b] ([b]{src_language}[/b], [b]{src_project}[/b]) "
+                    f"to [b]{dest_component}[/b] ([b]{dest_language}[/b], [b]{dest_project}[/b])",
                 )
-            except WeblateApiError as e:
-                print_error("Copying translations failed.", str(e))
-                continue
-            accepted_count += response["accepted"]
-            skipped_count += response["skipped"]
-            not_found_count += response["not_found"]
+                progress.advance(progress_task)
 
-    if accepted_count:
-        print_success(
-            f"Updated {accepted_count} translations, skipped {skipped_count} translations, "
-            f"and didn't find {not_found_count} source strings.",
-        )
-    else:
-        print_warning(
-            f"No translations updated. Skipped {skipped_count} translations, "
-            f"and didn't find {not_found_count} source strings.",
-        )
+                try:
+                    response = _upload_translations(
+                        weblate_api,
+                        src_project,
+                        src_component,
+                        src_language,
+                        dest_project,
+                        dest_component,
+                        dest_language,
+                        upload_data,
+                    )
+                except WeblateApiError as e:
+                    if e.status_code == 404:  # noqa: PLR2004
+                        print_warning(f"Component or language not found for {e.response.request.url}. Skipping.")
+                    else:
+                        print_error("Copying translations failed.", str(e))
+                    continue
+                accepted_count += response["accepted"]
+                skipped_count += response["skipped"]
+                not_found_count += response["not_found"]
+
+        if accepted_count:
+            print_success(
+                f"Updated {accepted_count} translations, skipped {skipped_count} translations, "
+                f"and didn't find {not_found_count} source strings.",
+            )
+        else:
+            print_warning(
+                f"No translations updated. Skipped {skipped_count} translations, "
+                f"and didn't find {not_found_count} source strings.",
+            )
 
 
 def _upload_translations(

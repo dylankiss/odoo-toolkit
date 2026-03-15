@@ -494,7 +494,7 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 
 * `-p, --src-project TEXT`: The Weblate project to copy translations from.  **[required]**
 * `-l, --src-language TEXT`: The language codes to copy translations from.  **[required]**
-* `-P, --dest-project TEXT`: The Weblate project to copy translations to.
+* `-P, --dest-project TEXT`: The Weblate projects to copy translations to.
 * `-L, --dest-language TEXT`: The language code to copy translations to.
 * `-c, --src-component TEXT`: The Weblate components to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
