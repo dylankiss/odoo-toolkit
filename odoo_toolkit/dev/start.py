@@ -181,7 +181,7 @@ def _get_odoo_container_version_from_branch(odoo_branch: str) -> str:
     """Get the Odoo version to use for the container based on the provided Odoo branch."""
     if odoo_branch in ("master", "main"):
         return "master"
-    match = re.search(r"(\d+\.\d+)", odoo_branch)
+    match = re.search(r"(\d+(\.\d+)?)", odoo_branch)
     if match:
         version = float(match.group(1))
         if version <= 17.0:  # noqa: PLR2004
