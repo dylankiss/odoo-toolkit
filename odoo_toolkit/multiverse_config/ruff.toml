@@ -1,8 +1,9 @@
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [lint]
 preview = true
+external = ["OLS"]
 select = [
     "BLE",        # flake8-blind-except
     "C",          # flake8-comprehensions
@@ -54,6 +55,7 @@ ignore = [
     "RUF001",     # ambiguous-unicode-character-string
     "RUF005",     # collection-literal-concatenation
     "RUF012",     # mutable-class-default
+    "RUF067",     # non-empty-init-module
     "RUF100",     # unused-noqa
     "SIM102",     # collapsible-if
     "SIM108",     # if-else-block-instead-of-if-exp
@@ -63,7 +65,6 @@ ignore = [
     "TRY300",     # try-consider-else
     "TRY400",     # error-instead-of-exception
     "UP031",      # printf-string-formatting
-    "UP038",      # non-pep604-isinstance
 ]
 
 [lint.per-file-ignores]
@@ -72,7 +73,7 @@ ignore = [
 ]
 
 [lint.isort]
-# https://www.odoo.com/documentation/master/contributing/development/coding_guidelines.html#imports
+# https://www.odoo.com/documentation/latest/contributing/development/coding_guidelines.html#imports
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 known-first-party = ["odoo"]
 known-local-folder = ["odoo.addons"]
