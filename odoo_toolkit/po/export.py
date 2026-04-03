@@ -45,9 +45,8 @@ app = Typer()
 
 class _ServerType(str, Enum):
     COM = "Community"
-    COM_L10N = "Community Localizations"
     ENT = "Enterprise"
-    ENT_L10N = "Enterprise Localizations"
+    L10N = "Localizations"
     CUSTOM = "Custom"
 
 
@@ -291,7 +290,7 @@ def export(
 
             if server_type == _ServerType.CUSTOM:
                 addons_path = [*extra_modules_paths, ent_modules_path, com_modules_path]
-            elif server_type in (_ServerType.ENT, _ServerType.ENT_L10N):
+            elif server_type in (_ServerType.ENT, _ServerType.L10N):
                 addons_path = [ent_modules_path, com_modules_path]
             else:
                 addons_path = [com_modules_path]
@@ -701,23 +700,22 @@ def _get_modules_per_server_type(
     modules_to_install: dict[_ServerType, set[str]] = defaultdict(set[str])
     paths_and_filter_per_server_type: dict[_ServerType, tuple[list[Path], Callable[[str], bool] | None]] = {
         _ServerType.COM: ([com_modules_path], lambda m: _is_exportable(m) and not is_l10n_module(m)),
-        _ServerType.COM_L10N: ([com_modules_path], _is_exportable),
         _ServerType.ENT: (
             [com_modules_path, ent_modules_path],
             lambda m: _is_exportable(m) and not is_l10n_module(m),
         ),
-        _ServerType.ENT_L10N: ([com_modules_path, ent_modules_path], _is_exportable),
+        _ServerType.L10N: ([com_modules_path, ent_modules_path], _is_exportable),
         _ServerType.CUSTOM: (extra_modules_paths, None),
     }
 
     # Determine all modules to export per server type.
     for m, p in module_to_path.items():
         if p.is_relative_to(com_modules_path):
-            modules_to_export[_ServerType.COM_L10N if is_l10n_module(m) else _ServerType.COM].add(m)
-            modules_to_install[_ServerType.COM_L10N if is_l10n_module(m) else _ServerType.COM].add(m)
+            modules_to_export[_ServerType.L10N if is_l10n_module(m) else _ServerType.COM].add(m)
+            modules_to_install[_ServerType.L10N if is_l10n_module(m) else _ServerType.COM].add(m)
         elif p.is_relative_to(ent_modules_path):
-            modules_to_export[_ServerType.ENT_L10N if is_l10n_module(m) else _ServerType.ENT].add(m)
-            modules_to_install[_ServerType.ENT_L10N if is_l10n_module(m) else _ServerType.ENT].add(m)
+            modules_to_export[_ServerType.L10N if is_l10n_module(m) else _ServerType.ENT].add(m)
+            modules_to_install[_ServerType.L10N if is_l10n_module(m) else _ServerType.ENT].add(m)
         elif any(p.is_relative_to(emp) for emp in extra_modules_paths)  or m == "base":
             # We want to export base with all addons paths, so we can get all module definitions in there.
             modules_to_export[_ServerType.CUSTOM].add(m)
@@ -844,8 +842,7 @@ def _get_full_install_modules_per_server_type(
             continue
         # Add each Community module to the right server types.
         if is_l10n_module(m):
-            modules[_ServerType.COM_L10N].add(m)
-            modules[_ServerType.ENT_L10N].add(m)
+            modules[_ServerType.L10N].add(m)
         else:
             modules[_ServerType.COM].add(m)
             modules[_ServerType.ENT].add(m)
@@ -857,7 +854,7 @@ def _get_full_install_modules_per_server_type(
             continue
         # Add each Enterprise module to the right server types.
         if is_l10n_module(m):
-            modules[_ServerType.ENT_L10N].add(m)
+            modules[_ServerType.L10N].add(m)
         else:
             modules[_ServerType.ENT].add(m)
             modules[_ServerType.CUSTOM].add(m)
