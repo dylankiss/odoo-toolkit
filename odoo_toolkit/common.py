@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import time
 from collections.abc import Callable, Collection, Iterable
 from concurrent.futures import Future
@@ -319,8 +320,13 @@ def get_odoo_version(odoo_repo: Path) -> float | None:
             spec.loader.exec_module(module)
 
         if hasattr(module, attribute_name):
-            raw_version = getattr(module, attribute_name)
-            return float(raw_version[0] + (raw_version[1] / 10))
+            major, minor, *_ = getattr(module, attribute_name)
+            if isinstance(major, str):
+                match = re.search(r"\d+", major)
+                if not match:
+                    return None
+                major = int(match.group())
+            return float(major + (minor / 10))
 
     return None
 
