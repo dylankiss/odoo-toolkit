@@ -645,10 +645,10 @@ def _export_module_terms(
                 i18n_path.mkdir()
             pot = pofile(pot_file_content.decode())
             pot.save(str(pot_path))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
             export_table.add_row(
                 f"[b]{module_name}[/b]",
-                f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:",
+                f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:\n{e}",
             )
         else:
             export_table.add_row(
