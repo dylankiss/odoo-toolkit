@@ -180,7 +180,7 @@ def _update_config(
         languages = EMPTY_LIST
         lang_filter = True
 
-    def filter_fn(p: Path) -> bool:
+    def include_path(p: Path) -> bool:
         if exclude and any(fnmatch(p.name, e) for e in exclude):
             return False
         if path_filters:
@@ -192,7 +192,7 @@ def _update_config(
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        filter_fn=filter_fn,
+        include_path=include_path,
     )
 
     print(f"Modules to include: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")

@@ -214,7 +214,7 @@ def get_valid_modules_to_path_mapping(
     com_path: Path,
     ent_path: Path,
     extra_addons_paths: Iterable[Path] = EMPTY_LIST,
-    filter_fn: Callable[[Path], bool] | None = None,
+    include_path: Callable[[Path], bool] = lambda _: True,
 ) -> dict[str, Path]:
     """Determine the valid modules and their directories.
 
@@ -222,8 +222,8 @@ def get_valid_modules_to_path_mapping(
     :param com_path: The Odoo Community repository.
     :param ent_path: The Odoo Enterprise repository.
     :param extra_addons_paths: Optional extra directories containing Odoo modules, defaults to `[]`.
-    :param filter_fn: A function to filter the modules when using `all`, `community`, or `enterprise`,
-        defaults to `None`.
+    :param include_path: A function to include modules when using `all`, `community`, or `enterprise`,
+        defaults to always `True`.
     :return: A mapping from all valid modules to their directories.
     """
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
@@ -240,22 +240,22 @@ def get_valid_modules_to_path_mapping(
     # Determine all modules to consider.
     modules_to_consider: dict[str, Path] = {}
     if "all" in modules:
-        modules_to_consider.update((m, p) for m, p in all_modules.items() if not filter_fn or filter_fn(p))
+        modules_to_consider.update((m, p) for m, p in all_modules.items() if include_path(p))
     if "community" in modules:
-        modules_to_consider.update((m, p) for m, p in com_modules.items() if not filter_fn or filter_fn(p))
+        modules_to_consider.update((m, p) for m, p in com_modules.items() if include_path(p))
     if "enterprise" in modules:
-        modules_to_consider.update((m, p) for m, p in ent_modules.items() if not filter_fn or filter_fn(p))
+        modules_to_consider.update((m, p) for m, p in ent_modules.items() if include_path(p))
     if "community-l10n" in modules:
         modules_to_consider.update(
-            (m, p) for m, p in com_modules.items() if is_l10n_module(m) and (not filter_fn or filter_fn(p))
+            (m, p) for m, p in com_modules.items() if is_l10n_module(m) and include_path(p)
         )
     if "enterprise-l10n" in modules:
         modules_to_consider.update(
-            (m, p) for m, p in ent_modules.items() if is_l10n_module(m) and (not filter_fn or filter_fn(p))
+            (m, p) for m, p in ent_modules.items() if is_l10n_module(m) and include_path(p)
         )
     modules_to_consider.update(
         (m, p) for m, p in all_modules.items()
-        if any(fnmatch(m, mp) for mp in modules) and (not filter_fn or filter_fn(p))
+        if any(fnmatch(m, mp) for mp in modules) and include_path(p)
     )
 
     return modules_to_consider

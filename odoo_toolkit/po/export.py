@@ -214,8 +214,12 @@ def export(
     exclude = normalize_list_option(exclude)
     if "default" in exclude:
         exclude = DEFAULT_EXCLUDE
-    def filter_fn(p: Path) -> bool:
-        if exclude and any(fnmatch(p.name, e) for e in exclude):
+
+    def include_module(module: str) -> bool:
+        return not (exclude and any(fnmatch(module, e) for e in exclude))
+
+    def include_path(p: Path) -> bool:
+        if not include_module(p.name):
             return False
         if path_filters:
             return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
@@ -226,7 +230,7 @@ def export(
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        filter_fn=filter_fn,
+        include_path=include_path,
     )
     valid_modules_to_export = module_to_path.keys()
 
@@ -255,7 +259,8 @@ def export(
         extra_addons_paths=extra_addons_paths,
         full_install=full_install,
         quick_install=quick_install,
-        filter_fn=filter_fn,
+        include_path=include_path,
+        include_module=include_module,
     )
 
     print("[b]All modules to export[b]")
@@ -693,7 +698,8 @@ def _get_modules_per_server_type(
     extra_addons_paths: Iterable[Path] = EMPTY_LIST,
     full_install: bool = False,
     quick_install: bool = False,
-    filter_fn: Callable[[Path], bool] | None = None,
+    include_path: Callable[[Path], bool] = lambda _: True,
+    include_module: Callable[[str], bool] = lambda _: True,
 ) -> dict[_ServerType, tuple[set[str], set[str]]]:
     """Get all modules to export and install per server type.
 
@@ -703,6 +709,8 @@ def _get_modules_per_server_type(
     :param extra_addons_paths: An optional list of extra directories containing Odoo modules, defaults to `[]`.
     :param full_install: Whether we want to install all modules before exporting, defaults to `False`.
     :param quick_install: Whether we only want to install the modules to export before exporting, defaults to `False`.
+    :param include_path: A function to include modules based on their directory path, defaults to always `True`.
+    :param include_module: A function returning `True` if a module name should be included, defaults to always `True`.
     :return: A mapping from each server type to a tuple containing the set of modules to export,
         and the set of modules to install.
     """
@@ -712,11 +720,14 @@ def _get_modules_per_server_type(
 
     modules_to_export: dict[_ServerType, set[str]] = defaultdict(set[str])
     modules_to_install: dict[_ServerType, set[str]] = defaultdict(set[str])
-    paths_and_filter_per_server_type: dict[_ServerType, tuple[list[Path], Callable[[str], bool] | None]] = {
-        _ServerType.COM: ([com_modules_path], lambda m: not is_l10n_module(m)),
-        _ServerType.ENT: ([com_modules_path, ent_modules_path], lambda m: not is_l10n_module(m)),
-        _ServerType.L10N: ([com_modules_path, ent_modules_path], None),
-        _ServerType.CUSTOM: (extra_modules_paths, None),
+    def include_non_l10n_module(m: str) -> bool:
+        return not is_l10n_module(m) and include_module(m)
+
+    paths_and_filter_per_server_type: dict[_ServerType, tuple[list[Path], Callable[[str], bool]]] = {
+        _ServerType.COM: ([com_modules_path], include_non_l10n_module),
+        _ServerType.ENT: ([com_modules_path, ent_modules_path], include_non_l10n_module),
+        _ServerType.L10N: ([com_modules_path, ent_modules_path], include_module),
+        _ServerType.CUSTOM: (extra_modules_paths, include_module),
     }
 
     # Determine all modules to export per server type.
@@ -738,7 +749,7 @@ def _get_modules_per_server_type(
         modules_to_install_tmp = _get_full_install_modules_per_server_type(
             com_modules_path=com_modules_path,
             ent_modules_path=ent_modules_path,
-            filter_fn=filter_fn,
+            include_path=include_path,
         )
         if full_install:
             modules_to_install = modules_to_install_tmp
@@ -756,87 +767,132 @@ def _get_modules_per_server_type(
                 continue
             dependents = _find_all_dependents(
                 addons_paths=paths_and_filter_per_server_type[server_type][0],
-                filter_fn=paths_and_filter_per_server_type[server_type][1],
+                include_module=paths_and_filter_per_server_type[server_type][1],
             )
             modules_to_install[server_type].update(
                 d for m in modules_to_export[server_type] for d in dependents.get(m, set[str]())
             )
             # The `calendar` and `rating` modules seem to add fields to a lot of models, so we always install them.
-            modules_to_install[server_type].update({"calendar", "rating"})
+            if include_module("calendar"):
+                modules_to_install[server_type].add("calendar")
+            if include_module("rating"):
+                modules_to_install[server_type].add("rating")
 
     return {
         server_type: (modules_to_export[server_type], modules_to_install[server_type]) for server_type in _ServerType
     }
 
 
-def _find_all_dependents(
-    addons_paths: Iterable[Path],
-    filter_fn: Callable[[str], bool] | None = None,
-) -> Mapping[str, set[str]]:
-    """Find all direct and indirect dependents for each module in the given addons paths.
+def _collect_manifest_deps(addons_paths: Iterable[Path]) -> tuple[dict[str, list[str]], set[str], bool]:
+    """Collect raw dependency data from all manifests in the given addons paths.
 
     :param addons_paths: A list of paths to directories containing Odoo module folders.
-    :param filter_fn: An optional function to filter modules based on their name.
-        If provided, it should return True if the module should be included, False otherwise.
-    :return: A mapping where keys are module names and values are sets of their direct and indirect dependents.
-        Includes all modules found, even those without any dependencies.
+    :return: A tuple of (module → direct dependencies, all known modules, l10n_multilang found).
     """
-    # Maps modules to its direct dependents.
-    dependents_mapping: Mapping[str, set[str]] = defaultdict(set)
+    module_deps: dict[str, list[str]] = {}
     all_modules: set[str] = set()
     l10n_multilang = False
 
     for addons_path in addons_paths:
         for manifest_file in addons_path.glob("*/__manifest__.py"):
-            dependent_module = manifest_file.parent.name
-            if dependent_module == "l10n_multilang":
+            module = manifest_file.parent.name
+            if module == "l10n_multilang":
                 l10n_multilang = True
-            all_modules.add(dependent_module)
-
-            if filter_fn and not filter_fn(dependent_module):
-                # Skip module if it doesn't pass the filter.
-                continue
-
+            all_modules.add(module)
             try:
                 with manifest_file.open() as f:
-                    manifest_content = f.read()
-                # Parse the manifest file.
-                manifest = ast.literal_eval(manifest_content)
+                    manifest = ast.literal_eval(f.read())
             except (OSError, ValueError):
-                # Skip if the manifest file is invalid.
                 continue
+            module_deps[module] = manifest.get("depends", [])
+            for dep in module_deps[module]:
+                all_modules.add(dep)
 
-            for dependency in manifest.get("depends", []):
-                if filter_fn and not filter_fn(dependency):
-                    # Skip dependency if it doesn't pass the filter.
-                    continue
-                # Add direct dependent.
-                dependents_mapping[dependency].add(dependent_module)
-                all_modules.add(dependency)
+    return module_deps, all_modules, l10n_multilang
 
-    all_dependents_mapping: Mapping[str, set[str]] = {}
 
-    def _find_all_dependents_recursive(module: str, visited: set[str]) -> set[str]:
-        """Recursively find all dependents (direct and indirect) of a given module.
+def _expand_excluded_set(
+    all_modules: set[str],
+    include_module: Callable[[str], bool],
+    module_deps: dict[str, list[str]],
+) -> set[str]:
+    """Compute the transitively expanded set of excluded modules.
 
-        :param module: The module to find dependents for.
-        :param visited: A set of modules already visited during the current recursive call
-            (used to prevent infinite loops due to circular dependencies).
-        :return: A set of all dependents of the given module.
-        """
-        all_dependents: set[str] = set()
-        for dependent in dependents_mapping[module]:
-            if dependent in visited:
-                # Avoid infinite recursion due to circular dependencies.
+    A module is excluded if ``include_module`` returns ``False`` for it, or if any
+    module in its transitive dependency chain is excluded (installing it would force
+    the excluded dependency to be installed as well).
+
+    :param all_modules: All known module names.
+    :param include_module: A function returning `True` if a module name should be included.
+    :param module_deps: A mapping from each module to its direct dependencies.
+    :return: The set of all modules that should be excluded.
+    """
+    direct_dependents: dict[str, set[str]] = defaultdict(set)
+    for module, deps in module_deps.items():
+        for dep in deps:
+            direct_dependents[dep].add(module)
+
+    excluded = {m for m in all_modules if not include_module(m)}
+    worklist = list(excluded)
+    while worklist:
+        m = worklist.pop()
+        for dependent in direct_dependents.get(m, set()):
+            if dependent not in excluded:
+                excluded.add(dependent)
+                worklist.append(dependent)
+    return excluded
+
+
+def _collect_transitive_dependents(
+    module: str,
+    dependents_mapping: dict[str, set[str]],
+    visited: set[str],
+) -> set[str]:
+    """Recursively collect all direct and indirect dependents of a module.
+
+    :param module: The module to find dependents for.
+    :param dependents_mapping: A mapping from each module to its direct dependents.
+    :param visited: Modules already visited in the current call chain (prevents infinite loops).
+    :return: A set of all dependents of the given module.
+    """
+    all_dependents: set[str] = set()
+    for dependent in dependents_mapping[module]:
+        if dependent in visited:
+            continue
+        all_dependents.add(dependent)
+        all_dependents.update(_collect_transitive_dependents(dependent, dependents_mapping, visited | {dependent}))
+    return all_dependents
+
+
+def _find_all_dependents(
+    addons_paths: Iterable[Path],
+    include_module: Callable[[str], bool] = lambda _: True,
+) -> Mapping[str, set[str]]:
+    """Find all direct and indirect dependents for each module in the given addons paths.
+
+    :param addons_paths: A list of paths to directories containing Odoo module folders.
+    :param include_module: A function returning `True` if a module name should be included, defaults to always `True`.
+    :return: A mapping where keys are module names and values are sets of their direct and indirect dependents.
+        Includes all modules found, even those without any dependencies.
+    """
+    module_deps, all_modules, l10n_multilang = _collect_manifest_deps(addons_paths)
+    excluded = _expand_excluded_set(all_modules, include_module, module_deps)
+
+    dependents_mapping: dict[str, set[str]] = defaultdict(set)
+    for module, deps in module_deps.items():
+        if module in excluded:
+            continue
+        for dep in deps:
+            if dep in excluded:
                 continue
-            all_dependents.add(dependent)
-            all_dependents.update(_find_all_dependents_recursive(dependent, visited | {dependent}))
-        return all_dependents
+            dependents_mapping[dep].add(module)
 
-    # Find all dependents for each module.
+    all_dependents_mapping: dict[str, set[str]] = {}
     for module in all_modules:
-        all_dependents_mapping[module] = _find_all_dependents_recursive(module, set())
-        if l10n_multilang and is_l10n_module(module):
+        if module in excluded:
+            continue
+        all_dependents_mapping[module] = _collect_transitive_dependents(module, dependents_mapping, set())
+        if l10n_multilang and is_l10n_module(module) and "l10n_multilang" not in excluded:
             # Add `l10n_multilang` to all l10n modules, to have all translatable fields exported.
             all_dependents_mapping[module].add("l10n_multilang")
 
@@ -846,13 +902,13 @@ def _find_all_dependents(
 def _get_full_install_modules_per_server_type(
     com_modules_path: Path,
     ent_modules_path: Path,
-    filter_fn: Callable[[Path], bool] | None = None,
+    include_path: Callable[[Path], bool] = lambda _: True,
 ) -> dict[_ServerType, set[str]]:
     """Get all modules to install per server type for .pot export with `full_install = True`."""
     modules: dict[_ServerType, set[str]] = defaultdict(set)
 
     for m in (f.parent.name for f in com_modules_path.glob("*/__manifest__.py")):
-        if filter_fn and not filter_fn(com_modules_path / m):
+        if not include_path(com_modules_path / m):
             # Skip module if it doesn't pass the filter.
             continue
         # Add each Community module to the right server types.
@@ -864,7 +920,7 @@ def _get_full_install_modules_per_server_type(
             modules[_ServerType.CUSTOM].add(m)
 
     for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
-        if filter_fn and not filter_fn(ent_modules_path / m):
+        if not include_path(ent_modules_path / m):
             # Skip module if it doesn't pass the filter.
             continue
         # Add each Enterprise module to the right server types.
