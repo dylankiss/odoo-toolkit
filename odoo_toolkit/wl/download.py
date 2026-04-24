@@ -31,7 +31,7 @@ app = Typer()
 
 
 @app.command()
-def download(
+def download(  # noqa: C901, PLR0915
     project: Annotated[str, Option("--project", "-p", help="The Weblate project to download translations from.")],
     languages: Annotated[
         list[str],

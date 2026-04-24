@@ -68,7 +68,7 @@ app = Typer()
 
 
 @app.command()
-def update_components(
+def update_components(  # noqa: C901, PLR0912, PLR0915
     project: Annotated[str, Option("--project", "-p", help="The Weblate project to update components in.")],
     languages: Annotated[
         list[str],

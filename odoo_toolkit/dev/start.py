@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 from python_on_whales import DockerException
+from rich.progress import Progress
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
@@ -123,38 +124,7 @@ def start(
 
     try:
         with TransientProgress() as progress:
-            if build or build_no_cache:
-                progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
-                # Build Docker image if it wasn't already or when forced.
-                output_generator = DOCKER.compose.build(
-                    [f"odoo-{odoo_version}"],
-                    stream_logs=True,
-                    cache=not build_no_cache,
-                )
-                for stream_type, stream_content in output_generator:
-                    # Loop through every output line to check on the progress.
-                    if stream_type != "stdout":
-                        continue
-                    match = re.search(r"(\d+)/(\d+)\]", stream_content.decode())
-                    if match:
-                        completed, total = (int(g) for g in match.groups())
-                        progress.update(
-                            progress_task,
-                            description=f"Building Docker image :coffee: ({completed}/{total + 1}) ...",
-                            total=total + 1,
-                            completed=completed,
-                        )
-                    else:
-                        # (Under)estimate progress update per log line in the longest task.
-                        progress.update(progress_task, advance=0.0002)
-                progress.update(progress_task, description="Building Docker image :coffee: ...", total=1, completed=1)
-                print_success("Docker image built")
-
-            if not DOCKER.image.exists(f"dylankiss/odoo-dev:{odoo_version}"):
-                progress_task = progress.add_task("Pulling Docker image :coffee: ...", total=None)
-                DOCKER.image.pull([f"dylankiss/odoo-dev:{odoo_version}"], quiet=True, platform="linux/amd64")
-                progress.update(progress_task, total=1, completed=1)
-                print_success("Docker image pulled")
+            _ensure_docker_image(odoo_version, build, build_no_cache, progress)
 
             progress_task = progress.add_task("Starting containers ...", total=None)
             # Start the container in the background.
@@ -177,25 +147,53 @@ def start(
         raise Exit from e
 
 
+def _ensure_docker_image(odoo_version: str, build: bool, build_no_cache: bool, progress: Progress) -> None:
+    """Build or pull the Docker image for the given Odoo version if not already present."""
+    if build or build_no_cache:
+        progress_task = progress.add_task("Building Docker image :coffee: ...", total=None)
+        output_generator = DOCKER.compose.build(
+            [f"odoo-{odoo_version}"],
+            stream_logs=True,
+            cache=not build_no_cache,
+        )
+        for stream_type, stream_content in output_generator:
+            if stream_type != "stdout":
+                continue
+            match = re.search(r"(\d+)/(\d+)\]", stream_content.decode())
+            if match:
+                completed, total = (int(g) for g in match.groups())
+                progress.update(
+                    progress_task,
+                    description=f"Building Docker image :coffee: ({completed}/{total + 1}) ...",
+                    total=total + 1,
+                    completed=completed,
+                )
+            else:
+                # (Under)estimate progress update per log line in the longest task.
+                progress.update(progress_task, advance=0.0002)
+        progress.update(progress_task, description="Building Docker image :coffee: ...", total=1, completed=1)
+        print_success("Docker image built")
+
+    if not DOCKER.image.exists(f"dylankiss/odoo-dev:{odoo_version}"):
+        progress_task = progress.add_task("Pulling Docker image :coffee: ...", total=None)
+        DOCKER.image.pull([f"dylankiss/odoo-dev:{odoo_version}"], quiet=True, platform="linux/amd64")
+        progress.update(progress_task, total=1, completed=1)
+        print_success("Docker image pulled")
+
+
 def _get_odoo_container_version_from_branch(odoo_branch: str) -> str:
     """Get the Odoo version to use for the container based on the provided Odoo branch."""
     if odoo_branch in ("master", "main"):
         return "master"
     match = re.search(r"(\d+(\.\d+)?)", odoo_branch)
-    if match:
-        version = float(match.group(1))
-        if version <= 17.0:  # noqa: PLR2004
-            return "17.0"
-        if version <= 18.0:  # noqa: PLR2004
-            return "18.0"
-        if version <= 18.4:  # noqa: PLR2004
-            return "18.4"
-        if version <= 19.0:  # noqa: PLR2004
-            return "19.0"
-        if version > 19.0:  # noqa: PLR2004
-            return "master"
-    print_warning(
-        f"Could not determine Odoo version from branch '{odoo_branch}'. "
-        "Falling back to 'master' version for the container.",
-    )
+    if not match:
+        print_warning(
+            f"Could not determine Odoo version from branch '{odoo_branch}'. "
+            "Falling back to 'master' version for the container.",
+        )
+        return "master"
+    version = float(match.group(1))
+    for max_version, container_version in [(17.0, "17.0"), (18.0, "18.0"), (18.4, "18.4"), (19.0, "19.0")]:
+        if version <= max_version:
+            return container_version
     return "master"

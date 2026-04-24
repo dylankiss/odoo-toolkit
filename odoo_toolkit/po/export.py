@@ -63,7 +63,7 @@ class _LogLineData:
 
 
 @app.command()
-def export(
+def export(  # noqa: C901, PLR0912, PLR0915
     modules: Annotated[
         list[str],
         Argument(
@@ -691,7 +691,7 @@ def _is_pot_file_empty(contents: bytes) -> bool:
         return False
 
 
-def _get_modules_per_server_type(
+def _get_modules_per_server_type(  # noqa: C901
     module_to_path: Mapping[str, Path],
     com_path: Path,
     ent_path: Path,

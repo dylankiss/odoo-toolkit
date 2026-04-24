@@ -35,7 +35,7 @@ app = Typer()
 
 
 @app.command()
-def upload(
+def upload(  # noqa: C901, PLR0912, PLR0915
     project: Annotated[str, Option("--project", "-p", help="The Weblate project to upload translations to.")],
     languages: Annotated[
         list[str],

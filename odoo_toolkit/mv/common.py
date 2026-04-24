@@ -46,5 +46,5 @@ ODOO_DEV_REPOS = [
     OdooRepo.ENTERPRISE,
     OdooRepo.DESIGN_THEMES,
     OdooRepo.INDUSTRY,
-    OdooRepo.UPGRADE_UTIL
+    OdooRepo.UPGRADE_UTIL,
 ]

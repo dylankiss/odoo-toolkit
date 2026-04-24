@@ -32,7 +32,7 @@ PO_CLEAN_HEADER_PATTERN = re.compile(b'^"(?:Language|Plural-Forms):.*\n', flags=
 
 
 @app.command()
-def copy(
+def copy(  # noqa: C901, PLR0912, PLR0915
     src_project: Annotated[str, Option("--src-project", "-p", help="The Weblate project to copy translations from.")],
     src_languages: Annotated[
         list[str], Option("--src-language", "-l", help="The language codes to copy translations from."),

@@ -745,6 +745,18 @@ def _setup_tools_and_deps_in_branch_dir(
     )
 
 
+def _pip_install_requirements(uv: str | None, python: Path, requirements: Path) -> None:
+    """Run pip install for the given requirements file if it exists."""
+    if not requirements.is_file():
+        return
+    cmd: list[str | Path]
+    if uv:
+        cmd = [uv, "pip", "install", "--python", python, "-q", "-r", requirements]
+    else:
+        cmd = [python, "-m", "pip", "install", "-q", "-r", requirements]
+    subprocess.run(cmd, capture_output=True, check=True)
+
+
 def _configure_python_env_for_branch(
     branch_dir: Path,
     reset_config: bool,
@@ -775,11 +787,10 @@ def _configure_python_env_for_branch(
     # Find the system Python interpreter to create the virtual environment with.
     python = shutil.which("python3") or "python3"
 
-    cmd = []
     uv = shutil.which("uv")
     try:
         # Try creating the virtual environment.
-        cmd = [uv, "venv", str(venv_path)] if uv else [python, "-m", "venv", str(venv_path)]
+        cmd: list[str] = [uv, "venv", str(venv_path)] if uv else [python, "-m", "venv", str(venv_path)]
         subprocess.run(cmd, capture_output=True, check=True)
 
         # Locate the Python executable in the virtual environment.
@@ -794,41 +805,13 @@ def _configure_python_env_for_branch(
             cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
         subprocess.run(cmd, capture_output=True, check=True)
 
-        # Install "odoo" requirements.
-        requirements = branch_dir / "odoo" / "requirements.txt"
-        if requirements.is_file():
-            if uv:
-                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
-            else:
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-            subprocess.run(cmd, capture_output=True, check=True)
-
-        # Install "documentation" requirements.
-        requirements = branch_dir / "documentation" / "requirements.txt"
-        if requirements.is_file():
-            if uv:
-                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
-            else:
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-            subprocess.run(cmd, capture_output=True, check=True)
-
-        # Install "documentation" test requirements.
-        requirements = branch_dir / "documentation" / "tests" / "requirements.txt"
-        if requirements.is_file():
-            if uv:
-                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
-            else:
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-            subprocess.run(cmd, capture_output=True, check=True)
-
-        # Install optional requirements.
-        requirements = branch_dir / "requirements.txt"
-        if requirements.is_file():
-            if uv:
-                cmd = [uv, "pip", "install", "--python", str(python), "-q", "-r", str(requirements)]
-            else:
-                cmd = [str(python), "-m", "pip", "install", "-q", "-r", str(requirements)]
-            subprocess.run(cmd, capture_output=True, check=True)
+        for req_path in [
+            branch_dir / "odoo" / "requirements.txt",
+            branch_dir / "documentation" / "requirements.txt",
+            branch_dir / "documentation" / "tests" / "requirements.txt",
+            branch_dir / "requirements.txt",
+        ]:
+            _pip_install_requirements(uv, python, req_path)
 
     except CalledProcessError as e:
         ProgressUpdate.update_in_dict(
@@ -838,7 +821,7 @@ def _configure_python_env_for_branch(
             total=1,
             status=Status.FAILURE,
             message=f"Installing Python dependencies for [b]{branch}[/b] failed.\nThe command that failed was:\n"
-                f"[b]{' '.join(cmd)}[/b]\n",
+                f"[b]{' '.join(str(p) for p in e.cmd)}[/b]\n",
             stacktrace=e.stderr.strip(),
         )
 
