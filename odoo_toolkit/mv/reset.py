@@ -1,3 +1,4 @@
+import contextlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import chain
 from pathlib import Path
@@ -23,7 +24,7 @@ app = Typer()
 
 @app.command()
 def reset(
-    all: Annotated[bool, Option("--all", help="Also reset the single-branch repositories.")] = False,
+    include_all: Annotated[bool, Option("--all", help="Also reset the single-branch repositories.")] = False,
 ) -> None:
     """Reset :arrows_counterclockwise: the repositories inside an Odoo Multiverse branch directory.
 
@@ -37,7 +38,7 @@ def reset(
 
     branch_dir = Path.cwd()
     branch = branch_dir.name
-    repos = chain(MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS) if all else MULTI_BRANCH_REPOS
+    repos = chain(MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS) if include_all else MULTI_BRANCH_REPOS
     repo_dirs = [
         (branch_dir / repo.value, branch if repo in MULTI_BRANCH_REPOS else None)
         for repo in repos
@@ -45,6 +46,14 @@ def reset(
     ]
 
     status = None
+
+    # Pre-authenticate SSH before parallel operations. When an SSH agent (e.g. Bitwarden) requires
+    # interactive confirmation per session, all parallel git pulls would race for the prompt and all
+    # but one would fail. One lightweight remote call upfront loads the key into the agent so the
+    # parallel block below can proceed without further prompts.
+    if repo_dirs:
+        with contextlib.suppress(GitCommandError, InvalidGitRepositoryError):
+            Repo(repo_dirs[0][0]).git.ls_remote("origin", "HEAD")
 
     # Run the Git operations in parallel to speed things up.
     with ThreadPoolExecutor() as executor, StickyProgress() as progress:
@@ -90,7 +99,7 @@ def _reset_repo(*, repo_dir: Path, branch: str | None = None, progress: StickyPr
         if not branch:
             # If no branch is given, try to find the default branch or else default to "master".
             try:
-                branch = repo.git.remote("show", "origin").split("HEAD branch:")[-1].split()[0]
+                branch = repo.git.remote("show", "-n", "origin").split("HEAD branch:")[-1].split()[0]
             except GitCommandError:
                 branch = "master"
 
