@@ -1,3 +1,5 @@
+import itertools
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 from typing import Annotated
 
@@ -171,58 +173,38 @@ def autotranslate(
 def _get_project_components(api: WeblateApi, project: str) -> set[str]:
     """Fetch and return a set of component slugs for a given project."""
     try:
-        component_generator = api.get_generator(
-            WeblateComponentData, WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
-        )
-        return {c.get("slug", "") for c in component_generator}
+        return {
+            c.get("slug", "")
+            for c in api.get_generator(
+                WeblateComponentData,
+                WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+                params={"page_size": 1000},
+            )
+        }
     except WeblateApiError as e:
         print_error(f"Weblate API Error: Failed to fetch components for project '{project}'.", str(e))
         raise Exit from e
 
 
-def _autotranslate_languages(
+def _autotranslate_single(
     api: WeblateApi,
     project: str,
     component: str,
-    languages: list[str],
-    query: str | None,
-    translation_mode: TranslationMode,
-    translation_engines: list[TranslationEngines],
-    threshold: int,
-) -> Status:
-    """Autotranslate a specific component across multiple languages."""
-    if not languages:
-        return Status.SUCCESS
-
-    success_count = 0
-    failure_count = 0
-    json: dict[str, str|int|list[str]] = {
-        "mode": translation_mode.value,
-        "auto_source": "mt",
-        "engines": [engine.value for engine in translation_engines],
-        "threshold": threshold,
-    }
-    if query:
-        json["q"] = query
-    for language in languages:
-        try:
-            api.post(
-                str,
-                WEBLATE_AUTOTRANSLATE_ENDPOINT.format(
-                    project=project, component=component, language=get_cldr_lang(language),
-                ),
-                json=json,
-            )
-            success_count += 1
-        except WeblateApiError as e:  # noqa: PERF203
-            failure_count += 1
-            print_error(f"An API call failed. Autotranslate for '{component}' and '{language}' failed.", str(e))
-
-    if failure_count == 0:
-        return Status.SUCCESS
-    if success_count > 0:
-        return Status.PARTIAL
-    return Status.FAILURE
+    language: str,
+    json_payload: dict[str, str | int | list[str]],
+) -> tuple[str, str, str | None]:
+    """Autotranslate one component/language pair. Returns (component, language_code, error or None)."""
+    language_code = get_cldr_lang(language)
+    try:
+        api.post(
+            str,
+            WEBLATE_AUTOTRANSLATE_ENDPOINT.format(project=project, component=component, language=language_code),
+            json=json_payload,
+        )
+    except WeblateApiError as e:
+        return component, language_code, str(e)
+    else:
+        return component, language_code, None
 
 
 def _process_components(
@@ -235,31 +217,50 @@ def _process_components(
     translation_engines: list[TranslationEngines],
     threshold: int,
 ) -> tuple[int, int, int]:
-    """Iterate through components, filter them, and call the autotranslate function.
-
-    Returns a tuple of (success_count, partial_count, failure_count).
-    """
+    """Autotranslate all component/language pairs and return (success_count, partial_count, failure_count)."""
     counts = {Status.SUCCESS: 0, Status.PARTIAL: 0, Status.FAILURE: 0}
     project_components = sorted(filter_by_globs(_get_project_components(api, project), components))
+
+    json_payload: dict[str, str | int | list[str]] = {
+        "mode": translation_mode.value,
+        "auto_source": "mt",
+        "engines": [engine.value for engine in translation_engines],
+        "threshold": threshold,
+    }
+    if query:
+        json_payload["q"] = query
+
+    component_results: dict[str, list[bool]] = {c: [] for c in project_components}
 
     with TransientProgress() as progress:
         progress_task = progress.add_task(
             f"Autotranslating [b]{project}[/b]", total=len(project_components),
         )
-        for component in sorted(project_components):
-            progress.advance(progress_task)
+        components_advanced: set[str] = set()
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {
+                executor.submit(_autotranslate_single, api, project, component, language, json_payload): (
+                    component, language,
+                )
+                for component, language in itertools.product(project_components, languages)
+            }
+            for future in as_completed(futures):
+                component, _ = futures[future]
+                _, language_code, error = future.result()
+                if error:
+                    print_error(f"Autotranslate for '{component}' / '{language_code}' failed.", error)
+                component_results[component].append(error is None)
+                if len(component_results[component]) == len(languages) and component not in components_advanced:
+                    components_advanced.add(component)
+                    progress.advance(progress_task)
 
-            if components and component not in components:
-                continue
-
-            progress.update(
-                progress_task,
-                description=f"Autotranslating [b]{component}[/b] in [b]{project}[/b]",
-            )
-
-            status = _autotranslate_languages(
-                api, project, component, languages, query, translation_mode, translation_engines, threshold,
-            )
-            counts[status] += 1
+    for component in project_components:
+        results = component_results[component]
+        if not results or all(results):
+            counts[Status.SUCCESS] += 1
+        elif any(results):
+            counts[Status.PARTIAL] += 1
+        else:
+            counts[Status.FAILURE] += 1
 
     return counts[Status.SUCCESS], counts[Status.PARTIAL], counts[Status.FAILURE]

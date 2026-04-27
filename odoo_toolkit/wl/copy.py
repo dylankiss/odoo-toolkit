@@ -175,14 +175,13 @@ def copy(  # noqa: C901, PLR0912, PLR0915
 
     # Copy the translations.
 
-    accepted_count = 0
-    skipped_count = 0
-    not_found_count = 0
-
     if not dest_projects:
         dest_projects = [src_project]
 
     for dest_project in dest_projects:
+        accepted_count = 0
+        skipped_count = 0
+        not_found_count = 0
         print_header(f"Copy from project [b]{src_project}[/b] to project [b]{dest_project}[/b]")
         with TransientProgress() as progress:
             progress_task = progress.add_task(
