@@ -1,5 +1,6 @@
 import itertools
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fnmatch import fnmatch
 from typing import Annotated, Any
 
@@ -189,37 +190,30 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                 total=len(components) * len(languages),
             )
 
-            for (src_component, dest_component), (src_language, dest_language) in itertools.product(  # noqa: PLR1704
-                sorted(components.items(), key=lambda c: c[0]),
-                sorted(languages.items(), key=lambda lang: lang[0]),
-            ):
-                progress.update(
-                    progress_task,
-                    description=f"Copying [b]{src_component}[/b] ([b]{src_language}[/b], [b]{src_project}[/b]) "
-                    f"to [b]{dest_component}[/b] ([b]{dest_language}[/b], [b]{dest_project}[/b])",
-                )
-                progress.advance(progress_task)
-
-                try:
-                    response = _upload_translations(
-                        weblate_api,
-                        src_project,
-                        src_component,
-                        src_language,
-                        dest_project,
-                        dest_component,
-                        dest_language,
-                        upload_data,
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [
+                    executor.submit(
+                        _upload_translations,
+                        weblate_api, src_project, comp_src, lang_src, dest_project, comp_dest, lang_dest, upload_data,
                     )
-                except WeblateApiError as e:
-                    if e.status_code == 404:  # noqa: PLR2004
-                        print_warning(f"Component or language not found for {e.response.request.url}. Skipping.")
-                    else:
-                        print_error("Copying translations failed.", str(e))
-                    continue
-                accepted_count += response["accepted"]
-                skipped_count += response["skipped"]
-                not_found_count += response["not_found"]
+                    for (comp_src, comp_dest), (lang_src, lang_dest) in itertools.product(
+                        sorted(components.items(), key=lambda c: c[0]),
+                        sorted(languages.items(), key=lambda lang: lang[0]),
+                    )
+                ]
+                for future in as_completed(futures):
+                    progress.advance(progress_task)
+                    try:
+                        response = future.result()
+                    except WeblateApiError as e:
+                        if e.status_code == 404:  # noqa: PLR2004
+                            print_warning(f"Component or language not found for {e.response.request.url}. Skipping.")
+                        else:
+                            print_error("Copying translations failed.", str(e))
+                        continue
+                    accepted_count += response["accepted"]
+                    skipped_count += response["skipped"]
+                    not_found_count += response["not_found"]
 
         if accepted_count:
             print_success(

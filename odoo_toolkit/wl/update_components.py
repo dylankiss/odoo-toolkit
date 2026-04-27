@@ -191,6 +191,7 @@ def update_components(  # noqa: C901, PLR0912, PLR0915
         for c in weblate_api.get_generator(
             WeblateComponentData,
             WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+            params={"page_size": 1000},
         )
     }
 
@@ -262,6 +263,7 @@ def _find_master_component(
     for component in weblate_api.get_generator(
         WeblateComponentData,
         WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+        params={"page_size": 1000},
     ):
         if component.get("repo") == git_url and component.get("branch") == git_branch:
             # Weblate returns the linked component's repo and branch, so we need to check for it.

@@ -1,11 +1,12 @@
 import json
+import time
 from collections import defaultdict
-from collections.abc import Generator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from enum import Enum
 from fnmatch import fnmatch
 from os import environ
 from pathlib import Path
-from typing import Any, Literal, TypedDict, TypeVar
+from typing import Any, Literal, TypedDict, TypeVar, cast
 from urllib.parse import urljoin
 
 from requests import HTTPError, JSONDecodeError, Response, Session
@@ -27,10 +28,23 @@ WEBLATE_GROUP_LANGUAGE_ENDPOINT = "/api/groups/{group}/languages/{language}/"
 WEBLATE_PROJECTS_ENDPOINT = "/api/projects/"
 WEBLATE_ROLES_ENDPOINT = "/api/roles/"
 WEBLATE_TRANSLATIONS_FILE_ENDPOINT = "/api/translations/{project}/{component}/{language}/file/"
+WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT = "/api/projects/{project}/languages/{language}/file/"
 
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
 T = TypeVar("T")
+_MAX_RETRIES = 3
+
+
+def _with_retry(make_request: Callable[[], Response]) -> Response:
+    """Execute make_request(), retrying up to _MAX_RETRIES - 1 times on HTTP 429."""
+    response = make_request()
+    for _ in range(_MAX_RETRIES - 1):
+        if response.status_code != 429:  # noqa: PLR2004
+            break
+        time.sleep(int(response.headers.get("Retry-After", 60)))
+        response = make_request()
+    return response
 
 
 class WeblatePagedResponse(TypedDict):
@@ -224,6 +238,7 @@ class WeblateTranslationsUploadResponse(TypedDict):
     not_found: int
     skipped: int
     accepted: int
+    total: int
 
 
 class WeblateRoleResponse(TypedDict):
@@ -318,10 +333,12 @@ class WeblateApi:
         :return: The response in JSON format.
         """
         url = urljoin(self.base_url, endpoint)
-        response = self.json_session.request(method, url, data=data, files=files, json=json, params=params)
+        response = _with_retry(
+            lambda: self.json_session.request(method, url, data=data, files=files, json=json, params=params),
+        )
         try:
             response.raise_for_status()
-            return response.json() if response.content else {}  # pyright: ignore[reportReturnType]
+            return cast("T", response.json() if response.content else {})
         except (HTTPError, JSONDecodeError) as e:
             raise WeblateApiError(response) from e
 
@@ -334,7 +351,7 @@ class WeblateApi:
         :return: The raw response content as bytes.
         """
         url = urljoin(self.base_url, endpoint)
-        response = self.session.get(url, params=params)
+        response = _with_retry(lambda: self.session.get(url, params=params))
         try:
             response.raise_for_status()
         except (HTTPError, JSONDecodeError) as e:
@@ -342,24 +359,34 @@ class WeblateApi:
         else:
             return response.content
 
-    def get_generator(self, return_type: type[T], endpoint: str) -> Generator[T]:  # noqa: ARG002
+    def get_generator(
+        self,
+        return_type: type[T],  # noqa: ARG002
+        endpoint: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+    ) -> Generator[T]:
         """Fetch all results from a paginated Weblate API endpoint.
 
         :param endpoint: The API endpoint to access.
+        :param params: Query parameters for the first request. Subsequent pages use the
+            server-provided ``next`` URL which already embeds pagination params.
         :raises WeblateApiError: If the request returns an error.
         :yield: Every element in the `results` section of the response(s).
         """
         current_url = urljoin(self.base_url, endpoint)
+        current_params = params
         while current_url:
-            response = self.json_session.get(current_url)
+            response = _with_retry(lambda url=current_url, p=current_params: self.json_session.get(url, params=p))
             data: dict[str, Any] = {}
             try:
                 response.raise_for_status()
                 data = response.json() if response.content else {}
             except (HTTPError, JSONDecodeError) as e:
                 raise WeblateApiError(response) from e
-            yield from data.get("results", [])
-            current_url = data.get("next")
+            yield from cast("list[T]", data.get("results", []))
+            current_url = cast("str | None", data.get("next"))
+            current_params = None  # next URL already includes all query params
 
     def get(
         self,
@@ -589,6 +616,7 @@ def get_weblate_project_component_slugs(api: WeblateApi, project: str) -> set[st
         for c in api.get_generator(
             WeblateComponentData,
             WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+            params={"page_size": 1000},
         )
     }
 
@@ -605,5 +633,6 @@ def get_weblate_components(api: WeblateApi, project: str) -> list[WeblateCompone
         api.get_generator(
             WeblateComponentData,
             WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
+            params={"page_size": 1000},
         ),
     )

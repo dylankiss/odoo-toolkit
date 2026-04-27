@@ -1,4 +1,5 @@
 import itertools
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Annotated
 
@@ -129,6 +130,16 @@ def upload(  # noqa: C901, PLR0912, PLR0915
     failed_uploads = 0
     missing_po_files: set[Path] = set()
 
+    params: dict[str, str] = {
+        "method": method.value,
+        "conflicts": conflicts.value,
+        "fuzzy": "" if fuzzy.value == UploadFuzzy.IGNORE else fuzzy.value,
+    }
+    if author:
+        params["author"] = author
+    if email:
+        params["email"] = email
+
     with TransientProgress() as progress:
         progress_task = progress.add_task(
             "Uploading PO files...",
@@ -136,76 +147,44 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         )
         upload_table = Table(box=None, pad_edge=False, show_header=False)
 
-        params = {
-            "method": method.value,
-            "conflicts": conflicts.value,
-            "fuzzy": "" if fuzzy.value == UploadFuzzy.IGNORE else fuzzy.value,
-        }
-        if author:
-            params["author"] = author
-        if email:
-            params["email"] = email
-
-        for component, language in itertools.product(sorted(components), sorted(languages_set)):
-            language_code = get_cldr_lang(language)
-            language_name = get_language_name(language_code)
-            file_path = Path(f"{project}-{component}-{language_code}.po")
-
-            if not file_path.is_file():
-                missing_po_files.add(file_path)
+        results: list[tuple[str, str, str, str]] = []
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {
+                executor.submit(
+                    _upload_translation, weblate_api, project, component, language, params, fuzzy,
+                ): (component, language)
+                for component, language in itertools.product(sorted(components), sorted(languages_set))
+            }
+            for future in as_completed(futures):
+                component, _ = futures[future]
+                results.append((component, *future.result()))
                 progress.advance(progress_task)
-                continue
 
-            po_bytes = None
-            if fuzzy == UploadFuzzy.APPROVE:
-                # Pre-process the PO file to remove fuzzy flags (because the API won't approve fuzzy translations).
-                try:
-                    po = pofile(file_path)
-                    for entry in po.fuzzy_entries():
-                        entry.flags.remove("fuzzy")
-                    po_bytes = str(po).encode("utf-8")
-                except (OSError, ValueError) as e:
-                    failed_uploads += 1
-                    upload_table.add_row(
-                        f"{project}/{component} ({language_name})",
-                        get_error_log_panel(str(e), "Reading PO file failed!"),
-                    )
-                    progress.advance(progress_task)
-                    continue
-
-            progress.update(progress_task, description=f"Uploading [b]{language_code}.po[/b] for {project}/{component}...")
-            try:
-                response = weblate_api.post(
-                    WeblateTranslationsUploadResponse,
-                    WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-                        project=project,
-                        component=component,
-                        language=language_code,
-                    ),
-                    params=params,
-                    files={
-                        "file": (f"{project}-{component}-{language_code}.po", po_bytes)
-                            if po_bytes is not None
-                            else file_path.open("rb"),
-                    },
-                )
-            except (WeblateApiError, OSError) as e:
+        for component, language_code, status, detail in sorted(results, key=lambda r: (r[0], r[1])):
+            language_name = get_language_name(language_code)
+            if status == "missing":
+                missing_po_files.add(Path(detail))
+            elif status == "read_failed":
                 failed_uploads += 1
                 upload_table.add_row(
                     f"{project}/{component} ({language_name})",
-                    get_error_log_panel(str(e), "Uploading failed!"),
+                    get_error_log_panel(detail, "Reading PO file failed!"),
                 )
-                progress.advance(progress_task)
-                continue
-            accepted_count += response["accepted"]
-            skipped_count += response["skipped"]
-            not_found_count += response["not_found"]
-
-            upload_table.add_row(
-                f"{project}/{component} ({language_name})",
-                f"Accepted: [b]{response['accepted']}[/b], Skipped: [b]{response['skipped']}[/b], Not Found: [b]{response['not_found']}[/b] :white_check_mark:",
-            )
-            progress.advance(progress_task)
+            elif status == "upload_failed":
+                failed_uploads += 1
+                upload_table.add_row(
+                    f"{project}/{component} ({language_name})",
+                    get_error_log_panel(detail, "Uploading failed!"),
+                )
+            elif status == "success":
+                accepted, skipped, not_found = (int(x) for x in detail.split(":"))
+                accepted_count += accepted
+                skipped_count += skipped
+                not_found_count += not_found
+                upload_table.add_row(
+                    f"{project}/{component} ({language_name})",
+                    f"Accepted: [b]{accepted}[/b], Skipped: [b]{skipped}[/b], Not Found: [b]{not_found}[/b] :white_check_mark:",
+                )
 
     print(upload_table, "")
 
@@ -228,3 +207,51 @@ def upload(  # noqa: C901, PLR0912, PLR0915
             f"No translations updated. Skipped {skipped_count} translations, "
             f"and didn't find {not_found_count} source strings.",
         )
+
+
+def _upload_translation(
+    weblate_api: WeblateApi,
+    project: str,
+    component: str,
+    language: str,
+    params: dict[str, str],
+    fuzzy: UploadFuzzy,
+) -> tuple[str, str, str]:
+    """Upload a single translation file. Returns (language_code, status, detail).
+
+    status/detail:
+    - "missing": file path as string (file not found on disk)
+    - "read_failed": error message (failed to read/process PO file)
+    - "upload_failed": error message (API call failed)
+    - "success": "accepted:skipped:not_found" integer counts
+    """
+    language_code = get_cldr_lang(language)
+    file_path = Path(f"{project}-{component}-{language_code}.po")
+
+    if not file_path.is_file():
+        return language_code, "missing", str(file_path)
+
+    try:
+        if fuzzy == UploadFuzzy.APPROVE:
+            po = pofile(file_path)
+            for entry in po.fuzzy_entries():
+                entry.flags.remove("fuzzy")
+            content = str(po).encode("utf-8")
+        else:
+            content = file_path.read_bytes()
+    except (OSError, ValueError) as e:
+        return language_code, "read_failed", str(e)
+
+    try:
+        response = weblate_api.post(
+            WeblateTranslationsUploadResponse,
+            WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
+                project=project, component=component, language=language_code,
+            ),
+            params=params,
+            files={"file": (f"{project}-{component}-{language_code}.po", content)},
+        )
+    except (WeblateApiError, OSError) as e:
+        return language_code, "upload_failed", str(e)
+
+    return language_code, "success", f"{response['accepted']}:{response['skipped']}:{response['not_found']}"
