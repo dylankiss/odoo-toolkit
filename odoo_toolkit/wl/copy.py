@@ -182,6 +182,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         accepted_count = 0
         skipped_count = 0
         not_found_count = 0
+        not_found_warnings: list[str] = []
         print_header(f"Copy from project [b]{src_project}[/b] to project [b]{dest_project}[/b]")
         with TransientProgress() as progress:
             progress_task = progress.add_task(
@@ -206,13 +207,28 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                         response = future.result()
                     except WeblateApiError as e:
                         if e.status_code == 404:  # noqa: PLR2004
-                            print_warning(f"Component or language not found for {e.response.request.url}. Skipping.")
+                            url: str = e.response.request.url or ""
+                            match = re.search(
+                                r"/api/translations/([^/]+)/([^/]+)/([^/]+)/file/", url,
+                            )
+                            if match:
+                                not_found_warnings.append(
+                                    f"Component '{match.group(2)}' / language '{match.group(3)}'"
+                                    f" not found in '{match.group(1)}'. Skipping.",
+                                )
+                            else:
+                                not_found_warnings.append(
+                                    f"Component or language not found for {url}. Skipping.",
+                                )
                         else:
                             print_error("Copying translations failed.", str(e))
                         continue
                     accepted_count += response["accepted"]
                     skipped_count += response["skipped"]
                     not_found_count += response["not_found"]
+
+        for warning in sorted(not_found_warnings):
+            print_warning(warning)
 
         if accepted_count:
             print_success(

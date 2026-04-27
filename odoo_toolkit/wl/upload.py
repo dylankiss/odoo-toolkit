@@ -181,10 +181,16 @@ def upload(  # noqa: C901, PLR0912, PLR0915
                 accepted_count += accepted
                 skipped_count += skipped
                 not_found_count += not_found
-                upload_table.add_row(
-                    f"{project}/{component} ({language_name})",
-                    f"Accepted: [b]{accepted}[/b], Skipped: [b]{skipped}[/b], Not Found: [b]{not_found}[/b] :white_check_mark:",
-                )
+                if accepted:
+                    upload_table.add_row(
+                        f"{project}/{component} ({language_name})",
+                        f"Accepted: [b]{accepted}[/b], Skipped: [b]{skipped}[/b], Not Found: [b]{not_found}[/b] :white_check_mark:",
+                    )
+                else:
+                    upload_table.add_row(
+                        f"[d]{project}/{component} ({language_name})[/d]",
+                        f"[d]Accepted: {accepted}, Skipped: {skipped}, Not Found: {not_found}[/d]",
+                    )
 
     print(upload_table, "")
 

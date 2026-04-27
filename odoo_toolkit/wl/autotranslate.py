@@ -159,7 +159,9 @@ def autotranslate(
         return
 
     if partial_count == 0 and failure_count == 0:
-        print_success(f"Successfully autotranslated all {success_count} component(s)!")
+        print_success(
+            f"Successfully autotranslated all {success_count} component(s) in {len(languages)} language(s)!",
+        )
     else:
         summary = [
             "Operation finished with errors:",
