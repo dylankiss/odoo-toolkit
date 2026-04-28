@@ -136,10 +136,10 @@ def _normalize_odoo_version(value: str) -> str:
 
     normalized = re.sub(r"^saas-", "s", normalized)
     normalized = normalized.replace(".", "-")
-    if re.fullmatch(r"\d{1,2}-\d", normalized):
-        normalized = f"s{normalized}"
     if re.fullmatch(r"\d{1,2}-0", normalized):
         normalized = normalized[:-2]
+    elif re.fullmatch(r"\d{1,2}-\d", normalized):
+        normalized = f"s{normalized}"
     if not re.fullmatch(r"(?:\d{1,2}|s\d{1,2}-\d|master)", normalized):
         msg = (
             "Could not normalize the provided Odoo version. "
