@@ -90,7 +90,7 @@ def update(
     languages = sorted(normalize_list_option(languages))
     exclude = normalize_list_option(exclude)
 
-    def filter_fn(p: Path) -> bool:
+    def include_path(p: Path) -> bool:
         if exclude and any(fnmatch(p.name, e) for e in exclude):
             return False
         if path_filters:
@@ -102,7 +102,7 @@ def update(
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        filter_fn=filter_fn,
+        include_path=include_path,
     )
 
     if not module_to_path:
