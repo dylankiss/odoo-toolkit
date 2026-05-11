@@ -1,6 +1,7 @@
 import ast
 import os
 import re
+import shlex
 import subprocess
 import xmlrpc.client
 from base64 import b64decode
@@ -39,6 +40,7 @@ from odoo_toolkit.common import (
 HTTPS_PORT = 443
 WITH_DEMO_VERSION = 18.3
 DEFAULT_EXCLUDE = ["*l10n_*", "*theme_*", "*hw_*", "*test*", "pos_blackbox_be"]
+DEFAULT_RETRY_COMMAND_MAX_WIDTH = 100
 
 app = Typer()
 
@@ -465,12 +467,15 @@ def _run_server_and_export_terms(
             if data.server_error:
                 # The server encountered an error.
                 print_error(data.error_msg or "The server encountered an error.", data.log_buffer.strip())
+                _print_command_for_copy(odoo_cmd)
                 break
 
         if proc.returncode:
             print_error(
-                f"Running the Odoo server failed and exited with code: {proc.returncode}", data.log_buffer.strip(),
+                f"Running the Odoo server failed and exited with code: {proc.returncode}",
+                data.log_buffer.strip(),
             )
+            _print_command_for_copy(odoo_cmd)
             data.server_error = True
         else:
             proc.kill()
@@ -490,8 +495,10 @@ def _run_server_and_export_terms(
                 print(f"{server_formatted} Database [b]{database}[/b] has been deleted :white_check_mark:\n")
             except CalledProcessError as e:
                 print_error(
-                    f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.", e.stderr.strip(),
+                    f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.",
+                    e.stderr.strip() if e.stderr else None,
                 )
+                _print_command_for_copy(dropdb_cmd)
 
 
 def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
@@ -944,3 +951,36 @@ def _free_port(host: str, start_port: int) -> int:
             else:
                 return port
     return 8069
+
+
+def _print_command_for_copy(command: Sequence[str | Path]) -> None:
+    """Print the retry command wrapped to avoid terminal soft-wrap during copy."""
+    print("[b]Retry command:[/b]")
+    print(_format_wrapped_retry_command(command))
+
+
+def _format_wrapped_retry_command(cmd: Sequence[str | Path]) -> str:
+    """Return the original command split across continuation lines within the terminal width."""
+    quoted_parts = [shlex.quote(str(part)) for part in cmd]
+    if not quoted_parts:
+        return ""
+
+    max_width = _get_retry_command_max_width()
+    lines = [quoted_parts[0]]
+    for part in quoted_parts[1:]:
+        candidate = f"{lines[-1]} {part}"
+        if len(candidate) + 2 <= max_width:
+            lines[-1] = candidate
+        else:
+            lines.append(part)
+
+    return " \\\n".join(lines)
+
+
+def _get_retry_command_max_width() -> int:
+    """Get the available terminal width with a sane fallback for non-interactive runs."""
+    try:
+        columns = os.get_terminal_size().columns
+    except OSError:
+        return DEFAULT_RETRY_COMMAND_MAX_WIDTH
+    return max(columns, 40)
