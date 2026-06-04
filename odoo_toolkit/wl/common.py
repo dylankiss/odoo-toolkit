@@ -1,4 +1,6 @@
 import json
+import random
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
@@ -10,6 +12,8 @@ from typing import Any, Literal, TypedDict, TypeVar, cast
 from urllib.parse import urljoin
 
 from requests import HTTPError, JSONDecodeError, Response, Session
+
+from odoo_toolkit.common import print_warning
 
 WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
@@ -33,18 +37,37 @@ WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT = "/api/projects/{project}/languages/{lan
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
 T = TypeVar("T")
-_MAX_RETRIES = 3
+
+_rate_limit_lock = threading.Lock()
+_rate_limit_until: list[float] = [0.0]
+
+
+def _set_rate_limit(retry_after: int) -> None:
+    deadline = time.time() + retry_after
+    with _rate_limit_lock:
+        _rate_limit_until[0] = max(_rate_limit_until[0], deadline)
+
+
+def _wait_if_rate_limited() -> None:
+    with _rate_limit_lock:
+        until = _rate_limit_until[0]
+    remaining = until - time.time()
+    if remaining > 0:
+        print_warning(f"Weblate rate limit hit, waiting about {remaining:.0f} second(s) before retrying.")
+        time.sleep(remaining + random.uniform(0, 5))  # noqa: S311
 
 
 def _with_retry(make_request: Callable[[], Response]) -> Response:
-    """Execute make_request(), retrying up to _MAX_RETRIES - 1 times on HTTP 429."""
-    response = make_request()
-    for _ in range(_MAX_RETRIES - 1):
-        if response.status_code != 429:  # noqa: PLR2004
-            break
-        time.sleep(int(response.headers.get("Retry-After", 60)))
+    """Execute make_request(), retrying on HTTP 429."""
+    while True:
+        _wait_if_rate_limited()
         response = make_request()
-    return response
+        if response.status_code != 429:  # noqa: PLR2004
+            return response
+        seconds_until_reset = response.headers.get("Retry-After")
+        if seconds_until_reset is None:
+            raise WeblateApiError(response)
+        _set_rate_limit(int(seconds_until_reset))
 
 
 class WeblatePagedResponse(TypedDict):
