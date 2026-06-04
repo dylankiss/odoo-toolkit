@@ -212,7 +212,7 @@ L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
     "*l10n_tz*": ["sw"],
     "*l10n_ua*": ["uk"],
     "*l10n_ug*": ["sw"],
-    "*l10n_uz*": ["uz"],
+    "*l10n_uz*": ["ru", "uz"],
     "*l10n_uy*": ["es_419"],
     "*l10n_ve*": ["es_419"],
     "*l10n_vn*": ["vi"],
