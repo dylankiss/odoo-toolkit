@@ -105,6 +105,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
 
     src_languages_set = set(normalize_list_option(src_languages))
     src_components_set = set(normalize_list_option(src_components))
+    dest_projects = sorted(set(normalize_list_option(dest_projects)))
 
     # Validate the argument combinations.
 
@@ -178,28 +179,60 @@ def copy(  # noqa: C901, PLR0912, PLR0915
     if not dest_projects:
         dest_projects = [src_project]
 
+    # Pre-fetch all source files once and reuse them for every destination project.
+    source_files: dict[tuple[str, str], bytes] = {}
+    fetch_failures: list[tuple[str, str]] = []
+    with TransientProgress() as progress:
+        fetch_task = progress.add_task(
+            "Fetching source files...", total=len(components) * len(languages),
+        )
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            fetch_futures = {
+                executor.submit(_fetch_source, weblate_api, src_project, comp_src, lang_src): (comp_src, lang_src)
+                for comp_src, lang_src in itertools.product(sorted(components), sorted(languages))
+            }
+            for future in as_completed(fetch_futures):
+                comp_src, lang_src = fetch_futures[future]
+                lang_code = get_cldr_lang(lang_src)
+                progress.advance(fetch_task)
+                try:
+                    source_files[(comp_src, lang_code)] = future.result()
+                except WeblateApiError:
+                    fetch_failures.append((comp_src, lang_code))
+
+    if fetch_failures:
+        pairs_str = ", ".join(f"{c}/{lang}" for c, lang in sorted(fetch_failures))
+        print_error(f"Failed to fetch {len(fetch_failures)} source file(s) from '{src_project}': {pairs_str}")
+
+    if not source_files:
+        print_error("No source files could be fetched.")
+        raise Exit
+
     for dest_project in dest_projects:
         accepted_count = 0
         skipped_count = 0
         not_found_count = 0
-        not_found_warnings: list[str] = []
+        not_found_pairs: list[tuple[str, str]] = []
         print_header(f"Copy from project [b]{src_project}[/b] to project [b]{dest_project}[/b]")
         with TransientProgress() as progress:
             progress_task = progress.add_task(
                 f"Copy translations from {src_project} to {dest_project}",
-                total=len(components) * len(languages),
+                total=len(source_files),
             )
 
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [
                     executor.submit(
                         _upload_translations,
-                        weblate_api, src_project, comp_src, lang_src, dest_project, comp_dest, lang_dest, upload_data,
+                        weblate_api,
+                        source_files[(comp_src, get_cldr_lang(lang_src))],
+                        dest_project, comp_dest, lang_dest, upload_data,
                     )
                     for (comp_src, comp_dest), (lang_src, lang_dest) in itertools.product(
                         sorted(components.items(), key=lambda c: c[0]),
                         sorted(languages.items(), key=lambda lang: lang[0]),
                     )
+                    if (comp_src, get_cldr_lang(lang_src)) in source_files
                 ]
                 for future in as_completed(futures):
                     progress.advance(progress_task)
@@ -211,15 +244,9 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                             match = re.search(
                                 r"/api/translations/([^/]+)/([^/]+)/([^/]+)/file/", url,
                             )
-                            if match:
-                                not_found_warnings.append(
-                                    f"Component '{match.group(2)}' / language '{match.group(3)}'"
-                                    f" not found in '{match.group(1)}'. Skipping.",
-                                )
-                            else:
-                                not_found_warnings.append(
-                                    f"Component or language not found for {url}. Skipping.",
-                                )
+                            not_found_pairs.append(
+                                (match.group(2), match.group(3)) if match else ("?", url),
+                            )
                         else:
                             print_error("Copying translations failed.", str(e))
                         continue
@@ -227,8 +254,9 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                     skipped_count += response["skipped"]
                     not_found_count += response["not_found"]
 
-        for warning in sorted(not_found_warnings):
-            print_warning(warning)
+        if not_found_pairs:
+            pairs_str = ", ".join(f"{c}/{lang}" for c, lang in sorted(not_found_pairs))
+            print_warning(f"{len(not_found_pairs)} combination(s) not found in '{dest_project}' (skipped): {pairs_str}")
 
         if accepted_count:
             print_success(
@@ -242,33 +270,36 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             )
 
 
+def _fetch_source(api: WeblateApi, project: str, component: str, language: str) -> bytes:
+    """Fetch a source PO file as bytes."""
+    return api.get_bytes(
+        WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
+            project=project,
+            component=component,
+            language=get_cldr_lang(language),
+        ),
+    )
+
+
 def _upload_translations(
     api: WeblateApi,
-    src_project: str,
-    src_component: str,
-    src_language: str,
+    src_bytes: bytes,
     dest_project: str,
-    dest_component: str | None,
+    dest_component: str,
     dest_language: str,
     upload_data: dict[str, Any],
 ) -> WeblateTranslationsUploadResponse:
-    po_file: bytes = api.get_bytes(
-        WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-            project=src_project,
-            component=src_component,
-            language=get_cldr_lang(src_language),
-        ),
-    )
+    lang_code = get_cldr_lang(dest_language)
     return api.post(
         WeblateTranslationsUploadResponse,
         WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
             project=dest_project,
             component=dest_component,
-            language=get_cldr_lang(dest_language),
+            language=lang_code,
         ),
         data=upload_data,
         files={"file": (
-            f"{dest_project}-{dest_component}-{get_cldr_lang(dest_language)}.po",
-            re.sub(PO_CLEAN_HEADER_PATTERN, b"", po_file),
+            f"{dest_project}-{dest_component}-{lang_code}.po",
+            re.sub(PO_CLEAN_HEADER_PATTERN, b"", src_bytes),
         )},
     )
