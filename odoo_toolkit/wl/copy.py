@@ -54,6 +54,15 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         str | None,
         Option("--dest-component", "-C", help="The Weblate component to copy translations to."),
     ] = None,
+    query: Annotated[
+        str | None,
+        Option(
+            "--query",
+            "-q",
+            help="Specify which strings need to be copied over by using a Weblate search string. Copies all translated "
+            "strings if not specified.",
+        ),
+    ] = None,
     author_name: Annotated[
         str | None,
         Option(
@@ -188,7 +197,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         )
         with ThreadPoolExecutor(max_workers=10) as executor:
             fetch_futures = {
-                executor.submit(_fetch_source, weblate_api, src_project, comp_src, lang_src): (comp_src, lang_src)
+                executor.submit(_fetch_source, weblate_api, src_project, comp_src, lang_src, query): (comp_src, lang_src)
                 for comp_src, lang_src in itertools.product(sorted(components), sorted(languages))
             }
             for future in as_completed(fetch_futures):
@@ -270,7 +279,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             )
 
 
-def _fetch_source(api: WeblateApi, project: str, component: str, language: str) -> bytes:
+def _fetch_source(api: WeblateApi, project: str, component: str, language: str, query: str | None = None) -> bytes:
     """Fetch a source PO file as bytes."""
     return api.get_bytes(
         WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
@@ -278,6 +287,7 @@ def _fetch_source(api: WeblateApi, project: str, component: str, language: str) 
             component=component,
             language=get_cldr_lang(language),
         ),
+        params={"q": query, "format": "po"} if query else None,
     )
 
 
