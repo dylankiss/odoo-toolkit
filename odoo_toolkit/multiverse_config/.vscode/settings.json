@@ -1,4 +1,5 @@
 {
+    "Odoo.selectedProfile": "default",
     "autoDocstring.docstringFormat": "one-line-sphinx",
     "autoDocstring.startOnNewLine": false,
     "cSpell.allowCompoundWords": true,
@@ -23,6 +24,16 @@
         },
         {
             "prefix": "Task-",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "task~",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task~",
             "url": "https://www.odoo.com/odoo/project.task/<num>",
             "title": "Open Task #<num> in Odoo"
         },
@@ -83,6 +94,16 @@
         },
         {
             "prefix": "Task: ",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "task:",
+            "url": "https://www.odoo.com/odoo/project.task/<num>",
+            "title": "Open Task #<num> in Odoo"
+        },
+        {
+            "prefix": "Task:",
             "url": "https://www.odoo.com/odoo/project.task/<num>",
             "title": "Open Task #<num> in Odoo"
         },
@@ -157,6 +178,7 @@
             "title": "Open Support Ticket #<num> in Odoo"
         }
     ],
+    "python.languageServer": "None",
     "python.terminal.activateEnvironment": true,
     "python.terminal.activateEnvInCurrentTerminal": true,
     "ruff.enable": true,
@@ -165,7 +187,7 @@
         "**/.github": true,
         "**/.venv": true,
         "**/.vscode": true,
-        "**/node_modules": true,
+        "**/node_modules": true
     },
     "xml.codeLens.enabled": true,
     "xml.format.closingBracketNewLine": true,

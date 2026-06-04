@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -7,7 +8,7 @@ from itertools import chain
 from multiprocessing import Manager
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Annotated, cast
+from typing import Annotated, TypeAlias, cast
 
 from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from typer import Exit, Option, Typer
@@ -28,7 +29,7 @@ from .common import MULTI_BRANCH_REPOS, ODOO_DEV_REPOS, SINGLE_BRANCH_REPOS, Odo
 app = Typer()
 
 CWD = Path.cwd()
-DEFAULT_BRANCHES = ["17.0", "18.0", "saas-18.2", "saas-18.3", "saas-18.4", "19.0", "saas-19.1", "saas-19.2", "master"]
+DEFAULT_BRANCHES = ["17.0", "18.0", "saas-18.2", "saas-18.3", "saas-18.4", "19.0", "saas-19.1", "saas-19.2", "saas-19.3", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
     OdooRepo.ENTERPRISE,
@@ -39,6 +40,7 @@ DEFAULT_REPOS = [
 JS_TOOLING_MIN_VERSION = 14.5
 JS_TOOLING_NEW_VERSION = 16.1
 MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
+JSONValue: TypeAlias = dict[str, "JSONValue"] | list["JSONValue"] | str | int | float | bool | None
 
 
 @app.command()
@@ -97,9 +99,9 @@ def setup(
     You can run the command as many times as you want. It will skip already existing branches and repositories and only
     renew their configuration (when passed the `--reset-config` option).\n
     \n
-    > If you're using **Visual Studio Code**, you can use the `--vscode` option to have the script copy some default
-    configuration to each branch folder. It contains recommended plugins, plugin configurations and debug configurations
-    (that also work with the Docker container started via `otk dev start`).
+    > If you're using **Visual Studio Code**, you can use the `--vscode` option to have the script create multi-root
+    workspaces, and copy some default configuration to the multiverse folder. It contains recommended plugins, plugin
+    configurations and debug configurations (that also work with the Docker container started via `otk dev start`).
     """
     print_command_title(":ringed_planet: Odoo Multiverse Setup")
 
@@ -156,38 +158,38 @@ def setup(
         for branch in branches:
             (multiverse_dir / branch).mkdir(parents=True, exist_ok=True)
 
-        # Add the worktrees for each repo in each branch and link the single-branch repos.
+        _setup_multiverse_root_config(
+            multiverse_dir=multiverse_dir,
+            repositories=repositories,
+            reset_config=reset_config,
+        )
+
+        # Add the worktrees for each multi-branch repo in each branch.
         for branch in branches:
             with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
-                # Set up progress trackers for the worktree and symlink operations.
+                # Set up progress trackers for the worktree operations.
                 progress_updates = cast("dict[OdooRepo, ProgressUpdate]", manager.dict({
                     repo: ProgressUpdate(
-                        task_id=progress.add_task(f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]", total=None)
-                            if repo in multi_branch_repos
-                            else progress.add_task(
-                                f"Adding symlink for [b]{repo.value}[/b] to [b]{branch}[/b]", total=1,
-                            ),
-                        description=f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]"
-                            if repo in multi_branch_repos
-                            else f"Adding symlink for [b]{repo.value}[/b] to [b]{branch}[/b]",
+                        task_id=progress.add_task(f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]", total=None),
+                        description=f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]",
                         completed=0,
-                        total=None if repo in multi_branch_repos else 1,
+                        total=None,
                     )
-                    for repo in chain(multi_branch_repos, single_branch_repos)
+                    for repo in multi_branch_repos
                 }))
 
                 print_header(f":deciduous_tree: Setup Branch {branch}")
 
-                # Run the worktree and symlink operations in multiple processes simultaneously to speed things up.
+                # Run the worktree operations in multiple processes simultaneously to speed things up.
                 futures = {
                     executor.submit(
-                        _add_worktree_for_branch if repo in multi_branch_repos else _link_repo_to_branch_dir,
+                        _add_worktree_for_branch,
                         repo=repo,
                         branch=branch,
-                        repo_src_dir=(worktree_src_dir if repo in multi_branch_repos else multiverse_dir) / repo.value,
+                        repo_src_dir=worktree_src_dir / repo.value,
                         repo_worktree_dir=multiverse_dir / branch / repo.value,
                         progress_updates=progress_updates,
-                    ): repo for repo in chain(multi_branch_repos, single_branch_repos)
+                    ): repo for repo in multi_branch_repos
                 }
 
                 # Run the progress updater until everything is finished.
@@ -197,6 +199,16 @@ def setup(
                 for future in as_completed(futures):
                     future.result()
                 print()
+
+        # Create a VS Code multi-root workspace for each branch, including selected single-branch repositories.
+        if vscode:
+            for branch in branches:
+                _create_branch_workspace(
+                    multiverse_dir=multiverse_dir,
+                    branch=branch,
+                    single_branch_repos=single_branch_repos,
+                    reset_config=reset_config,
+                )
 
         # Configure tools and dependencies for each branch directory.
         with ThreadPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
@@ -217,8 +229,8 @@ def setup(
                 executor.submit(
                     _setup_tools_and_deps_in_branch_dir,
                     branch_dir=multiverse_dir / branch,
+                    multiverse_dir=multiverse_dir,
                     reset_config=reset_config,
-                    vscode=vscode,
                     progress_updates=progress_updates,
                 ): branch for branch in branches
             }
@@ -614,117 +626,159 @@ def _add_worktree_for_branch(
     )
 
 
-def _link_repo_to_branch_dir(
-    repo: OdooRepo,
-    branch: str,
-    repo_src_dir: Path,
-    repo_worktree_dir: Path,
-    progress_updates: dict[OdooRepo, ProgressUpdate],
-) -> None:
-    """Create a symlink from a single-branch repository to a branch directory.
+def _create_branch_workspace(multiverse_dir: Path, branch: str, single_branch_repos: list[OdooRepo], reset_config: bool = False) -> None:
+    """Create a VS Code multi-root workspace file for a branch.
 
-    :param repo: The repository to symlink.
-    :param branch: The branch where we need to add the symlink for.
-    :param repo_src_dir: The repository's source directory.
-    :param repo_worktree_dir: The directory to contain be symlinked to the source repository.
-    :param progress_updates: The progress update information per repository.
+    :param multiverse_dir: The root directory of the multiverse setup.
+    :param branch: The branch name used for the worktree folder and workspace name.
+    :param single_branch_repos: Selected single-branch repositories to include as additional roots.
+    :param reset_config: Whether to overwrite existing workspace file.
     """
-    try:
-        Repo(repo_worktree_dir)
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.SUCCESS,
-            message=f"The [b]{repo.value}[/b] symlink at [u]{repo_worktree_dir}[/u] already exists.",
-        )
-    except InvalidGitRepositoryError:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.PARTIAL,
-            message=f"The path [u]{repo_worktree_dir}[/u] is not a Git repository. Skipping ...",
-        )
+    workspace_file = multiverse_dir / f"{branch}.code-workspace"
+    if workspace_file.exists() and not reset_config:
         return
-    except NoSuchPathError:
-        repo_worktree_dir.symlink_to(
-            # Make the symlink a relative one to ensure it works in a Docker container as well.
-            Path(os.path.relpath(repo_src_dir, repo_worktree_dir.parent)),
-            target_is_directory=True,
+
+    workspace_content: dict[str, JSONValue] = {
+        "folders": [
+            {"path": branch},
+            *[{"path": repo.value} for repo in single_branch_repos],
+        ],
+    }
+
+    vscode_config_dir = MULTIVERSE_CONFIG_DIR / ".vscode"
+    with (vscode_config_dir / "settings.json").open("r", encoding="utf-8") as settings_fp:
+        workspace_content["settings"] = json.load(settings_fp)
+
+    with (vscode_config_dir / "launch.json").open("r", encoding="utf-8") as launch_fp:
+        workspace_content["launch"] = _replace_workspace_folder_reference(json.load(launch_fp), branch)
+
+    with (vscode_config_dir / "extensions.json").open("r", encoding="utf-8") as extensions_fp:
+        workspace_content["extensions"] = json.load(extensions_fp)
+
+    with workspace_file.open("w", encoding="utf-8") as workspace_fp:
+        json.dump(workspace_content, workspace_fp, indent=2)
+        workspace_fp.write("\n")
+
+
+def _replace_workspace_folder_reference(value: JSONValue, branch: str) -> JSONValue:
+    """Replace ${workspaceFolder} references with the branch-scoped workspace folder."""
+    source = "${workspaceFolder}"
+    target = f"${{workspaceFolder:{branch}}}"
+
+    if isinstance(value, str):
+        return value.replace(source, target)
+    if isinstance(value, list):
+        return [_replace_workspace_folder_reference(item, branch) for item in value]
+    if isinstance(value, dict):
+        return {key: _replace_workspace_folder_reference(item, branch) for key, item in value.items()}
+    return value
+
+
+def _setup_multiverse_root_config(
+    multiverse_dir: Path,
+    repositories: list[OdooRepo],
+    reset_config: bool,
+) -> None:
+    """Set up configuration files in the multiverse root directory.
+
+    :param multiverse_dir: The root directory of the multiverse setup.
+    :param repositories: Selected repositories for this multiverse setup.
+    :param reset_config: Whether existing configuration should be overwritten.
+    """
+    if not (multiverse_dir / "ruff.toml").exists() or reset_config:
+        shutil.copyfile(MULTIVERSE_CONFIG_DIR / "ruff.toml", multiverse_dir / "ruff.toml")
+
+    if not (multiverse_dir / "requirements.txt").exists() or reset_config:
+        shutil.copyfile(MULTIVERSE_CONFIG_DIR / "requirements.txt", multiverse_dir / "requirements.txt")
+
+    _write_odools_toml(multiverse_dir / "odools.toml", repositories=repositories)
+
+
+def _get_odools_addons_paths(repositories: set[OdooRepo]) -> list[str]:
+    """Return odools addon path entries for the selected repositories."""
+    addons_paths: list[str] = []
+
+    if OdooRepo.DESIGN_THEMES in repositories:
+        addons_paths.append("${workspaceFolder}/design-themes")
+    if OdooRepo.ENTERPRISE in repositories:
+        addons_paths.append("${workspaceFolder}/enterprise")
+    if OdooRepo.IAP_APPS in repositories:
+        addons_paths.extend([
+            "${workspaceFolder:iap-apps}/iap_common",
+            "${workspaceFolder:iap-apps}/iap_extract",
+            "${workspaceFolder:iap-apps}/iap_odoo",
+            "${workspaceFolder:iap-apps}/iap_services",
+            "${workspaceFolder:iap-apps}/iap_website_scraper",
+        ])
+    if OdooRepo.INDUSTRY in repositories:
+        addons_paths.append("${workspaceFolder}/industry")
+    if OdooRepo.INTERNAL in repositories:
+        addons_paths.extend([
+            "${workspaceFolder:internal}/default",
+            "${workspaceFolder:internal}/demo",
+            "${workspaceFolder:internal}/i18n",
+            "${workspaceFolder:internal}/private",
+            "${workspaceFolder:internal}/runbot",
+            "${workspaceFolder:internal}/test",
+            "${workspaceFolder:internal}/tools",
+            "${workspaceFolder:internal}/trial",
+        ])
+    if OdooRepo.ODOOFIN in repositories:
+        addons_paths.append("${workspaceFolder:odoofin}")
+
+    return addons_paths
+
+
+def _write_odools_toml(odools_path: Path, repositories: list[OdooRepo] | None = None, python_path: str | None = None) -> None:
+    """Write an odools.toml file for a workspace.
+
+    If repositories are provided, writes full config with odoo_path, addons_paths, and python_path.
+    If repositories are None, writes minimal config with only python_path.
+
+    :param odools_path: Path to the odools.toml file to write.
+    :param repositories: Selected repositories for this multiverse setup (None for minimal config).
+    :param python_path: Optional python_path override.
+    """
+    lines = ["[[config]]"]
+
+    if repositories is not None:
+        selected_repositories = set(repositories)
+        odools_python_path = python_path or "${workspaceFolder}/.venv/bin/python"
+
+        lines.append('odoo_path = "${workspaceFolder}/odoo"')
+        lines.append("addons_paths = [")
+
+        lines.extend(
+            f'    "{addon_path}",'
+            for addon_path in _get_odools_addons_paths(selected_repositories)
         )
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.SUCCESS,
-            message=f"Added symlink for [b]{repo.value}[/b] to [b]{branch}[/b]",
-        )
+
+        lines.extend([
+            "]",
+            f'python_path = "{odools_python_path}"',
+        ])
+    elif python_path:
+        lines.append(f'python_path = "{python_path}"')
+
+    lines.append("")
+    odools_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _setup_tools_and_deps_in_branch_dir(
     branch_dir: Path,
+    multiverse_dir: Path,
     reset_config: bool,
-    vscode: bool,
     progress_updates: dict[str, ProgressUpdate],
 ) -> None:
     """Set up all tooling and dependencies in the given branch directory.
 
     :param branch_dir: The branch directory in which to set up the tooling and dependencies.
+    :param multiverse_dir: The root directory of the multiverse setup.
     :param reset_config: Whether we want the reset existing configuration files.
-    :param vscode: Whether we want configuration files for Visual Studio Code.
     :param progress_updates: The progress update information per branch.
     """
     branch = branch_dir.name
-    ProgressUpdate.update_in_dict(progress_updates, branch, total=5)
-
-    # Copy Ruff configuration.
-    if not (branch_dir / "ruff.toml").exists() or reset_config:
-        try:
-            shutil.copyfile(MULTIVERSE_CONFIG_DIR / "ruff.toml", branch_dir / "ruff.toml")
-        except OSError as e:
-            ProgressUpdate.update_in_dict(
-                progress_updates,
-                branch,
-                status=Status.FAILURE,
-                message=f"Copying [b]ruff.toml[/b] to branch [b]{branch}[/b] failed.",
-                stacktrace=str(e),
-            )
-
-    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
-
-    # Copy Visual Studio Code configuration.
-    if vscode and (not (branch_dir / ".vscode").exists() or reset_config):
-        try:
-            shutil.copytree(MULTIVERSE_CONFIG_DIR / ".vscode", branch_dir / ".vscode", dirs_exist_ok=True)
-        except shutil.Error as e:
-            ProgressUpdate.update_in_dict(
-                progress_updates,
-                branch,
-                status=Status.FAILURE,
-                message=f"Copying the [b].vscode[/b] settings directory to branch [b]{branch}[/b] failed.",
-                stacktrace=str(e),
-            )
-
-    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
-
-    # Copy optional Python requirements.
-    if not (branch_dir / "requirements.txt").exists() or reset_config:
-        try:
-            shutil.copyfile(MULTIVERSE_CONFIG_DIR / "requirements.txt", branch_dir / "requirements.txt")
-        except OSError as e:
-            ProgressUpdate.update_in_dict(
-                progress_updates,
-                branch,
-                status=Status.FAILURE,
-                message=f"Copying [b]requirements.txt[/b] to branch [b]{branch}[/b] failed.",
-                stacktrace=str(e),
-            )
-
-    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
+    ProgressUpdate.update_in_dict(progress_updates, branch, total=3)
 
     # Set up Javascript tooling.
     if _get_version_number(branch) >= JS_TOOLING_MIN_VERSION:
@@ -733,7 +787,23 @@ def _setup_tools_and_deps_in_branch_dir(
 
     ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
 
-    _configure_python_env_for_branch(branch_dir, reset_config=reset_config, progress_updates=progress_updates)
+    _configure_python_env_for_branch(
+        branch_dir,
+        multiverse_dir=multiverse_dir,
+        reset_config=reset_config,
+        progress_updates=progress_updates,
+    )
+
+    # Override python_path due to a bug with virtual environments and symlinks.
+    python_path = (
+        (branch_dir / ".venv" / "Scripts" / "python.exe")
+        if os.name == "nt"
+        else (branch_dir / ".venv" / "bin" / "python")
+    )
+    _write_odools_toml(
+        branch_dir / "odools.toml",
+        python_path=str(python_path.absolute()),
+    )
 
     ProgressUpdate.update_in_dict(
         progress_updates,
@@ -759,6 +829,7 @@ def _pip_install_requirements(uv: str | None, python: Path, requirements: Path) 
 
 def _configure_python_env_for_branch(
     branch_dir: Path,
+    multiverse_dir: Path,
     reset_config: bool,
     progress_updates: dict[str, ProgressUpdate],
 ) -> None:
@@ -809,7 +880,7 @@ def _configure_python_env_for_branch(
             branch_dir / "odoo" / "requirements.txt",
             branch_dir / "documentation" / "requirements.txt",
             branch_dir / "documentation" / "tests" / "requirements.txt",
-            branch_dir / "requirements.txt",
+            multiverse_dir / "requirements.txt",
         ]:
             _pip_install_requirements(uv, python, req_path)
 

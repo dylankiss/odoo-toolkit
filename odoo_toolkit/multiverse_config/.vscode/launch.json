@@ -17,7 +17,7 @@
             ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false,
+            "justMyCode": false
         },
         {
             "name": "Debug Odoo: Docker [19.0]",
@@ -35,7 +35,7 @@
             ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false,
+            "justMyCode": false
         },
         {
             "name": "Debug Odoo: Docker [18.1 to 18.4]",
@@ -53,7 +53,7 @@
             ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false,
+            "justMyCode": false
         },
         {
             "name": "Debug Odoo: Docker [18.0]",
@@ -71,7 +71,7 @@
             ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false,
+            "justMyCode": false
         },
         {
             "name": "Debug Odoo: Docker [17.0]",
@@ -89,7 +89,7 @@
             ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false,
+            "justMyCode": false
         },
         {
             "name": "Debug Odoo: Community",
