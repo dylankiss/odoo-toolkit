@@ -30,7 +30,6 @@ _DEFAULT_ODOO_L10N_EXCLUDES = [
     "*l10n_anz*",
     "*l10n_au*",
     "l10n_cn_city",
-    "*l10n_gcc*",
     "*l10n_ie*",
     "*l10n_lk*",
     "*l10n_mt*",
