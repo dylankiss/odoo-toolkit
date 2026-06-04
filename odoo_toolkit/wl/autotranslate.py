@@ -233,6 +233,7 @@ def _process_components(
         json_payload["q"] = query
 
     component_results: dict[str, list[bool]] = {c: [] for c in project_components}
+    failures: list[tuple[str, str]] = []
 
     with TransientProgress() as progress:
         progress_task = progress.add_task(
@@ -250,11 +251,15 @@ def _process_components(
                 component, _ = futures[future]
                 _, language_code, error = future.result()
                 if error:
-                    print_error(f"Autotranslate for '{component}' / '{language_code}' failed.", error)
+                    failures.append((component, language_code))
                 component_results[component].append(error is None)
                 if len(component_results[component]) == len(languages) and component not in components_advanced:
                     components_advanced.add(component)
                     progress.advance(progress_task)
+
+    if failures:
+        pairs_str = ", ".join(f"{c}/{lang}" for c, lang in sorted(failures))
+        print_error(f"{len(failures)} autotranslation(s) failed: {pairs_str}")
 
     for component in project_components:
         results = component_results[component]
