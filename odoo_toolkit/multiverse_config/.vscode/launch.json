@@ -2,12 +2,30 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Odoo: Docker [19.1 to master]",
+            "name": "Debug Odoo: Docker [master]",
             "type": "debugpy",
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 5682
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "."
+                }
+            ],
+            "redirectOutput": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug Odoo: Docker [19.1 to 19.3]",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5683
             },
             "pathMappings": [
                 {
@@ -25,7 +43,7 @@
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 5681
+                "port": 5682
             },
             "pathMappings": [
                 {
@@ -43,7 +61,7 @@
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 5680
+                "port": 5681
             },
             "pathMappings": [
                 {
@@ -61,7 +79,7 @@
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 5679
+                "port": 5680
             },
             "pathMappings": [
                 {
@@ -79,7 +97,7 @@
             "request": "attach",
             "connect": {
                 "host": "localhost",
-                "port": 5678
+                "port": 5679
             },
             "pathMappings": [
                 {

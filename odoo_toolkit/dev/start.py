@@ -34,7 +34,7 @@ def start(
         Argument(
             help="The Odoo branch to start a development server for, like `19.0`, `saas-19.1`, `master`.",
         ),
-    ],
+    ] = "master",
     workspace: Annotated[
         Path,
         Option(
@@ -193,7 +193,7 @@ def _get_odoo_container_version_from_branch(odoo_branch: str) -> str:
         )
         return "master"
     version = float(match.group(1))
-    for max_version, container_version in [(17.0, "17.0"), (18.0, "18.0"), (18.4, "18.4"), (19.0, "19.0")]:
+    for max_version, container_version in [(17.0, "17.0"), (18.0, "18.0"), (18.4, "18.4"), (19.0, "19.0"), (19.3, "19.3")]:
         if version <= max_version:
             return container_version
     return "master"

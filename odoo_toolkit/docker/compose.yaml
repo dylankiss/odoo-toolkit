@@ -9,7 +9,7 @@ services:
         - linux/amd64
     image: dylankiss/odoo-dev:master
     container_name: odoo-master
-    hostname: odoo-19-1-master
+    hostname: odoo-master
     platform: linux/amd64
     depends_on:
       - postgres
@@ -23,8 +23,36 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5682:5678  # debugpy
-      - 8074:8074  # odoo
+      - 5678:5678  # debugpy
+      - 8070:8070  # odoo
+    working_dir: /code
+    stdin_open: true
+    tty: true
+
+  odoo-19.3:
+    build:
+      context: ./odoo
+      dockerfile: 19.3.Dockerfile
+      platforms:
+        - linux/amd64
+    image: dylankiss/odoo-dev:19.3
+    container_name: odoo-19.1-19.3
+    hostname: odoo-19.1-19.3
+    platform: linux/amd64
+    depends_on:
+      - postgres
+      - mailpit
+      - pgadmin
+    volumes:
+      - ${ODOO_WORKSPACE_DIR:-~}:/code
+      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
+      - odoo-filestore:/home/odoo/.local/share/Odoo
+      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
+      - odoo-postgres-sockets:/var/run/postgresql
+      - odoo-ssh-keys:/home/odoo/.ssh
+    ports:
+      - 5683:5678  # debugpy
+      - 8075:8075  # odoo
     working_dir: /code
     stdin_open: true
     tty: true
@@ -51,8 +79,8 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5681:5678  # debugpy
-      - 8073:8073  # odoo
+      - 5682:5678  # debugpy
+      - 8074:8074  # odoo
     working_dir: /code
     stdin_open: true
     tty: true
@@ -79,8 +107,8 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5680:5678  # debugpy
-      - 8072:8072  # odoo
+      - 5681:5678  # debugpy
+      - 8073:8073  # odoo
     working_dir: /code
     stdin_open: true
     tty: true
@@ -107,8 +135,8 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5679:5678  # debugpy
-      - 8071:8071  # odoo
+      - 5680:5678  # debugpy
+      - 8072:8072  # odoo
     working_dir: /code
     stdin_open: true
     tty: true
@@ -135,8 +163,8 @@ services:
       - odoo-postgres-sockets:/var/run/postgresql
       - odoo-ssh-keys:/home/odoo/.ssh
     ports:
-      - 5678:5678  # debugpy
-      - 8070:8070  # odoo
+      - 5679:5678  # debugpy
+      - 8071:8071  # odoo
     working_dir: /code
     stdin_open: true
     tty: true

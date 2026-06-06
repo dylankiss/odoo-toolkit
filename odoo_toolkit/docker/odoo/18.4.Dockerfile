@@ -1,5 +1,5 @@
 # Container definition for Odoo >18.0 and <=saas-18.4
-# Last updated: 2026-02-25
+# Last updated: 2026-06-06
 
 # Use Ubuntu 24.04 LTS (Noble Numbat)
 FROM ubuntu:noble
@@ -85,6 +85,7 @@ RUN set -x; \
         python3-xmlsec \
         python3-markdown2 \
         python3-aiosmtpd \
+        python3-paramiko \
         # Moved packages
         python3-venv \
         # Extra packages
@@ -120,7 +121,7 @@ RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/tru
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
-RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_141.0.7390.54-1_amd64.deb -o /tmp/chrome.deb \
+RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_145.0.7632.116-1_amd64.deb -o /tmp/chrome.deb \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
         /tmp/chrome.deb \
@@ -151,7 +152,6 @@ RUN uv pip install --no-cache-dir \
         astroid==3.3.9 \
         pylint==3.3.8 \
         unidiff==0.7.3 \
-        paramiko==2.12.0 \
         markdown2==2.4.11 \
         # Extra packages
         debugpy \
@@ -206,7 +206,7 @@ COPY startup.sh /home/odoo/.local/bin/startup.sh
 WORKDIR /code
 
 # Expose useful ports
-EXPOSE 5678 8075 8076 8077 8078 8079
+EXPOSE 5678 8073
 
 # Set Tini as the entrypoint
 ENTRYPOINT ["/usr/bin/tini", "--"]

@@ -1,9 +1,10 @@
 case "$(hostname)" in
-    "odoo-17") export ODOO_PORT="8070" ;;
-    "odoo-18") export ODOO_PORT="8071" ;;
-    "odoo-18-1-18-4") export ODOO_PORT="8072" ;;
-    "odoo-19") export ODOO_PORT="8073" ;;
-    *)           export ODOO_PORT="8074" ;;
+    "odoo-17")        export ODOO_PORT="8071" ;;
+    "odoo-18")        export ODOO_PORT="8072" ;;
+    "odoo-18-1-18-4") export ODOO_PORT="8073" ;;
+    "odoo-19")        export ODOO_PORT="8074" ;;
+    "odoo-19-1-19-3") export ODOO_PORT="8075" ;;
+    *)                export ODOO_PORT="8070" ;;
 esac
 
 port_opt="--http-port=$ODOO_PORT --http-interface=0.0.0.0"
