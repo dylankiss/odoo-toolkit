@@ -75,8 +75,8 @@ def start(
     your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the
     location `/code` and allows live code updates during local development.\n
     \n
-    You can choose to launch a container using Ubuntu 24.04 [`-u noble`] (default, recommended starting from version
-    18.0) or 22.04 [`-u jammy`] (for earlier versions).\n
+    Depending on the version you're developing for, the right Docker container will be used. It contains the right
+    configuration and dependencies for that version.\n
     \n
     When you're done with the container, you can exit the session by running the `exit` command. At this point, the
     container will still be running and you can start a new session using the same `otk dev start` command.
