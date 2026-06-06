@@ -37,7 +37,7 @@ services:
         - linux/amd64
     image: dylankiss/odoo-dev:19.3
     container_name: odoo-19.1-19.3
-    hostname: odoo-19.1-19.3
+    hostname: odoo-19-1-19-3
     platform: linux/amd64
     depends_on:
       - postgres
