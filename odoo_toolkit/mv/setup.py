@@ -650,7 +650,18 @@ def _create_branch_workspace(multiverse_dir: Path, branch: str, single_branch_re
         workspace_content["settings"] = json.load(settings_fp)
 
     with (vscode_config_dir / "launch.json").open("r", encoding="utf-8") as launch_fp:
-        workspace_content["launch"] = _replace_workspace_folder_reference(json.load(launch_fp), branch)
+        workspace_content["launch"] = json.load(launch_fp)
+        for config in workspace_content["launch"]["configurations"]:
+            config.setdefault("pathMappings", []).append({
+                "localRoot": f"${{workspaceFolder:{branch}}}",
+                "remoteRoot": f"/code/{branch}",
+            })
+        for repo in single_branch_repos:
+            for config in workspace_content["launch"]["configurations"]:
+                config.setdefault("pathMappings", []).append({
+                    "localRoot": f"${{workspaceFolder:{repo.value}}}",
+                    "remoteRoot": f"/code/{repo.value}",
+                })
 
     with (vscode_config_dir / "extensions.json").open("r", encoding="utf-8") as extensions_fp:
         workspace_content["extensions"] = json.load(extensions_fp)
@@ -658,20 +669,6 @@ def _create_branch_workspace(multiverse_dir: Path, branch: str, single_branch_re
     with workspace_file.open("w", encoding="utf-8") as workspace_fp:
         json.dump(workspace_content, workspace_fp, indent=2)
         workspace_fp.write("\n")
-
-
-def _replace_workspace_folder_reference(value: JSONValue, branch: str) -> JSONValue:
-    """Replace ${workspaceFolder} references with the branch-scoped workspace folder."""
-    source = "${workspaceFolder}"
-    target = f"${{workspaceFolder:{branch}}}"
-
-    if isinstance(value, str):
-        return value.replace(source, target)
-    if isinstance(value, list):
-        return [_replace_workspace_folder_reference(item, branch) for item in value]
-    if isinstance(value, dict):
-        return {key: _replace_workspace_folder_reference(item, branch) for key, item in value.items()}
-    return value
 
 
 def _setup_multiverse_root_config(

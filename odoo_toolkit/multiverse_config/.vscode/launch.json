@@ -9,12 +9,6 @@
                 "host": "localhost",
                 "port": 5678
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false
@@ -27,12 +21,6 @@
                 "host": "localhost",
                 "port": 5683
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false
@@ -45,12 +33,6 @@
                 "host": "localhost",
                 "port": 5682
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false
@@ -63,12 +45,6 @@
                 "host": "localhost",
                 "port": 5681
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false
@@ -81,12 +57,6 @@
                 "host": "localhost",
                 "port": 5680
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false
@@ -99,12 +69,6 @@
                 "host": "localhost",
                 "port": 5679
             },
-            "pathMappings": [
-                {
-                    "localRoot": "${workspaceFolder}",
-                    "remoteRoot": "."
-                }
-            ],
             "redirectOutput": false,
             "internalConsoleOptions": "openOnSessionStart",
             "justMyCode": false
