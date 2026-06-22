@@ -200,6 +200,7 @@ L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
     "*l10n_lv*": ["lv"],
     "*l10n_ma*": ["ar", "fr"],
     "*l10n_mc*": ["fr"],
+    "*l10n_mk*": ["mk"],
     "*l10n_ml*": ["fr"],
     "*l10n_mr*": ["fr"],
     "*l10n_mn*": ["mn"],
