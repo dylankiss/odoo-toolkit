@@ -49,8 +49,8 @@ WEBLATE_COMPONENT_COMMON_CONFIG: WeblateComponentData = {
     "suggestion_autoaccept": 0,
     # We want to push manually in this sync.
     "push_on_commit": False,
-    # The maximum value, since we only commit when strictly needed.
-    "commit_pending_age": 2160,
+    # Committing every hour is safe since we lock the components during the sync.
+    "commit_pending_age": 1,
     "auto_lock_error": True,
     "license": "BSD-2-Clause",
 }
