@@ -151,12 +151,13 @@ def create(
             pass
 
 
-def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[bool, RenderableType]:
+def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path, _: bool) -> tuple[bool, RenderableType]:
     """Create a .po file for the given language code and .pot file.
 
     :param lang: The language code to create the .po file for.
     :param pot_path: The .pot file path to get the terms from.
     :param module_path: The path to the module.
+    :param _: Placeholder for the `only_translated` parameter, not used in creation.
     :return: A tuple containing `True` if the creation succeeded and `False` if it didn't, and the message to render.
     """
     po_path = module_path / "i18n" / f"{lang}.po"

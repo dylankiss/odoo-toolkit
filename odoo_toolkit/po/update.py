@@ -43,6 +43,14 @@ def update(
         list[str],
         Option("--language", "-l", help="Update `.po` files for these language codes, or `all`."),
     ] = ["all"],  # noqa: B006
+    only_translated: Annotated[
+        bool,
+        Option(
+            "--only-translated",
+            "-t",
+            help="Only keep translated terms in the updated `.po` files, removing all untranslated terms.",
+        ),
+    ] = False,
     exclude: Annotated[
         list[str], Option("--exclude", "-x", help="Exclude these modules from being updated."),
     ] = EMPTY_LIST,
@@ -136,6 +144,7 @@ def update(
                 action=_update_po_for_lang,
                 module=module,
                 languages=module_languages,
+                only_translated=only_translated,
                 module_path=module_to_path[module],
                 module_tree=module_tree,
             )
@@ -165,12 +174,14 @@ def update(
             print_error("No translation files were updated!\n")
 
 
-def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[bool, RenderableType]:
+def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path, only_translated: bool) -> tuple[bool, RenderableType]:
     """Update a .po file for the given language and .pot file.
 
     :param lang: The language code to update the .po file for.
     :param pot_path: The .pot file to get the terms from.
     :param module_path: The path to the module.
+    :param only_translated: Whether to only keep translated terms in the updated `.po` files, removing all untranslated
+        terms.
     :return: A tuple containing `True` if the update succeeded and `False` if it didn't, and the message to render.
     """
     po_path = module_path / "i18n" / f"{lang}.po"
@@ -193,6 +204,7 @@ def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[b
             cmd = [
                 "msgattrib",
                 "--no-obsolete",
+                *(["--translated"] if only_translated else []),
                 f"--output-file={po_path}",
                 str(po_path),
             ]
@@ -210,6 +222,8 @@ def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[b
             po.merge(pot)
             # Remove entries that are obsolete.
             po[:] = [entry for entry in po if not entry.obsolete]
+            if only_translated:
+                po[:] = [entry for entry in po if entry.translated()]
             po.save()
         except (OSError, ValueError) as e:
             return False, get_error_log_panel(str(e), f"Updating {po_path.name} failed!")

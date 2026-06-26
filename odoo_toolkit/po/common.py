@@ -164,9 +164,11 @@ def get_plural_forms(lang: str) -> str:
 
 
 def update_module_po(
-    action: Callable[[str, Path, Path], tuple[bool, RenderableType]],
+    *,
+    action: Callable[[str, Path, Path, bool], tuple[bool, RenderableType]],
     module: str,
     languages: list[str],
+    only_translated: bool = False,
     module_path: Path,
     module_tree: Tree,
 ) -> tuple[Status, list[str]]:
@@ -177,6 +179,8 @@ def update_module_po(
         `module_tree`.
     :param module: The module whose .po files we're working with.
     :param languages: The language codes of the .po files we're working with.
+    :param only_translated: Whether to only keep translated terms in the updated `.po` files, removing all untranslated
+        terms.
     :param module_path: The path to the module's directory.
     :param module_tree: The visual tree to render the action's messages, or error messages in.
     :return: A tuple with the first item being `Status.SUCCESS` if the `action` succeeded for all .po files,
@@ -191,7 +195,7 @@ def update_module_po(
 
     failures: list[str] = []
     for lang in TransientProgress().track(languages, description=f"Updating [b]{module}[/b]"):
-        result, renderable = action(lang, pot_path, module_path)
+        result, renderable = action(lang, pot_path, module_path, only_translated)
         module_tree.add(renderable)
         success = success or result
         failure = failure or not result
