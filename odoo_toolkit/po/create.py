@@ -167,7 +167,7 @@ def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path, _: bool) -
 
     if shutil.which("msginit"):
         # We prefer to use the `msginit` command if available, as it is faster than using `polib`.
-        cmd_env = os.environ | {"GETTEXTCLDRDIR": str(Path(__file__).parent / "cldr-common-47")}
+        cmd_env = os.environ | {"GETTEXTCLDRDIR": str(Path(__file__).parent / "cldr-common-48.2")}
         try:
             cmd = [
                 "msginit",
