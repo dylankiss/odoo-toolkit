@@ -93,6 +93,7 @@ def create(
     print_command_title(":memo: Odoo PO Create")
 
     languages = normalize_list_option(languages)
+    exclude = normalize_list_option(exclude)
 
     def include_path(p: Path) -> bool:
         if exclude and any(fnmatch(p.name, e) for e in exclude):
