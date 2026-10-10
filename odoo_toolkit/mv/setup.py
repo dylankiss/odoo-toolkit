@@ -160,7 +160,6 @@ def setup(
 
         _setup_multiverse_root_config(
             multiverse_dir=multiverse_dir,
-            repositories=repositories,
             reset_config=reset_config,
         )
 
@@ -673,13 +672,11 @@ def _create_branch_workspace(multiverse_dir: Path, branch: str, single_branch_re
 
 def _setup_multiverse_root_config(
     multiverse_dir: Path,
-    repositories: list[OdooRepo],
     reset_config: bool,
 ) -> None:
     """Set up configuration files in the multiverse root directory.
 
     :param multiverse_dir: The root directory of the multiverse setup.
-    :param repositories: Selected repositories for this multiverse setup.
     :param reset_config: Whether existing configuration should be overwritten.
     """
     if not (multiverse_dir / "ruff.toml").exists() or reset_config:
@@ -688,77 +685,20 @@ def _setup_multiverse_root_config(
     if not (multiverse_dir / "requirements.txt").exists() or reset_config:
         shutil.copyfile(MULTIVERSE_CONFIG_DIR / "requirements.txt", multiverse_dir / "requirements.txt")
 
-    _write_odools_toml(multiverse_dir / "odools.toml", repositories=repositories)
+    # The configuration is now written separately for each branch.
+    (multiverse_dir / "odools.toml").unlink(missing_ok=True)
 
 
-def _get_odools_addons_paths(repositories: set[OdooRepo]) -> list[str]:
-    """Return odools addon path entries for the selected repositories."""
-    addons_paths: list[str] = []
-
-    if OdooRepo.DESIGN_THEMES in repositories:
-        addons_paths.append("${workspaceFolder}/design-themes")
-    if OdooRepo.ENTERPRISE in repositories:
-        addons_paths.append("${workspaceFolder}/enterprise")
-    if OdooRepo.IAP_APPS in repositories:
-        addons_paths.extend([
-            "${workspaceFolder:iap-apps}/iap_common",
-            "${workspaceFolder:iap-apps}/iap_extract",
-            "${workspaceFolder:iap-apps}/iap_odoo",
-            "${workspaceFolder:iap-apps}/iap_services",
-            "${workspaceFolder:iap-apps}/iap_website_scraper",
-        ])
-    if OdooRepo.INDUSTRY in repositories:
-        addons_paths.append("${workspaceFolder}/industry")
-    if OdooRepo.INTERNAL in repositories:
-        addons_paths.extend([
-            "${workspaceFolder:internal}/default",
-            "${workspaceFolder:internal}/demo",
-            "${workspaceFolder:internal}/i18n",
-            "${workspaceFolder:internal}/private",
-            "${workspaceFolder:internal}/runbot",
-            "${workspaceFolder:internal}/test",
-            "${workspaceFolder:internal}/tools",
-            "${workspaceFolder:internal}/trial",
-        ])
-    if OdooRepo.ODOOFIN in repositories:
-        addons_paths.append("${workspaceFolder:odoofin}")
-
-    return addons_paths
-
-
-def _write_odools_toml(odools_path: Path, repositories: list[OdooRepo] | None = None, python_path: str | None = None) -> None:
-    """Write an odools.toml file for a workspace.
-
-    If repositories are provided, writes full config with odoo_path, addons_paths, and python_path.
-    If repositories are None, writes minimal config with only python_path.
+def _write_odools_toml(odools_path: Path, python_path: str) -> None:
+    """Write a minimal odools.toml file for a branch workspace.
 
     :param odools_path: Path to the odools.toml file to write.
-    :param repositories: Selected repositories for this multiverse setup (None for minimal config).
-    :param python_path: Optional python_path override.
+    :param python_path: The Python interpreter path for the branch.
     """
-    lines = ["[[config]]"]
-
-    if repositories is not None:
-        selected_repositories = set(repositories)
-        odools_python_path = python_path or "${workspaceFolder}/.venv/bin/python"
-
-        lines.append('odoo_path = "${workspaceFolder}/odoo"')
-        lines.append("addons_paths = [")
-
-        lines.extend(
-            f'    "{addon_path}",'
-            for addon_path in _get_odools_addons_paths(selected_repositories)
-        )
-
-        lines.extend([
-            "]",
-            f'python_path = "{odools_python_path}"',
-        ])
-    elif python_path:
-        lines.append(f'python_path = "{python_path}"')
-
-    lines.append("")
-    odools_path.write_text("\n".join(lines), encoding="utf-8")
+    odools_path.write_text(
+        f'[[config]]\npython_path = "{python_path}"\n',
+        encoding="utf-8",
+    )
 
 
 def _setup_tools_and_deps_in_branch_dir(
@@ -797,10 +737,7 @@ def _setup_tools_and_deps_in_branch_dir(
         if os.name == "nt"
         else (branch_dir / ".venv" / "bin" / "python")
     )
-    _write_odools_toml(
-        branch_dir / "odools.toml",
-        python_path=str(python_path.absolute()),
-    )
+    _write_odools_toml(branch_dir / "odools.toml", python_path=str(python_path.absolute()))
 
     ProgressUpdate.update_in_dict(
         progress_updates,
