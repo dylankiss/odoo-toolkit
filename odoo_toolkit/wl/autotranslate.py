@@ -20,7 +20,9 @@ from odoo_toolkit.po.common import get_cldr_lang
 
 from .common import (
     WEBLATE_AUTOTRANSLATE_ENDPOINT,
+    WEBLATE_MAX_WORKERS,
     WEBLATE_PROJECT_COMPONENTS_ENDPOINT,
+    WEBLATE_REQUESTS_PER_SECOND,
     WeblateApi,
     WeblateApiError,
     WeblateComponentData,
@@ -143,7 +145,7 @@ def autotranslate(
     components = normalize_list_option(components)
 
     try:
-        weblate_api = WeblateApi()
+        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
     except NameError as e:
         print_error(str(e))
         raise Exit from e
@@ -240,7 +242,7 @@ def _process_components(
             f"Autotranslating [b]{project}[/b]", total=len(project_components),
         )
         components_advanced: set[str] = set()
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
             futures = {
                 executor.submit(_autotranslate_single, api, project, component, language, json_payload): (
                     component, language,

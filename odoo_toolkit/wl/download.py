@@ -1,4 +1,3 @@
-import io
 import itertools
 import os
 import zipfile
@@ -24,11 +23,15 @@ from odoo_toolkit.common import (
 from odoo_toolkit.po.common import get_cldr_lang, get_language_name
 
 from .common import (
+    WEBLATE_MAX_WORKERS,
     WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT,
+    WEBLATE_REQUESTS_PER_SECOND,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     WeblateApi,
     WeblateApiError,
+    extract_po_files_from_zip,
     get_weblate_project_component_slugs,
+    po_has_entries,
 )
 
 app = Typer()
@@ -53,6 +56,14 @@ def download(  # noqa: C901, PLR0912, PLR0915
             help="The Weblate components to download translations from. You can use glob patterns. Downloads all components if none are specified.",
         ),
     ] = EMPTY_LIST,
+    ignore_components: Annotated[
+        list[str],
+        Option(
+            "--ignore-component",
+            "-i",
+            help="The Weblate components to ignore when downloading translations. You can use glob patterns.",
+        ),
+    ] = EMPTY_LIST,
     query: Annotated[
         str | None,
         Option("--query", "-q", help="A Weblate query to filter strings."),
@@ -74,19 +85,24 @@ def download(  # noqa: C901, PLR0912, PLR0915
     print_command_title(":inbox_tray: Odoo Weblate PO Download")
 
     try:
-        weblate_api = WeblateApi()
+        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
     except NameError as e:
         print_error(str(e))
         raise Exit from e
 
     languages_set = set(normalize_list_option(languages))
     components = normalize_list_option(components)
+    ignore_components = normalize_list_option(ignore_components)
     try:
         with TransientProgress() as progress:
             progress_task = progress.add_task(
                 "Fetching components...", total=None,
             )
-            components = filter_by_globs(get_weblate_project_component_slugs(weblate_api, project), components)
+            components = filter_by_globs(
+                get_weblate_project_component_slugs(weblate_api, project),
+                components,
+                ignore_components,
+            )
             progress.update(progress_task, completed=1, total=1)
     except WeblateApiError as e:
         print_error("Weblate API Error: Failed to fetch components for project.", str(e))
@@ -107,7 +123,7 @@ def download(  # noqa: C901, PLR0912, PLR0915
         if query:
             # Per-file downloads: needed to pass the query filter to each translation endpoint.
             params: dict[str, str] = {"q": query, "format": "po"}
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
                 futures = {
                     executor.submit(
                         _download_translation, weblate_api, project, component, language, params, filter_empty,
@@ -121,7 +137,7 @@ def download(  # noqa: C901, PLR0912, PLR0915
         else:
             # Bulk per-language ZIP downloads: one request per language instead of one per
             # component x language pair. Each ZIP contains PO files for all components.
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
                 lang_futures = {
                     executor.submit(
                         _download_language_zip, weblate_api, project, language, set(components), filter_empty,
@@ -187,48 +203,33 @@ def _download_language_zip(
 ) -> list[tuple[str, str, str, str]]:
     """Download all translations for one language as a ZIP. Returns (component, language_code, status, detail) per component.
 
-    Weblate stores all components that share a Git repo under a single VCS directory.
-    Inside the ZIP, every Odoo PO file sits at ``…/{module}/i18n/{language}.po``, so the
-    component slug (= module name) is always at ``parts[-3]`` of the ZIP entry path.
+    See :func:`extract_po_files_from_zip` for how the component slugs are recovered from the archive.
     """
     language_code = get_cldr_lang(language)
     try:
         zip_bytes = weblate_api.get_bytes(
             WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT.format(project=project, language=language_code),
         )
-    except WeblateApiError as e:
+        po_files = extract_po_files_from_zip(zip_bytes, language_code, components)
+    except (WeblateApiError, zipfile.BadZipFile) as e:
         return [(component, language_code, "failed", str(e)) for component in sorted(components)]
 
     results: list[tuple[str, str, str, str]] = []
-    found: set[str] = set()
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            for name in zf.namelist():
-                parts = name.split("/")
-                # All Odoo PO files live at …/{module}/i18n/{language}.po
-                if len(parts) < 3 or parts[-2] != "i18n" or parts[-1] != f"{language_code}.po":  # noqa: PLR2004
-                    continue
-                component_slug = parts[-3]
-                if component_slug not in components:
-                    continue
-                found.add(component_slug)
-                content = zf.read(name)
-                if filter_empty and b'msgid ""\nmsgstr ""' in content and content.count(b'msgid "') <= 1:
-                    results.append((component_slug, language_code, "empty", ""))
-                    continue
-                file_path = Path(f"{project}-{component_slug}-{language_code}.po")
-                try:
-                    file_path.write_bytes(content)
-                except OSError as e:
-                    results.append((component_slug, language_code, "write_error", str(e)))
-                else:
-                    results.append((component_slug, language_code, "success", str(file_path.resolve())))
-    except zipfile.BadZipFile as e:
-        return [(component, language_code, "failed", str(e)) for component in sorted(components)]
+    for component_slug, content in po_files.items():
+        if filter_empty and not po_has_entries(content):
+            results.append((component_slug, language_code, "empty", ""))
+            continue
+        file_path = Path(f"{project}-{component_slug}-{language_code}.po")
+        try:
+            file_path.write_bytes(content)
+        except OSError as e:
+            results.append((component_slug, language_code, "write_error", str(e)))
+        else:
+            results.append((component_slug, language_code, "success", str(file_path.resolve())))
 
     results.extend(
         (component, language_code, "failed", f"No PO file found in bulk ZIP for '{component}'.")
-        for component in sorted(components - found)
+        for component in sorted(components - set(po_files))
     )
     return results
 
@@ -259,7 +260,7 @@ def _download_translation(
         )
     except WeblateApiError as e:
         return language_code, "failed", str(e)
-    if filter_empty and b'msgid ""\nmsgstr ""' in po_file and po_file.count(b'msgid "') <= 1:
+    if filter_empty and not po_has_entries(po_file):
         return language_code, "empty", ""
     file_path = Path(f"{project}-{component}-{language_code}.po")
     try:

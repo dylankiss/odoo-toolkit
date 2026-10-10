@@ -338,13 +338,21 @@ def normalize_list_option(option_list: Collection[str]) -> list[str]:
     return list(option_list)
 
 
-def filter_by_globs(items: Iterable[str], globs: Collection[str]) -> list[str]:
-    """Filter a list of items by a collection of glob patterns.
+def filter_by_globs(items: Iterable[str], globs: Collection[str], ignore_globs: Collection[str] = ()) -> list[str]:
+    """Filter a list of items by a collection of glob patterns, with optional ignore patterns.
 
     :param items: The items to filter.
     :param globs: The glob patterns to filter by.
+    :param ignore_globs: The glob patterns to ignore.
     :return: The filtered list of items.
     """
-    if not globs:
+    if not globs and not ignore_globs:
         return list(items)
-    return [item for item in items if any(fnmatch(item, pattern) for pattern in set(globs))]
+    if not globs:
+        return [item for item in items if not any(fnmatch(item, pattern) for pattern in set(ignore_globs))]
+    return [
+        item
+        for item in items
+        if any(fnmatch(item, pattern) for pattern in set(globs))
+        and not any(fnmatch(item, pattern) for pattern in set(ignore_globs))
+    ]

@@ -22,6 +22,8 @@ from odoo_toolkit.common import (
 from odoo_toolkit.po.common import get_cldr_lang, get_language_name
 
 from .common import (
+    WEBLATE_MAX_WORKERS,
+    WEBLATE_REQUESTS_PER_SECOND,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     UploadConflicts,
     UploadFuzzy,
@@ -106,7 +108,7 @@ def upload(  # noqa: C901, PLR0912, PLR0915
     print_command_title(":outbox_tray: Odoo Weblate PO Upload")
 
     try:
-        weblate_api = WeblateApi()
+        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
     except NameError as e:
         print_error(str(e))
         raise Exit from e
@@ -148,7 +150,7 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         upload_table = Table(box=None, pad_edge=False, show_header=False)
 
         results: list[tuple[str, str, str, str]] = []
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
             futures = {
                 executor.submit(
                     _upload_translation, weblate_api, project, component, language, params, fuzzy,

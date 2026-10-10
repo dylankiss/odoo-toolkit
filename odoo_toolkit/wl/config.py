@@ -22,14 +22,19 @@ from .common import WeblateConfig, WeblateConfigError
 
 app = Typer()
 
-_DEFAULT_ODOO_CONFIG_EXCLUDES = ["*l10n_*", "hw_*", "*test*", "api_doc", "pos_blackbox_be", "iot_*"]
-_DEFAULT_ODOO_L10N_EXCLUDES = [
-    "*test*",
+_DEFAULT_ODOO_CONFIG_EXCLUDES = [
+    "hw_*",
+    "*_test",
+    "test_*",
+    "api_doc",
+    "pos_blackbox_be",
+    "iot_*",
     "l10n_account_customer_statements",
     "l10n_account_withholding_tax_pos",
     "*l10n_anz*",
     "*l10n_au*",
     "l10n_cn_city",
+    "*l10n_gf*",
     "*l10n_ie*",
     "*l10n_lk*",
     "*l10n_mt*",
@@ -44,7 +49,6 @@ _DEFAULT_ODOO_L10N_EXCLUDES = [
 
 _DEFAULT_ODOO_PROFILE_CONFIGS = [
     ("odoo-{version}", ["all"], _DEFAULT_ODOO_CONFIG_EXCLUDES),
-    ("odoo-{version}-l10n", ["*l10n_*"], _DEFAULT_ODOO_L10N_EXCLUDES),
 ]
 
 
@@ -332,7 +336,7 @@ def config_odoo(
         ),
     ] = EMPTY_LIST,
 ) -> None:
-    """Generate the standard Odoo and Odoo l10n Weblate config profiles."""
+    """Generate the standard Odoo Weblate config profile."""
     print_command_title(":memo: Odoo Weblate Config Profiles")
 
     try:

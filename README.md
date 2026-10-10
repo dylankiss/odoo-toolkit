@@ -62,8 +62,9 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | Command                                                 | Purpose                                                                                     |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | [`otk wl autotranslate`](#otk-wl-autotranslate)         | Autotranslate translations for components in a Weblate project.                             |
+| [`otk wl autotranslate-from`](#otk-wl-autotranslate-from) | Autotranslate components in a Weblate project from equally named components in another project. |
 | [`otk wl config`](#otk-wl-config)                       | Update modules in the Weblate config file.                                                  |
-| [`otk wl config-odoo`](#otk-wl-config-odoo)             | Generate the standard Odoo and Odoo l10n Weblate config profiles for a version.            |
+| [`otk wl config-odoo`](#otk-wl-config-odoo)             | Generate the standard Odoo Weblate config profile for a version.                            |
 | [`otk wl copy`](#otk-wl-copy)                           | Copy translations between languages, components, and/or projects.                           |
 | [`otk wl download`](#otk-wl-download)                   | Download specific PO files from Weblate.                                                    |
 | [`otk wl update-components`](#otk-wl-update-components) | Update Weblate components based on the `.weblate.json` configuration in the current folder. |
@@ -431,6 +432,40 @@ $ otk wl autotranslate all odoo-19 -q "state:empty" -m translate -e weblate -e d
 * `--help`: Show this message and exit.
 
 
+## `otk wl autotranslate-from`
+
+**Autotranslate components in a Weblate project from equally named components in another project.**
+
+This command looks up every component of the target project that also exists, under the same slug, in the source project, and autotranslates it using only the translations of that matching source component. No machine translation engines are involved.
+
+If you don't specify any languages, all languages present in the target project are used, restricted per component by that component's language regex. If you don't specify any components, all components that exist in both projects are used.
+
+Note that the source project needs to have "Contribute to shared translation memory" enabled, unless it is the same project as the target one.
+
+### Usage
+
+```console
+$ otk wl autotranslate-from [OPTIONS]
+```
+e.g.
+
+```console
+$ otk wl autotranslate-from -p odoo-19-l10n -s odoo-19
+$ otk wl autotranslate-from -p odoo-19 -s odoo-18 -l nl,fr,de -c "l10n_*" -m translate
+```
+
+### Options
+
+* `-p, --project TEXT`: The Weblate project whose components should be autotranslated.  **[required]**
+* `-s, --src-project TEXT`: The Weblate project to take the translations from. Its components are matched by slug against the components of the target project.  **[required]**
+* `-l, --language TEXT`: The languages to autotranslate. Autotranslates every language present in the target project if none are specified.
+* `-c, --component TEXT`: The Weblate components to autotranslate. You can use glob patterns. Considers all matching components if none are specified.
+* `-x, --exclude TEXT`: The Weblate components to skip. You can use glob patterns.
+* `-q, --query TEXT`: Specify which strings need to be translated by using a Weblate search string.  [default: `state:<translated`]
+* `-m, --mode [suggest|translate|fuzzy|approved]`: Specify the translation mode to use. Either add translations as suggestions (`suggest`), as translations (`translate`), as "Needing edit" (`fuzzy`), or as approved translations (`approved`).  [default: `suggest`]
+* `--help`: Show this message and exit.
+
+
 ## `otk wl config`
 
 **Update modules in the Weblate config file.**
@@ -470,9 +505,9 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 
 ## `otk wl config-odoo`
 
-**Generate the standard Odoo and Odoo l10n Weblate config profiles for a version.**
+**Generate the standard Odoo Weblate config profile for a version.**
 
-This is a shorthand for generating both the main Odoo Weblate project and the matching l10n project with the default exclude lists used internally.
+This is a shorthand for generating the main Odoo Weblate project, including the l10n modules, with the default exclude list used internally.
 
 If you do not provide an Odoo version explicitly, the command tries to detect it from the Community path (or one of its parent folders) by looking for a folder named like `18.0`, `saas-18.2`, or `master`.
 

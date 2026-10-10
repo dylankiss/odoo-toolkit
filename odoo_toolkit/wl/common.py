@@ -1,9 +1,15 @@
+import contextlib
+import io
 import json
+import math
 import random
+import re
 import threading
 import time
+import zipfile
 from collections import defaultdict
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Collection, Generator, Mapping
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from fnmatch import fnmatch
 from os import environ
@@ -11,7 +17,9 @@ from pathlib import Path
 from typing import Any, Literal, TypedDict, TypeVar, cast
 from urllib.parse import urljoin
 
-from requests import HTTPError, JSONDecodeError, Response, Session
+from requests import ConnectionError as RequestsConnectionError
+from requests import ConnectTimeout, HTTPError, JSONDecodeError, Response, Session
+from requests import Timeout as RequestsTimeout
 
 from odoo_toolkit.common import print_warning
 
@@ -29,12 +37,26 @@ WEBLATE_GROUP_ROLES_ENDPOINT = "/api/groups/{group}/roles/"
 WEBLATE_GROUP_ROLE_ENDPOINT = "/api/groups/{group}/roles/{role}/"
 WEBLATE_GROUP_LANGUAGES_ENDPOINT = "/api/groups/{group}/languages/"
 WEBLATE_GROUP_LANGUAGE_ENDPOINT = "/api/groups/{group}/languages/{language}/"
+WEBLATE_PROJECT_ENDPOINT = "/api/projects/{project}/"
+WEBLATE_PROJECT_LANGUAGES_ENDPOINT = "/api/projects/{project}/languages/"
 WEBLATE_PROJECTS_ENDPOINT = "/api/projects/"
 WEBLATE_ROLES_ENDPOINT = "/api/roles/"
 WEBLATE_TRANSLATIONS_FILE_ENDPOINT = "/api/translations/{project}/{component}/{language}/file/"
 WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT = "/api/projects/{project}/languages/{language}/file/"
 
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
+
+# The Weblate server accepts 2 requests per second. Exceeding it only buys us HTTP 429s and their back-off penalty.
+WEBLATE_REQUESTS_PER_SECOND = 2
+# The throttle above serializes the start of every request, so extra workers can never breach the rate limit. They only
+# keep requests in flight while others wait on the server, which is what actually saturates the allowed rate.
+WEBLATE_MAX_WORKERS = 10
+
+MAX_RETRIES = 3
+RETRY_STATUS_CODES = frozenset({500, 502, 503, 504})
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+TOO_MANY_REQUESTS = 429
+NOT_FOUND = 404
 
 T = TypeVar("T")
 
@@ -57,17 +79,46 @@ def _wait_if_rate_limited() -> None:
         time.sleep(remaining + random.uniform(0, 5))  # noqa: S311
 
 
-def _with_retry(make_request: Callable[[], Response]) -> Response:
-    """Execute make_request(), retrying on HTTP 429."""
+def _parse_retry_after(retry_after: str) -> int | None:
+    """Parse a Retry-After header, given either as a number of seconds or as an HTTP date."""
+    with contextlib.suppress(ValueError):
+        return max(0, int(retry_after))
+    with contextlib.suppress(TypeError, ValueError):
+        return max(0, math.ceil(parsedate_to_datetime(retry_after).timestamp() - time.time()))
+    return None
+
+
+def _with_retry(make_request: Callable[[], Response], *, idempotent: bool = True) -> Response:
+    """Execute make_request(), retrying on HTTP 429, on transient server errors, and on connection failures.
+
+    Non-idempotent requests are only retried when the server certainly didn't process them (HTTP 429 or a failure to
+    connect), so a retry can never perform the same action twice.
+    """
+    retryable_errors = (RequestsConnectionError, RequestsTimeout) if idempotent else (ConnectTimeout,)
+    attempt = 0
     while True:
         _wait_if_rate_limited()
-        response = make_request()
-        if response.status_code != 429:  # noqa: PLR2004
-            return response
-        seconds_until_reset = response.headers.get("Retry-After")
-        if seconds_until_reset is None:
-            raise WeblateApiError(response)
-        _set_rate_limit(int(seconds_until_reset))
+        try:
+            response = make_request()
+        except retryable_errors:
+            attempt += 1
+            if attempt > MAX_RETRIES:
+                raise
+            time.sleep(2**attempt)
+            continue
+        if response.status_code == TOO_MANY_REQUESTS:
+            seconds_until_reset = _parse_retry_after(response.headers.get("Retry-After", ""))
+            if seconds_until_reset is None:
+                raise WeblateApiError(response)
+            _set_rate_limit(seconds_until_reset)
+            continue
+        if idempotent and response.status_code in RETRY_STATUS_CODES:
+            attempt += 1
+            if attempt > MAX_RETRIES:
+                return response
+            time.sleep(2**attempt)
+            continue
+        return response
 
 
 class WeblatePagedResponse(TypedDict):
@@ -92,9 +143,32 @@ class WeblateProjectData(TypedDict):
     slug: str
 
 
+class WeblateProjectDetailData(TypedDict, total=False):
+    """Partial structure of a Weblate project's details."""
+
+    slug: str
+    name: str
+    contribute_shared_tm: bool
+    use_shared_tm: bool
+
+
+class WeblateAutotranslateResponse(TypedDict, total=False):
+    """Minimal response structure of a Weblate autotranslate request."""
+
+    details: str
+
+
+class WeblateProjectLanguageData(TypedDict, total=False):
+    """Partial structure of a Weblate project language statistic."""
+
+    code: str
+    language: str
+
+
 class WeblateComponentData(TypedDict, total=False):
     """Partial structure of a Weblate component."""
 
+    id: int
     allow_translation_propagation: bool
     auto_lock_error: bool
     branch: str
@@ -172,6 +246,7 @@ L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
     "*l10n_ga*": ["fr"],
     "*l10n_gcc*": ["ar"],
     "*l10n_gn*": ["fr"],
+    "*l10n_gp*": ["fr"],
     "*l10n_gq*": ["es", "fr", "pt"],
     "*l10n_gr*": ["el"],
     "*l10n_gt*": ["es_419"],
@@ -202,8 +277,10 @@ L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
     "*l10n_mc*": ["fr"],
     "*l10n_mk*": ["mk"],
     "*l10n_ml*": ["fr"],
-    "*l10n_mr*": ["fr"],
+    "*l10n_mm*": ["my"],
     "*l10n_mn*": ["mn"],
+    "*l10n_mq*": ["fr"],
+    "*l10n_mr*": ["fr"],
     "*l10n_mu*": ["fr"],
     "*l10n_mx*": ["es_419"],
     "*l10n_my*": ["ms"],
@@ -218,6 +295,7 @@ L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
     "*l10n_pl*": ["pl"],
     "*l10n_pt*": ["pt"],
     "*l10n_qa*": ["ar"],
+    "*l10n_re*": ["fr"],
     "*l10n_ro*": ["ro"],
     "*l10n_rs*": ["sr@latin"],
     "*l10n_rw*": ["fr", "sw"],
@@ -236,10 +314,12 @@ L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
     "*l10n_tz*": ["sw"],
     "*l10n_ua*": ["uk"],
     "*l10n_ug*": ["sw"],
-    "*l10n_uz*": ["ru", "uz"],
+    "*l10n_us*": ["es_419"],
     "*l10n_uy*": ["es_419"],
+    "*l10n_uz*": ["ru", "uz"],
     "*l10n_ve*": ["es_419"],
     "*l10n_vn*": ["vi"],
+    "*l10n_yt*": ["fr"],
 }
 
 
@@ -317,7 +397,7 @@ class WeblateApiError(Exception):
 class WeblateApi:
     """A wrapper for making calls to the Weblate API."""
 
-    def __init__(self) -> None:
+    def __init__(self, requests_per_second: int | None = None) -> None:
         """Initialize a WeblateApi object.
 
         :raises NameError: If the WEBLATE_API_TOKEN in the environment is falsy.
@@ -325,6 +405,9 @@ class WeblateApi:
         if not WEBLATE_API_TOKEN:
             raise NameError(WEBLATE_ERR_1)
         self.base_url = WEBLATE_URL
+        self._request_interval = 1 / requests_per_second if requests_per_second else 0
+        self._next_request_at = 0.0
+        self._request_throttle_lock = threading.Lock()
         self.session = Session()
         self.session.headers.update({
             "Authorization": f"Token {WEBLATE_API_TOKEN}",
@@ -336,6 +419,17 @@ class WeblateApi:
             "Accept": "application/json",
             "User-Agent": "Odoo Toolkit",
         })
+
+    def _throttle_request_rate(self) -> None:
+        if not self._request_interval:
+            return
+        with self._request_throttle_lock:
+            now = time.monotonic()
+            wait_time = self._next_request_at - now
+            if wait_time > 0:
+                time.sleep(wait_time)
+                now = time.monotonic()
+            self._next_request_at = now + self._request_interval
 
     def _request(
         self,
@@ -358,7 +452,10 @@ class WeblateApi:
         """
         url = urljoin(self.base_url, endpoint)
         response = _with_retry(
-            lambda: self.json_session.request(method, url, data=data, files=files, json=json, params=params),
+            lambda: self._rate_limited_request(
+                lambda: self.json_session.request(method, url, data=data, files=files, json=json, params=params),
+            ),
+            idempotent=method.upper() in IDEMPOTENT_METHODS,
         )
         try:
             response.raise_for_status()
@@ -375,7 +472,7 @@ class WeblateApi:
         :return: The raw response content as bytes.
         """
         url = urljoin(self.base_url, endpoint)
-        response = _with_retry(lambda: self.session.get(url, params=params))
+        response = _with_retry(lambda: self._rate_limited_request(lambda: self.session.get(url, params=params)))
         try:
             response.raise_for_status()
         except (HTTPError, JSONDecodeError) as e:
@@ -401,7 +498,11 @@ class WeblateApi:
         current_url = urljoin(self.base_url, endpoint)
         current_params = params
         while current_url:
-            response = _with_retry(lambda url=current_url, p=current_params: self.json_session.get(url, params=p))
+            response = _with_retry(
+                lambda url=current_url, p=current_params: self._rate_limited_request(
+                    lambda: self.json_session.get(url, params=p),
+                ),
+            )
             data: dict[str, Any] = {}
             try:
                 response.raise_for_status()
@@ -448,6 +549,10 @@ class WeblateApi:
         :return: The response in JSON format.
         """
         return self._request(return_type, "POST", endpoint, data=data, files=files, json=json, params=params)
+
+    def _rate_limited_request(self, request: Callable[[], Response]) -> Response:
+        self._throttle_request_rate()
+        return request()
 
     def patch(
         self,
@@ -660,3 +765,101 @@ def get_weblate_components(api: WeblateApi, project: str) -> list[WeblateCompone
             params={"page_size": 1000},
         ),
     )
+
+
+def get_weblate_project_languages(api: WeblateApi, project: str) -> list[str]:
+    """Fetch and return the language codes present in a given project.
+
+    :param api: The Weblate API to use.
+    :param project: The project slug to find the languages for.
+    :raises WeblateApiError: If the request returns an error.
+    :return: A sorted list of language codes available in the given project.
+    """
+    return sorted(
+        code
+        for language in api.get_generator(
+            WeblateProjectLanguageData,
+            WEBLATE_PROJECT_LANGUAGES_ENDPOINT.format(project=project),
+            params={"page_size": 1000},
+        )
+        if (code := language.get("code"))
+    )
+
+
+# Matches the header lines Weblate fills in per translation, which must not be carried over to another translation.
+PO_CLEAN_HEADER_PATTERN = re.compile(b'^"(?:Language|Plural-Forms):.*\n', flags=re.MULTILINE)
+# Matches a `msgstr` (or `msgstr[n]`) whose value is non-empty, either inline or on a following continuation line.
+PO_TRANSLATED_PATTERN = re.compile(
+    rb'^msgstr(?:\[\d+\])? "(?:[^"]|\\")+"|^msgstr(?:\[\d+\])? ""\n"(?:[^"]|\\")+"',
+    flags=re.MULTILINE,
+)
+# Matches the start of any entry.
+PO_ENTRY_PATTERN = re.compile(rb"^msgid ", flags=re.MULTILINE)
+# Matches the leading comment block and `msgid ""` line that open the PO header entry.
+PO_HEADER_PATTERN = re.compile(rb'(?:#[^\n]*\n)*msgid ""\n')
+
+
+def clean_po_header(po_file: bytes) -> bytes:
+    """Strip the translation-specific header lines from a PO file, so it can be uploaded to another translation."""
+    return PO_CLEAN_HEADER_PATTERN.sub(b"", po_file)
+
+
+def _po_body(po_file: bytes) -> bytes:
+    """Return a PO file's contents without the header entry, or the whole file if it has no recognizable header."""
+    body = po_file.replace(b"\r\n", b"\n") if b"\r\n" in po_file else po_file
+    # The header entry's `msgstr` is always filled in, so it must not count as an entry or a translation.
+    if PO_HEADER_PATTERN.match(body):
+        _, _, body = body.partition(b"\n\n")
+    return body
+
+
+def po_has_entries(po_file: bytes) -> bool:
+    """Return whether a PO file contains at least one entry besides its header, translated or not.
+
+    :param po_file: The raw contents of the PO file.
+    :return: True if the file has at least one entry, False if it only contains the header.
+    """
+    return PO_ENTRY_PATTERN.search(_po_body(po_file)) is not None
+
+
+def po_has_translations(po_file: bytes) -> bool:
+    """Return whether a PO file contains at least one non-empty translation.
+
+    The check is deliberately fail-safe: when the file does not open with a recognizable PO header, the whole file is
+    scanned instead, so callers skip a file only when it is certainly not worth uploading.
+
+    :param po_file: The raw contents of the PO file.
+    :return: True if the file has at least one translation, False if it is certainly untranslated.
+    """
+    return PO_TRANSLATED_PATTERN.search(_po_body(po_file)) is not None
+
+
+def extract_po_files_from_zip(
+    zip_bytes: bytes,
+    language_code: str,
+    components: Collection[str] | None = None,
+) -> dict[str, bytes]:
+    """Extract the PO files of one language from a Weblate project ZIP, keyed by component slug.
+
+    Weblate stores all components that share a Git repo under a single VCS directory. Inside the ZIP, every Odoo PO
+    file sits at `…/{module}/i18n/{language}.po`, so the component slug (= module name) is always at `parts[-3]` of
+    the ZIP entry path.
+
+    :param zip_bytes: The raw ZIP archive as returned by the project language file endpoint.
+    :param language_code: The CLDR language code whose PO files should be extracted.
+    :param components: Only extract these component slugs, or all of them when None.
+    :raises zipfile.BadZipFile: If the archive could not be read.
+    :return: A mapping of component slug to the raw contents of its PO file.
+    """
+    po_files: dict[str, bytes] = {}
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zip_file:
+        for name in zip_file.namelist():
+            parts = name.split("/")
+            # All Odoo PO files live at …/{module}/i18n/{language}.po
+            if len(parts) < 3 or parts[-2] != "i18n" or parts[-1] != f"{language_code}.po":  # noqa: PLR2004
+                continue
+            component_slug = parts[-3]
+            if components is not None and component_slug not in components:
+                continue
+            po_files[component_slug] = zip_file.read(name)
+    return po_files

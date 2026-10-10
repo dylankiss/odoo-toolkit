@@ -20,6 +20,7 @@ from odoo_toolkit.wl.common import (
     WEBLATE_COMPONENT_ENDPOINT,
     WEBLATE_PROJECT_COMPONENTS_ENDPOINT,
     WEBLATE_PROJECTS_ENDPOINT,
+    WEBLATE_REQUESTS_PER_SECOND,
     WeblateApi,
     WeblateComponentData,
     WeblateConfig,
@@ -155,7 +156,7 @@ def update_components(  # noqa: C901, PLR0912, PLR0915
         raise Exit
 
     try:
-        weblate_api = WeblateApi()
+        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
     except NameError as e:
         print_error(str(e))
         raise Exit from e
