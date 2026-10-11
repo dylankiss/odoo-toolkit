@@ -348,7 +348,7 @@ def _configure_versions(
         ]
         if vscode:
             steps.append(
-                ("vscode", lambda: write_vscode_config(version_dir, shared_repos=shared_repos, reset=reset_config)),
+                ("vscode", lambda: write_vscode_config(version_dir, reset=reset_config)),
             )
         results: list[RepoResult] = []
         for name, step in steps:
@@ -528,18 +528,20 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
     return RepoResult("javascript", Outcome.UPDATED, "ESLint and type checking set up")
 
 
-def write_vscode_config(version_dir: Path, *, shared_repos: list[OdooRepo], reset: bool) -> RepoResult:
+def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     """Write the Visual Studio Code configuration of a version directory.
 
+    The configuration covers every shared repository linked into the version directory, including the ones linked by
+    an earlier setup with other repositories selected.
+
     :param version_dir: The version directory.
-    :param shared_repos: The single-branch repositories linked into the version directory.
     :param reset: Whether to overwrite existing configuration files.
     :return: The result of writing the configuration.
     """
     vscode_dir = version_dir / ".vscode"
     vscode_dir.mkdir(exist_ok=True)
     source_dir = MULTIVERSE_CONFIG_DIR / ".vscode"
-    linked_repos = [repo.value for repo in shared_repos if (version_dir / repo.value).is_symlink()]
+    linked_repos = [repo.value for repo in SINGLE_BRANCH_REPOS if (version_dir / repo.value).is_symlink()]
 
     settings = _read_json(source_dir / "settings.json")
     settings["python.defaultInterpreterPath"] = "${workspaceFolder}/.venv/bin/python"

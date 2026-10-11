@@ -15,6 +15,25 @@ def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
+def stub_slow_steps(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Stub the Python environment and JavaScript tooling steps, which need the network and take minutes.
+
+    :return: The names of the version directories the Python environment step was called for.
+    """
+    calls: list[str] = []
+
+    def setup_python_env(version_dir: Path, **_: object) -> RepoResult:
+        calls.append(version_dir.name)
+        return RepoResult("python", Outcome.UPDATED, "stub")
+
+    def setup_js_tooling(_: Path) -> RepoResult:
+        return RepoResult("javascript", Outcome.SKIPPED, "stub")
+
+    monkeypatch.setattr(mv_setup, "setup_python_env", setup_python_env)
+    monkeypatch.setattr(mv_setup, "setup_js_tooling", setup_js_tooling)
+    return calls
+
+
 @pytest.fixture(autouse=True)
 def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Isolate Git from the user's configuration."""
@@ -105,7 +124,7 @@ def test_write_vscode_config(tmp_path: Path) -> None:
     version_dir.mkdir()
     (version_dir / "upgrade").symlink_to(tmp_path)
 
-    result = mv_setup.write_vscode_config(version_dir, shared_repos=[OdooRepo.UPGRADE], reset=False)
+    result = mv_setup.write_vscode_config(version_dir, reset=False)
 
     assert result.outcome == Outcome.UPDATED
     settings = json.loads((version_dir / ".vscode" / "settings.json").read_text())
@@ -114,9 +133,26 @@ def test_write_vscode_config(tmp_path: Path) -> None:
     launch = json.loads((version_dir / ".vscode" / "launch.json").read_text())
     attach = next(c for c in launch["configurations"] if c["request"] == "attach")
     assert {"localRoot": "${workspaceFolder}", "remoteRoot": "/code/19.0"} in attach["pathMappings"]
+    assert {"localRoot": "${workspaceFolder}/upgrade", "remoteRoot": "/code/upgrade"} in attach["pathMappings"]
     # Existing configuration is kept, unless resetting.
-    assert mv_setup.write_vscode_config(version_dir, shared_repos=[], reset=False).outcome == Outcome.SKIPPED
-    assert mv_setup.write_vscode_config(version_dir, shared_repos=[], reset=True).outcome == Outcome.UPDATED
+    assert mv_setup.write_vscode_config(version_dir, reset=False).outcome == Outcome.SKIPPED
+    assert mv_setup.write_vscode_config(version_dir, reset=True).outcome == Outcome.UPDATED
+
+
+@pytest.mark.usefixtures("remotes")
+def test_cli_reset_config_keeps_shared_repos_of_earlier_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_slow_steps(monkeypatch)
+    root = tmp_path / "mv"
+    runner = CliRunner()
+    assert runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo", "-r", "upgrade"]).exit_code == 0
+
+    # Setting up only `odoo` again must not drop the `upgrade` link from the configuration.
+    result = runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo", "--reset-config"])
+
+    assert result.exit_code == 0, result.output
+    assert (root / "19.0" / "upgrade").is_symlink()
+    settings = json.loads((root / "19.0" / ".vscode" / "settings.json").read_text())
+    assert settings["git.scanRepositories"] == ["upgrade"]
 
 
 def test_parse_requirements(tmp_path: Path) -> None:
@@ -146,18 +182,7 @@ def test_get_venv_python(tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("remotes")
 def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # The Python environments and JavaScript tooling need the network and take minutes, so they are stubbed.
-    calls: list[str] = []
-
-    def setup_python_env(version_dir: Path, **_: object) -> RepoResult:
-        calls.append(version_dir.name)
-        return RepoResult("python", Outcome.UPDATED, "stub")
-
-    def setup_js_tooling(_: Path) -> RepoResult:
-        return RepoResult("javascript", Outcome.SKIPPED, "stub")
-
-    monkeypatch.setattr(mv_setup, "setup_python_env", setup_python_env)
-    monkeypatch.setattr(mv_setup, "setup_js_tooling", setup_js_tooling)
+    calls = stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
 
     result = CliRunner().invoke(
