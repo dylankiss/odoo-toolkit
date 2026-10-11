@@ -75,7 +75,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 | Command                           | Purpose                                                                                        |
 | --------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [`otk mv setup`](#otk-mv-setup)   | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
+| [`otk mv setup`](#otk-mv-setup)   | Set up an Odoo Multiverse environment, having different versions checked out at the same time. |
 | [`otk mv reset`](#otk-mv-reset)   | Reset the repositories inside an Odoo Multiverse version directory.                            |
 | [`otk mv switch`](#otk-mv-switch) | Switch branches inside an Odoo Multiverse version directory.                                   |
 
@@ -662,38 +662,37 @@ The following commands allow you to set up and Odoo Multiverse environment and p
 
 ## `otk mv setup`
 
-**Set up an Odoo Multiverse environment, having different branches checked out at the same time.**
+**Set up an Odoo Multiverse environment, having different versions checked out at the same time.**
 
 This way you can easily work on tasks in different versions without having to switch branches, or easily compare behaviors in different versions.
 
-The setup makes use of the [`git worktree`](https://git-scm.com/docs/git-worktree) feature to prevent having multiple full clones of the repositories for each version. The `git` history is only checked out once, and the only extra data you have per branch are the actual source files.
+Every version gets its own directory (like `19.0`), which is a complete workspace you can open in your editor. The setup makes use of the [`git worktree`](https://git-scm.com/docs/git-worktree) feature to prevent having multiple full clones of the repositories for each version. The `git` history is only downloaded once, and the only extra data you have per version are the actual source files.
 
 The easiest way to set this up is by creating a directory for your multiverse setup and then run this command from that directory.
 
 > [!IMPORTANT]
-> Make sure you have set up your GitHub SSH key beforehand in order to clone the repositories.
+> Make sure you have set up your GitHub SSH key beforehand in order to clone the repositories, and installed [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and `npm`.
 
-You can run the command as many times as you want. It will skip already existing branches and repositories and only renew their configuration (when passed the `--reset-config` option).
-
-> [!TIP]
-> If you're using [Visual Studio Code](https://code.visualstudio.com/), you can use the `--vscode` option to have the script copy some [default configuration](odoo_toolkit/multiverse_config/.vscode) to each branch folder. It contains recommended plugins, plugin configurations and debug configurations (that also work with the Docker container started via [`otk dev start`](#otk-dev-start)).
+You can run the command as many times as you want. It only adds what's missing, and never touches your own files. Pass `--reset-config` to recreate the Python environments and overwrite the configuration files.
 
 ### Inner Workings
 
 The command will basically do the following:
 
-1. Clone the repositories that have multiple active branches (among `odoo`, `enterprise`, `design-themes`, `documentation`, `industry` and `o-spreadsheet`) as [bare repositories](https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-code--barecode) to a `.multiverse-source/<repository>` folder (we don't need the source files themselves here). We set them up in a way that we can correctly create worktrees for each branch. We add the remote `origin` (`git@github.com:odoo/<repository>.git`) for all repositories and the remote `dev` (`git@github.com:odoo-dev/<repository>.git`) for all except the `documentation` and `o-spreadsheet` repositories.
+1. Clone the repositories that have multiple active branches (among `odoo`, `enterprise`, `design-themes`, `documentation`, `industry` and `o-spreadsheet`) as [bare repositories](https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-code--barecode) to a `.worktree-source/<repository>` folder. The clones are partial (`--filter=blob:none`): file contents are only downloaded when a version needs them. We add the remote `origin` (`git@github.com:odoo/<repository>.git`) for all repositories and the remote `dev` (`git@github.com:odoo-dev/<repository>.git`) for all except the `documentation` and `o-spreadsheet` repositories. Pushing to `origin` is disabled.
 
 2. Clone the single-branch repositories (among `upgrade`, `upgrade-util`, `odoofin`, `iap-apps`, `mobile`, and `internal`) to the root of your multiverse directory.
 
-3. Create a directory per branch in your multiverse directory, and a directory per multi-branch repository inside each branch directory. We use [`git worktree add`](https://git-scm.com/docs/git-worktree#Documentation/git-worktree.txt-addltpathgtltcommit-ishgt) to add a worktree for the correct branch for each repository.
+3. Create a directory per version, and add a worktree of every multi-branch repository in it, tracking the version's branch on `origin`.
 
-4. Create a symlink to each single-branch repository in each branch directory, since they all use the same `master` branch of these repositories.
+4. Link each single-branch repository into each version directory (using a relative link), since all versions share them.
 
-5. Copy all [configuration files](odoo_toolkit/multiverse_config) into each branch directory and set up the Javascript tooling for `odoo` and `enterprise` (located in the `tooling` directory inside the `web` module).
+5. Set up a Python virtual environment in the `.venv` directory of each version with [`uv`](https://docs.astral.sh/uv/), using the same Python version as [Runbot](https://runbot.odoo.com/runbot/versions). It contains all requirements of `odoo` and `documentation`, and the recommended ones in [`requirements.txt`](odoo_toolkit/multiverse_config/requirements.txt). Requirements that fail to build on your machine are reported, but don't fail the setup, since Odoo runs in Docker.
+   *You can use this environment from the version directory using `source .venv/bin/activate`.*
 
-6. Set up a Python virtual environment ([`venv`](https://docs.python.org/3/library/venv.html)) in the `.venv` directory inside each branch directory and install all requirements of `odoo` and `documentation`, as well as the recommended ones in [`requirements.txt`](odoo_toolkit/multiverse_config/requirements.txt).
-   *You can use this environment from the branch directory using `source .venv/bin/activate`.*
+6. Set up the JavaScript tooling for `odoo` and `enterprise` (located in the `tooling` directory inside the `web` module).
+
+7. Write the [Visual Studio Code configuration](odoo_toolkit/multiverse_config/.vscode) in each version's `.vscode` directory: recommended extensions, settings using the version's `.venv`, and debug configurations (that also work with the Docker container started via [`otk dev start`](#otk-dev-start)).
 
 After all that is done, your directory structure should look like this with the default repositories selected:
 
@@ -703,28 +702,27 @@ After all that is done, your directory structure should look like this with the 
 │   ├── odoo (bare)
 │   ├── enterprise (bare)
 │   └── design-themes (bare)
-├── 17.0
-│   └── ...
 ├── 18.0
 │   └── ...
-├── saas-18.2
-│   └── ...
-├── ...
 ├── 19.0
 │   ├── .venv (Python virtual environment)
+│   ├── .vscode (Visual Studio Code configuration)
 │   ├── odoo (19.0)
 │   ├── enterprise (19.0)
 │   ├── design-themes (19.0)
-│   ├── upgrade (symlink to ../upgrade)
-│   ├── upgrade-util (symlink to ../upgrade-util)
-│   ├── pyproject.toml
-│   └── requirements.txt
+│   ├── upgrade (link to ../upgrade)
+│   ├── upgrade-util (link to ../upgrade-util)
+│   └── odools.toml
 ├── ...
 ├── master
 │   └── ...
 ├── upgrade (master)
-└── upgrade-util (master)
+├── upgrade-util (master)
+├── requirements.txt
+└── ruff.toml
 ```
+
+Open a version directory (like `code <multiverse-folder>/19.0`) in your editor to work on that version.
 
 ### Usage
 
@@ -733,16 +731,16 @@ $ otk mv setup [OPTIONS]
 ```
 e.g.
 ```console
-$ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgrade-util --vscode
+$ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upgrade-util
 ```
 
 ### Options
 
-* `-b, --branches TEXT`: Specify the Odoo branches you want to add.  [default: `17.0`, `18.0`, `saas-18.2`, `saas-18.3`, `saas-18.4`, `19.0`, `saas-19.1`, `saas-19.2`, `master`]
-* `-r, --repositories REPO`: Specify the Odoo repositories you want to sync.  [default: `odoo`, `enterprise`, `design-themes`, `upgrade`, `upgrade-util`]
-* `-d, --multiverse-dir PATH`: Specify the directory in which you want to install the multiverse setup.  [default: `<current working directory>`]
-* `--reset-config`: Reset every specified worktree's Ruff config, Python virtual environment and dependencies, and optional Visual Studio Code config.
-* `--vscode`: Copy settings and debug configurations for Visual Studio Code.
+* `-b, --branches TEXT`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Sets up every supported version if none are specified.
+* `-r, --repositories REPO`: The Odoo repositories to set up.  [default: `odoo`, `enterprise`, `design-themes`, `upgrade`, `upgrade-util`]
+* `-d, --multiverse-dir PATH`: The directory to set up the multiverse in.  [default: `<current working directory>`]
+* `--reset-config`: Recreate the Python virtual environments and overwrite the configuration files of every version.
+* `--vscode / --no-vscode`: Write the Visual Studio Code configuration in each version directory.  [default: `--vscode`]
 * `--help`: Show this message and exit.
 
 ### Repositories

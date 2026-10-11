@@ -15,7 +15,7 @@ BRANCH_VERSION_PATTERN = re.compile(r"^(master|saas-\d+\.\d+|\d+\.\d+)(?:-|$)")
 
 @dataclass(frozen=True)
 class OdooVersion:
-    """A supported Odoo version and the runbot environment it runs in."""
+    """A supported Odoo version and the Runbot environment it runs in."""
 
     name: str
     image: str

@@ -1,10 +1,7 @@
 import importlib.util
 import re
-import time
 from collections.abc import Callable, Collection, Iterable
-from concurrent.futures import Future
 from contextlib import suppress
-from dataclasses import dataclass
 from enum import Enum, auto
 from fnmatch import fnmatch
 from pathlib import Path
@@ -13,17 +10,13 @@ from typing import Any, TypeVar
 from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TaskProgressColumn, TextColumn, TimeElapsedColumn
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
 from typer import Typer, get_app_dir
 
 APP_DIR = Path(get_app_dir("odoo-toolkit"))
 EMPTY_LIST: list[Any] = []
 T = TypeVar("T")
 
-
-class NoUpdate:
-    """Indicates data does not need to be updated."""
-NO_UPDATE = NoUpdate()
 
 # The main app to register all the commands on
 app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
@@ -39,59 +32,6 @@ class Status(Enum):
     SUCCESS = auto()
     PARTIAL = auto()
     FAILURE = auto()
-
-
-@dataclass
-class ProgressUpdate:
-    """Update information for :class:`rich.progress.Progress` instances."""
-
-    task_id: TaskID
-    description: str
-    completed: float = 0
-    total: float | None = None
-    status: Status | None = None
-    message: str | None = None
-    stacktrace: str | None = None
-
-    @classmethod
-    def update_in_dict(
-        cls,
-        progress_updates: dict[T, "ProgressUpdate"],
-        key: T,
-        *,
-        description: str | NoUpdate = NO_UPDATE,
-        completed: float | NoUpdate = NO_UPDATE,
-        total: float | None | NoUpdate = NO_UPDATE,
-        advance: float | NoUpdate = NO_UPDATE,
-        status: Status | None | NoUpdate = NO_UPDATE,
-        message: str | None | NoUpdate = NO_UPDATE,
-        stacktrace: str | None | NoUpdate = NO_UPDATE,
-    ) -> None:
-        """Update :class:`odoo_toolkit.common.ProgressUpdate` information in the given dictionary.
-
-        :param progress_updates: The dictionary to update the progress information in.
-        :param key: The key of the dictionary item to update.
-        :param description: The description value to update, defaults to `NO_UPDATE`
-        :param completed: The completed value to update, defaults to `NO_UPDATE`
-        :param total: The total value to update, defaults to `NO_UPDATE`
-        :param advance: The number to advance the completed value, defaults to `NO_UPDATE`
-        """
-        update = progress_updates[key]
-        if not isinstance(description, NoUpdate):
-            update.description = description
-        if not isinstance(completed, NoUpdate):
-            update.completed = completed
-        elif not isinstance(advance, NoUpdate):
-            update.completed += advance
-        if not isinstance(total, NoUpdate):
-            update.total = total
-        if not isinstance(status, NoUpdate):
-            update.status = status
-        if not isinstance(message, NoUpdate):
-            update.message = message
-        if not isinstance(stacktrace, NoUpdate):
-            update.stacktrace = stacktrace
-        progress_updates[key] = update
 
 
 class StickyProgress(Progress):
@@ -259,45 +199,6 @@ def get_valid_modules_to_path_mapping(
     )
 
     return modules_to_consider
-
-
-def update_remote_progress(
-    progress: Progress,
-    progress_updates: dict[Any, ProgressUpdate],
-    futures: dict[Future[None], Any],
-) -> None:
-    """Update tasks in a :class:`rich.progress.Progress` instance by methods running in multiple threads or processes.
-
-    :param progress: The progress instance containing the tasks.
-    :param progress_updates: A shared mapping to progress update information.
-    :param futures: The remote threads/processes information.
-    """
-    def update_progress_internal() -> None:
-        for key, value in progress_updates.items():
-            progress.update(
-                value.task_id,
-                description=value.description,
-                completed=value.completed,
-                total=value.total,
-            )
-
-            if value.status and value.message:
-                # Print error, warning, or success messages.
-                if value.status == Status.FAILURE:
-                    print_error(value.message, value.stacktrace)
-                elif value.status == Status.PARTIAL:
-                    print_warning(value.message)
-                elif value.status == Status.SUCCESS:
-                    print_success(value.message)
-                ProgressUpdate.update_in_dict(progress_updates, key, status=None, message=None, stacktrace=None)
-
-
-    while any(not task.done() for task in futures):
-        update_progress_internal()
-        # Reduce CPU usage by only checking every 0.5 seconds.
-        time.sleep(0.5)
-
-    update_progress_internal()
 
 
 def get_odoo_version(odoo_repo: Path) -> float | None:

@@ -266,29 +266,35 @@ def run_on_repos(
     results: dict[Path, RepoResult] = {}
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
         task = progress.add_task(description, total=len(repo_dirs))
-        futures = {executor.submit(_safe_operation, operation, repo_dir): repo_dir for _, repo_dir in repo_dirs}
+        futures = {
+            executor.submit(run_safely, repo_dir.name, lambda repo_dir=repo_dir: operation(repo_dir)): repo_dir
+            for _, repo_dir in repo_dirs
+        }
         for future in as_completed(futures):
             results[futures[future]] = future.result()
             progress.advance(task)
     return [results[repo_dir] for _, repo_dir in repo_dirs]
 
 
-def _safe_operation(operation: Callable[[Path], RepoResult], repo_dir: Path) -> RepoResult:
-    try:
-        return operation(repo_dir)
-    except (InvalidGitRepositoryError, NoSuchPathError):
-        return RepoResult(repo_dir.name, Outcome.FAILED, "not a Git repository")
-    except GitCommandError as e:
-        return RepoResult(repo_dir.name, Outcome.FAILED, git_error_message(e))
-    except Exception as e:  # noqa: BLE001
-        return RepoResult(repo_dir.name, Outcome.FAILED, f"unexpected error: {e}")
+def run_safely(name: str, operation: Callable[[], RepoResult]) -> RepoResult:
+    """Run an operation, turning unexpected errors into a failed result.
 
-
-def print_results(results: list[RepoResult], version_dir: Path) -> bool:
-    """Print a summary table of the results, followed by any stashed changes.
-
-    :return: True if every operation succeeded or was skipped, False if any failed.
+    :param name: The name to report a failure under.
+    :param operation: The operation to run.
+    :return: The operation's result, or a failed result if it raised an error.
     """
+    try:
+        return operation()
+    except (InvalidGitRepositoryError, NoSuchPathError):
+        return RepoResult(name, Outcome.FAILED, "not a Git repository")
+    except GitCommandError as e:
+        return RepoResult(name, Outcome.FAILED, git_error_message(e))
+    except Exception as e:  # noqa: BLE001
+        return RepoResult(name, Outcome.FAILED, f"unexpected error: {e}")
+
+
+def print_result_table(results: list[RepoResult]) -> None:
+    """Print a table with one row per result."""
     icons = {
         Outcome.UPDATED: ":white_check_mark:",
         Outcome.SKIPPED: ":heavy_minus_sign:",
@@ -302,6 +308,14 @@ def print_results(results: list[RepoResult], version_dir: Path) -> bool:
             icons[result.outcome], f"[b]{result.name}[/b]", result.message, style=styles.get(result.outcome),
         )
     print(table, "")
+
+
+def print_results(results: list[RepoResult], version_dir: Path) -> bool:
+    """Print a summary table of the results, followed by any stashed changes.
+
+    :return: True if every operation succeeded or was skipped, False if any failed.
+    """
+    print_result_table(results)
 
     if stashed := [result for result in results if result.stash]:
         print_warning("Uncommitted changes were stashed:")

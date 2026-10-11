@@ -25,6 +25,7 @@ preview = false
 select = ["ALL"]
 ignore = [
     "A004",     # builtin-import-shadowing
+    "CPY001",   # missing-copyright-notice
     "D100",     # undocumented-public-module
     "D104",     # undocumented-public-package
     "D301",     # escape-sequence-in-docstring

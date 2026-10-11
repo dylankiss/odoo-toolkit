@@ -1,35 +1,42 @@
 import json
 import os
-import re
 import shutil
 import subprocess
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from itertools import chain
-from multiprocessing import Manager
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Annotated, TypeAlias, cast
+from typing import Annotated, Any
 
-from git import BadName, BadObject, GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
+from git import GitCommandError, Repo
+from rich.progress import TaskID
 from typer import Exit, Option, Typer
 
 from odoo_toolkit.common import (
-    ProgressUpdate,
-    Status,
+    EMPTY_LIST,
     TransientProgress,
+    normalize_list_option,
     print,
     print_command_title,
     print_error,
     print_header,
-    update_remote_progress,
+    print_success,
+    print_warning,
 )
+from odoo_toolkit.versions import get_versions
 
 from .common import MULTI_BRANCH_REPOS, ODOO_DEV_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
+from .repos import (
+    Outcome,
+    RepoResult,
+    fetch_branch,
+    git_error_message,
+    print_result_table,
+    run_safely,
+)
 
 app = Typer()
 
-CWD = Path.cwd()
-DEFAULT_BRANCHES = ["17.0", "18.0", "saas-18.2", "saas-18.3", "saas-18.4", "19.0", "saas-19.1", "saas-19.2", "saas-19.3", "master"]
 DEFAULT_REPOS = [
     OdooRepo.ODOO,
     OdooRepo.ENTERPRISE,
@@ -37,10 +44,25 @@ DEFAULT_REPOS = [
     OdooRepo.UPGRADE,
     OdooRepo.UPGRADE_UTIL,
 ]
-JS_TOOLING_MIN_VERSION = 14.5
-JS_TOOLING_NEW_VERSION = 16.1
+# The URL to clone a repository from, given its GitHub owner and name.
+GIT_URL = "git@github.com:{owner}/{repo}.git"
+# A Git clone progress callback, receiving the operation code, current count, maximum count and message.
+CloneProgress = Callable[[int, str | float, str | float | None, str], None]
 MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
-JSONValue: TypeAlias = dict[str, "JSONValue"] | list["JSONValue"] | str | int | float | bool | None
+WORKTREE_SOURCE_DIR = ".worktree-source"
+# The requirement files to install in each version's virtual environment, relative to the version directory.
+VERSION_REQUIREMENTS = [
+    Path("odoo/requirements.txt"),
+    Path("documentation/requirements.txt"),
+    Path("documentation/tests/requirements.txt"),
+]
+# Files copied into the Community and Enterprise repositories to enable the JavaScript tooling.
+JS_TOOLING_FILES = {
+    "_eslintignore": ".eslintignore",
+    "_eslintrc.json": ".eslintrc.json",
+    "_jsconfig.json": "jsconfig.json",
+    "_package.json": "package.json",
+}
 
 
 @app.command()
@@ -50,881 +72,520 @@ def setup(
         Option(
             "--branches",
             "-b",
-            help="Specify the Odoo branches you want to add.",
+            help="The Odoo versions to set up, like `19.0` or `saas-19.2`. Sets up every supported version if none "
+            "are specified.",
         ),
-    ] = DEFAULT_BRANCHES,
+    ] = EMPTY_LIST,
     repositories: Annotated[
         list[OdooRepo],
-        Option(
-            "--repositories",
-            "-r",
-            help="Specify the Odoo repositories you want to sync.",
-        ),
+        Option("--repositories", "-r", help="The Odoo repositories to set up."),
     ] = DEFAULT_REPOS,
     multiverse_dir: Annotated[
         Path,
-        Option(
-            "--multiverse-dir",
-            "-d",
-            help="Specify the directory in which you want to install the multiverse setup.",
-        ),
-    ] = CWD,
+        Option("--multiverse-dir", "-d", help="The directory to set up the multiverse in."),
+    ] = Path.cwd(),  # noqa: B008
     reset_config: Annotated[
         bool,
         Option(
             "--reset-config",
-            help="Reset every specified worktree's Ruff config, Python virtual environment and dependencies, "
-            "and optional Visual Studio Code config.",
+            help="Recreate the Python virtual environments and overwrite the configuration files of every version.",
         ),
     ] = False,
     vscode: Annotated[
         bool,
-        Option("--vscode", help="Copy settings and debug configurations for Visual Studio Code."),
-    ] = False,
+        Option("--vscode/--no-vscode", help="Write the Visual Studio Code configuration in each version directory."),
+    ] = True,
 ) -> None:
-    """Set up an :ringed_planet: Odoo Multiverse environment, having different branches checked out at the same time.
+    """Set up an :ringed_planet: Odoo Multiverse environment, having different versions checked out at the same time.
 
-    This way you can easily work on tasks in different versions without having to switch branches, or easily compare
-    behaviors in different versions.\n
+    Every version gets its own directory (like `19.0`), which is a complete workspace you can open in your editor. It
+    contains:\n
+    - a [`git worktree`](https://git-scm.com/docs/git-worktree) of every multi-branch repository (like `odoo` and
+    `enterprise`), sharing the Git history with the other versions,\n
+    - a link to every single-branch repository (like `upgrade`), which all versions share,\n
+    - a Python virtual environment with the same Python version as Runbot and the version's dependencies,\n
+    - the JavaScript tooling, and the Visual Studio Code configuration.\n
     \n
-    The setup makes use of the [`git worktree`](https://git-scm.com/docs/git-worktree) feature to prevent having
-    multiple full clones of the repositories for each version. The `git` history is only checked out once, and the only
-    extra data you have per branch are the actual source files.\n
+    > Make sure you have set up your **GitHub SSH key**, and installed [`uv`](https://docs.astral.sh/uv/) and `npm`.\n
     \n
-    The easiest way to set this up is by creating a directory for your multiverse setup and then run this command from
-    that directory.\n
-    \n
-    > Make sure you have set up your **GitHub SSH key** beforehand in order to clone the repositories.\n
-    \n
-    You can run the command as many times as you want. It will skip already existing branches and repositories and only
-    renew their configuration (when passed the `--reset-config` option).\n
-    \n
-    > If you're using **Visual Studio Code**, you can use the `--vscode` option to have the script create multi-root
-    workspaces, and copy some default configuration to the multiverse folder. It contains recommended plugins, plugin
-    configurations and debug configurations (that also work with the Docker container started via `otk dev start`).
+    You can run the command as many times as you want. It only adds what's missing, unless you pass `--reset-config`.
     """
     print_command_title(":ringed_planet: Odoo Multiverse Setup")
 
-    # Filter out empty branch names
-    branches = list(filter(bool, branches))
+    if not shutil.which("uv"):
+        print_error("This command needs [b]uv[/b]: https://docs.astral.sh/uv/getting-started/installation/\n")
+        raise Exit(1)
 
-    try:
-        # Ensure the multiverse directory exists.
-        multiverse_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Multiverse Directory: [b]{multiverse_dir}[/b]\n")
-
-        # Ensure the worktree source directory exists.
-        worktree_src_dir = multiverse_dir / ".worktree-source"
-        worktree_src_dir.mkdir(parents=True, exist_ok=True)
-
-        # Determine which repositories to configure.
-        multi_branch_repos = [repo for repo in MULTI_BRANCH_REPOS if repo in repositories]
-        single_branch_repos = [repo for repo in SINGLE_BRANCH_REPOS if repo in repositories]
-
-        # Clone all source repositories (as bare ones for the multi-branch repos).
-        with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
-            # Set up progress trackers for the clone operations.
-            progress_updates = cast("dict[OdooRepo, ProgressUpdate]", manager.dict({
-                repo: ProgressUpdate(
-                    task_id=progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None),
-                    description=f"Cloning [b]{repo.value}[/b]",
-                    completed=0,
-                    total=None,
-                )
-                for repo in chain(multi_branch_repos, single_branch_repos)
-            }))
-
-            print_header(":honey_pot: Clone Repositories")
-
-            # Run the clone operations in multiple processes simultaneously to speed things up.
-            futures = {
-                executor.submit(
-                    _clone_bare_multi_branch_repo if repo in multi_branch_repos else _clone_single_branch_repo,
-                    repo=repo,
-                    repo_src_dir=(worktree_src_dir if repo in multi_branch_repos else multiverse_dir) / repo.value,
-                    progress_updates=progress_updates,
-                ): repo for repo in chain(multi_branch_repos, single_branch_repos)
-            }
-
-            # Run the progress updater until everything is finished.
-            update_remote_progress(progress=progress, progress_updates=progress_updates, futures=futures)
-
-            # Check for any exceptions.
-            for future in as_completed(futures):
-                future.result()
-            print()
-
-        # Create the folders for the worktrees.
-        for branch in branches:
-            (multiverse_dir / branch).mkdir(parents=True, exist_ok=True)
-
-        _setup_multiverse_root_config(
-            multiverse_dir=multiverse_dir,
-            reset_config=reset_config,
+    versions = get_versions()
+    branches = normalize_list_option(branches) or list(versions)
+    if unsupported := [branch for branch in branches if branch not in versions]:
+        print_warning(
+            f"Not supported by Runbot anymore: [b]{'[/b], [b]'.join(unsupported)}[/b]. "
+            "Their Python environments use uv's default Python version.\n",
         )
+    multi_branch_repos = [repo for repo in MULTI_BRANCH_REPOS if repo in repositories]
+    single_branch_repos = [repo for repo in SINGLE_BRANCH_REPOS if repo in repositories]
 
-        # Add the worktrees for each multi-branch repo in each branch.
-        for branch in branches:
-            with ProcessPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
-                # Set up progress trackers for the worktree operations.
-                progress_updates = cast("dict[OdooRepo, ProgressUpdate]", manager.dict({
-                    repo: ProgressUpdate(
-                        task_id=progress.add_task(f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]", total=None),
-                        description=f"Adding [b]{repo.value}[/b] worktree [b]{branch}[/b]",
-                        completed=0,
-                        total=None,
-                    )
-                    for repo in multi_branch_repos
-                }))
+    multiverse_dir = multiverse_dir.expanduser().resolve()
+    multiverse_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Multiverse directory: [u]{multiverse_dir}[/u]\n")
+    _copy_root_config(multiverse_dir, reset_config=reset_config)
 
-                print_header(f":deciduous_tree: Setup Branch {branch}")
+    print_header(":honey_pot: Clone Repositories")
+    clone_results = _clone_repos(multiverse_dir, multi_branch_repos, single_branch_repos)
+    print_result_table(clone_results)
+    cloned = {result.name for result in clone_results if result.outcome != Outcome.FAILED}
 
-                # Run the worktree operations in multiple processes simultaneously to speed things up.
-                futures = {
-                    executor.submit(
-                        _add_worktree_for_branch,
-                        repo=repo,
-                        branch=branch,
-                        repo_src_dir=worktree_src_dir / repo.value,
-                        repo_worktree_dir=multiverse_dir / branch / repo.value,
-                        progress_updates=progress_updates,
-                    ): repo for repo in multi_branch_repos
-                }
+    print_header(":deciduous_tree: Add Worktrees")
+    worktree_results = _add_worktrees(multiverse_dir, branches, [r for r in multi_branch_repos if r.value in cloned])
+    print_result_table(worktree_results)
 
-                # Run the progress updater until everything is finished.
-                update_remote_progress(progress=progress, progress_updates=progress_updates, futures=futures)
-
-                # Check for any exceptions.
-                for future in as_completed(futures):
-                    future.result()
-                print()
-
-        # Create a VS Code multi-root workspace for each branch, including selected single-branch repositories.
-        if vscode:
-            for branch in branches:
-                _create_branch_workspace(
-                    multiverse_dir=multiverse_dir,
-                    branch=branch,
-                    single_branch_repos=single_branch_repos,
-                    reset_config=reset_config,
-                )
-
-        # Configure tools and dependencies for each branch directory.
-        with ThreadPoolExecutor() as executor, TransientProgress() as progress, Manager() as manager:
-            # Set up progress trackers for the configuration operations.
-            progress_updates = cast("dict[str, ProgressUpdate]", manager.dict({
-                branch: ProgressUpdate(
-                    task_id=progress.add_task(f"Configuring tools and dependencies for [b]{branch}[/b]", total=None),
-                    description=f"Configuring tools and dependencies for [b]{branch}[/b]",
-                    completed=0,
-                    total=None,
-                ) for branch in branches
-            }))
-
-            print_header(":gear: Configure Tools and Dependencies for Branches")
-
-            # Run the configurations in multiple threads simultaneously to speed things up.
-            futures = {
-                executor.submit(
-                    _setup_tools_and_deps_in_branch_dir,
-                    branch_dir=multiverse_dir / branch,
-                    multiverse_dir=multiverse_dir,
-                    reset_config=reset_config,
-                    progress_updates=progress_updates,
-                ): branch for branch in branches
-            }
-
-            # Run the progress updater until everything is finished.
-            update_remote_progress(progress=progress, progress_updates=progress_updates, futures=futures)
-
-            # Check for any exceptions.
-            for future in as_completed(futures):
-                future.result()
-            print()
-
-        print_header(":muscle: Great! You're now ready to work on multiple versions of Odoo")
-
-    except OSError as e:
-        print_error(
-            f"Setting up the multiverse environment failed during file handling ([b]{e.errno}[/b]):\n"
-            f"\t{e.filename}\n"
-            f"\t{e.filename2}\n",
-            str(e),
-        )
-        raise Exit from e
-
-
-def _clone_bare_multi_branch_repo(  # noqa: C901, PLR0915
-    repo: OdooRepo,
-    repo_src_dir: Path,
-    progress_updates: dict[OdooRepo, ProgressUpdate],
-) -> None:
-    """Clone an Odoo repository as a bare repository to create worktrees from later.
-
-    :param repo: The repository name.
-    :param repo_src_dir: The source directory for the repository.
-    :param progress_updates: The progress update information per repository.
-    :raises Exit: In case the command needs to be stopped.
-    """
-    # Ensure the repo source directory exists.
-    if repo_src_dir.is_file():
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"The [b]{repo.value}[/b] source path [u]{repo_src_dir}[/u] is not a directory. Aborting ...",
-        )
-        raise Exit
-    repo_src_dir.mkdir(parents=True, exist_ok=True)
-    bare_dir = repo_src_dir / ".bare"
-
-    try:
-        bare_repo = Repo(bare_dir)
-        bare_repo.git.worktree("prune")
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.SUCCESS,
-            message=f"Bare repository for [b]{repo.value}[/b] already exists.",
-        )
-    except InvalidGitRepositoryError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"The [b]{repo.value}[/b] path [u]{bare_dir}[/u] is not a Git repository. Aborting ...",
-        )
-        raise Exit from e
-    except NoSuchPathError:
-        try:
-            bare_repo = Repo.clone_from(
-                url=f"git@github.com:odoo/{repo.value}.git",
-                to_path=bare_dir,
-                progress=lambda _op_code, cur_count, max_count, _message: ProgressUpdate.update_in_dict(
-                    progress_updates,
-                    repo,
-                    description=f"Cloning bare repository [b]{repo.value}[/b]",
-                    completed=float(cur_count),
-                    total=float(max_count) if max_count else None,
-                ),
-                bare=True,
-            )
-        except GitCommandError as e:
-            ProgressUpdate.update_in_dict(
-                progress_updates,
-                repo,
-                completed=1,
-                total=1,
-                status=Status.FAILURE,
-                message=f"Cloning the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b].\n"
-                    f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
-                stacktrace=e.stderr.strip(),
-            )
-            raise Exit from e
-        except OSError as e:
-            ProgressUpdate.update_in_dict(
-                progress_updates,
-                repo,
-                completed=1,
-                total=1,
-                status=Status.FAILURE,
-                message=f"Cloning the bare repository for [b]{repo.value}[/b] failed during file handling.",
-                stacktrace=str(e),
-            )
-            raise Exit from e
-    else:
-        return
-
-    # Explicitly set the remote origin fetch so we can fetch remote branches.
-    ProgressUpdate.update_in_dict(
-        progress_updates,
-        repo,
-        description=f"Setting up origin fetch configuration for [b]{repo.value}[/b]",
-        completed=0,
-        total=1,
-    )
-    bare_repo.config_writer().set_value('remote "origin"', "fetch", "+refs/heads/*:refs/remotes/origin/*").release()
-    ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-    if repo in ODOO_DEV_REPOS:
-        # Add the "odoo-dev" repository equivalent as a remote named "dev".
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            description=f"Adding [b]odoo-dev[/b] remote as [b]dev[/b] to [b]{repo.value}[/b]",
-            completed=0,
-            total=2,
-        )
-        if not any(remote.name == "dev" for remote in bare_repo.remotes):
-            bare_repo.create_remote("dev", f"git@github.com:odoo-dev/{repo.value}.git")
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-        # Make sure people can't push on the "origin" remote when there is a "dev" remote.
-        bare_repo.remote("origin").set_url("NO_PUSH_TRY_DEV_REPO", push=True)
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-    # Create the ".git" file pointing to the ".bare" directory.
-    ProgressUpdate.update_in_dict(
-        progress_updates,
-        repo,
-        description=f"Finishing git config for [b]{repo.value}[/b]",
-        completed=0,
-        total=1,
-    )
-    with (repo_src_dir / ".git").open("x", encoding="utf-8") as git_file:
-        git_file.write("gitdir: ./.bare")
-    ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-    try:
-        # Fetch all remote branches to create the worktrees off later.
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            description=f"Fetching all branches for [b]{repo.value}[/b]",
-            completed=0,
-            total=1,
-        )
-        bare_repo.remote("origin").fetch()
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-        # Prune worktrees that were manually deleted before, so git doesn't get confused.
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            description=f"Pruning non-existing worktrees for [b]{repo.value}[/b]",
-            completed=0,
-            total=1,
-        )
-        bare_repo.git.worktree("prune")
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-    except GitCommandError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Setting up the bare repository for [b]{repo.value}[/b] failed with [b]{e.status}[/b].\n"
-                f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
-            stacktrace=e.stderr.strip(),
-        )
-        raise Exit from e
-    except OSError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Setting up the bare repository for [b]{repo.value}[/b] failed during file handling.",
-            stacktrace=str(e),
-        )
-        raise Exit from e
-
-    ProgressUpdate.update_in_dict(
-        progress_updates,
-        repo,
-        completed=1,
-        total=1,
-        status=Status.SUCCESS,
-        message=f"Set up bare repository for [b]{repo.value}[/b]",
-    )
-
-
-def _clone_single_branch_repo(
-    repo: OdooRepo,
-    repo_src_dir: Path,
-    progress_updates: dict[OdooRepo, ProgressUpdate],
-) -> None:
-    """Clone an Odoo repository to the given directory.
-
-    :param repo: The repository name.
-    :param repo_src_dir: The source directory for the repository.
-    :param progress_updates: The progress update information per repository.
-    :raises Exit: In case the command needs to be stopped.
-    """
-    # Check if the repo source directory already exists.
-    try:
-        Repo(repo_src_dir)
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.SUCCESS,
-            message=f"Repository for [b]{repo.value}[/b] already exists.",
-        )
-    except InvalidGitRepositoryError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"The [b]{repo.value}[/b] path [u]{repo_src_dir}[/u] is not a Git repository. Aborting ...",
-        )
-        raise Exit from e
-    except NoSuchPathError:
-        pass
-    else:
-        return
-
-    # Clone the repository.
-    try:
-        Repo.clone_from(
-            url=f"git@github.com:odoo/{repo.value}.git",
-            to_path=repo_src_dir,
-            progress=lambda _op_code, cur_count, max_count, _message: ProgressUpdate.update_in_dict(
-                progress_updates,
-                repo,
-                description=f"Cloning repository [b]{repo.value}[/b]",
-                completed=float(cur_count),
-                total=float(max_count) if max_count else None,
-            ),
-        )
-    except GitCommandError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Cloning the repository [b]{repo.value}[/b] failed with [b]{e.status}[/b].\n"
-                f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
-            stacktrace=e.stderr.strip(),
-        )
-        raise Exit from e
-    except OSError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Cloning the repository [b]{repo.value}[/b] failed during file handling.",
-            stacktrace=str(e),
-        )
-        raise Exit from e
-
-    ProgressUpdate.update_in_dict(
-        progress_updates,
-        repo,
-        completed=1,
-        total=1,
-        status=Status.SUCCESS,
-        message=f"Set up repository [b]{repo.value}[/b].",
-    )
-
-
-def _add_worktree_for_branch(
-    repo: OdooRepo,
-    branch: str,
-    repo_src_dir: Path,
-    repo_worktree_dir: Path,
-    progress_updates: dict[OdooRepo, ProgressUpdate],
-) -> None:
-    """Add and configure a worktree for a specific branch in the given repository.
-
-    :param repo: The repository for which we need to add a worktree.
-    :param branch: The branch we need to add as a worktree.
-    :param repo_src_dir: The directory containing the bare repository.
-    :param repo_worktree_dir: The directory to contain the worktree.
-    :param progress_updates: The progress update information per repository.
-    """
-    # Check if the worktree repo already exists.
-    try:
-        Repo(repo_worktree_dir)
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.SUCCESS,
-            message=f"The worktree at [u]{repo_worktree_dir}[/u] already exists.",
-        )
-    except InvalidGitRepositoryError:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.PARTIAL,
-            message=f"The path [u]{repo_worktree_dir}[/u] is not a Git repository. Skipping ...",
-        )
-        return
-    except NoSuchPathError:
-        pass
-    else:
-        return
-
-    # Check whether the branch we want to add exists on the remote.
-    try:
-        bare_repo = Repo(repo_src_dir)
-        bare_repo.remote("origin").fetch(branch)
-    except (BadName, BadObject, GitCommandError):
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.PARTIAL,
-            message=f"The [b]{repo.value}[/b] branch [b]{branch}[/b] does not exist. Skipping ...",
-        )
-        return
-
-    try:
-        # Checkout the worktree for the specified branch.
-        ProgressUpdate.update_in_dict(progress_updates, repo, total=2)
-        bare_repo.git.worktree("add", str(repo_worktree_dir), branch)
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-        # Make sure the worktree references the right upstream branch.
-        worktree_repo = Repo(repo_worktree_dir)
-        worktree_repo.git.branch("--set-upstream-to", f"origin/{branch}", branch)
-        ProgressUpdate.update_in_dict(progress_updates, repo, advance=1)
-
-    except GitCommandError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed: [b]{e.status}[/b].\n"
-            f"The command that failed was:\n[b]{' '.join(e.command)}[/b]\n",
-            stacktrace=e.stderr.strip(),
-        )
-        return
-    except OSError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            repo,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Adding the worktree [b]{branch}[/b] for repository [b]{repo.value}[/b] failed during "
-                "file handling.",
-            stacktrace=str(e),
-        )
-        return
-
-    ProgressUpdate.update_in_dict(
-        progress_updates,
-        repo,
-        completed=1,
-        total=1,
-        status=Status.SUCCESS,
-        message=f"Added [b]{repo.value}[/b] worktree [b]{branch}[/b]",
-    )
-
-
-def _create_branch_workspace(multiverse_dir: Path, branch: str, single_branch_repos: list[OdooRepo], reset_config: bool = False) -> None:
-    """Create a VS Code multi-root workspace file for a branch.
-
-    :param multiverse_dir: The root directory of the multiverse setup.
-    :param branch: The branch name used for the worktree folder and workspace name.
-    :param single_branch_repos: Selected single-branch repositories to include as additional roots.
-    :param reset_config: Whether to overwrite existing workspace file.
-    """
-    workspace_file = multiverse_dir / f"{branch}.code-workspace"
-    if workspace_file.exists() and not reset_config:
-        return
-
-    workspace_content: dict[str, JSONValue] = {
-        "folders": [
-            {"path": branch},
-            *[{"path": repo.value} for repo in single_branch_repos],
-        ],
-    }
-
-    vscode_config_dir = MULTIVERSE_CONFIG_DIR / ".vscode"
-    with (vscode_config_dir / "settings.json").open("r", encoding="utf-8") as settings_fp:
-        workspace_content["settings"] = json.load(settings_fp)
-
-    with (vscode_config_dir / "launch.json").open("r", encoding="utf-8") as launch_fp:
-        workspace_content["launch"] = json.load(launch_fp)
-        for config in workspace_content["launch"]["configurations"]:
-            config.setdefault("pathMappings", []).append({
-                "localRoot": f"${{workspaceFolder:{branch}}}",
-                "remoteRoot": f"/code/{branch}",
-            })
-        for repo in single_branch_repos:
-            for config in workspace_content["launch"]["configurations"]:
-                config.setdefault("pathMappings", []).append({
-                    "localRoot": f"${{workspaceFolder:{repo.value}}}",
-                    "remoteRoot": f"/code/{repo.value}",
-                })
-
-    with (vscode_config_dir / "extensions.json").open("r", encoding="utf-8") as extensions_fp:
-        workspace_content["extensions"] = json.load(extensions_fp)
-
-    with workspace_file.open("w", encoding="utf-8") as workspace_fp:
-        json.dump(workspace_content, workspace_fp, indent=2)
-        workspace_fp.write("\n")
-
-
-def _setup_multiverse_root_config(
-    multiverse_dir: Path,
-    reset_config: bool,
-) -> None:
-    """Set up configuration files in the multiverse root directory.
-
-    :param multiverse_dir: The root directory of the multiverse setup.
-    :param reset_config: Whether existing configuration should be overwritten.
-    """
-    if not (multiverse_dir / "ruff.toml").exists() or reset_config:
-        shutil.copyfile(MULTIVERSE_CONFIG_DIR / "ruff.toml", multiverse_dir / "ruff.toml")
-
-    if not (multiverse_dir / "requirements.txt").exists() or reset_config:
-        shutil.copyfile(MULTIVERSE_CONFIG_DIR / "requirements.txt", multiverse_dir / "requirements.txt")
-
-    # The configuration is now written separately for each branch.
-    (multiverse_dir / "odools.toml").unlink(missing_ok=True)
-
-
-def _write_odools_toml(odools_path: Path, python_path: str) -> None:
-    """Write a minimal odools.toml file for a branch workspace.
-
-    :param odools_path: Path to the odools.toml file to write.
-    :param python_path: The Python interpreter path for the branch.
-    """
-    odools_path.write_text(
-        f'[[config]]\npython_path = "{python_path}"\n',
-        encoding="utf-8",
-    )
-
-
-def _setup_tools_and_deps_in_branch_dir(
-    branch_dir: Path,
-    multiverse_dir: Path,
-    reset_config: bool,
-    progress_updates: dict[str, ProgressUpdate],
-) -> None:
-    """Set up all tooling and dependencies in the given branch directory.
-
-    :param branch_dir: The branch directory in which to set up the tooling and dependencies.
-    :param multiverse_dir: The root directory of the multiverse setup.
-    :param reset_config: Whether we want the reset existing configuration files.
-    :param progress_updates: The progress update information per branch.
-    """
-    branch = branch_dir.name
-    ProgressUpdate.update_in_dict(progress_updates, branch, total=3)
-
-    # Set up Javascript tooling.
-    if _get_version_number(branch) >= JS_TOOLING_MIN_VERSION:
-        _disable_js_tooling(branch_dir)
-        _enable_js_tooling(branch_dir, progress_updates=progress_updates, branch=branch)
-
-    ProgressUpdate.update_in_dict(progress_updates, branch, advance=1)
-
-    _configure_python_env_for_branch(
-        branch_dir,
-        multiverse_dir=multiverse_dir,
+    print_header(":gear: Configure Versions")
+    version_results = _configure_versions(
+        multiverse_dir,
+        branches,
+        shared_repos=[r for r in single_branch_repos if r.value in cloned],
         reset_config=reset_config,
-        progress_updates=progress_updates,
+        vscode=vscode,
     )
+    for branch, results in version_results.items():
+        print(f"[b]{branch}[/b]")
+        print_result_table(results)
 
-    # Override python_path due to a bug with virtual environments and symlinks.
-    python_path = (
-        (branch_dir / ".venv" / "Scripts" / "python.exe")
-        if os.name == "nt"
-        else (branch_dir / ".venv" / "bin" / "python")
-    )
-    _write_odools_toml(branch_dir / "odools.toml", python_path=str(python_path.absolute()))
-
-    ProgressUpdate.update_in_dict(
-        progress_updates,
-        branch,
-        completed=1,
-        total=1,
-        status=Status.SUCCESS,
-        message=f"Configured tools and dependencies for [b]{branch}[/b].",
-    )
+    all_results = [*clone_results, *worktree_results, *(r for rs in version_results.values() for r in rs)]
+    failed = [result for result in all_results if result.outcome == Outcome.FAILED]
+    if failed:
+        print_error(f"{len(failed)} step(s) failed. Fix the problems above and run the command again.\n")
+        raise Exit(1)
+    print_success("Your Odoo Multiverse is ready! Open a version directory in your editor to start working.\n")
 
 
-def _pip_install_requirements(uv: str | None, python: Path, requirements: Path) -> None:
-    """Run pip install for the given requirements file if it exists."""
-    if not requirements.is_file():
-        return
-    cmd: list[str | Path]
-    if uv:
-        cmd = [uv, "pip", "install", "--python", python, "-q", "-r", requirements]
-    else:
-        cmd = [python, "-m", "pip", "install", "-q", "-r", requirements]
-    subprocess.run(cmd, capture_output=True, check=True)
+def _copy_root_config(multiverse_dir: Path, *, reset_config: bool) -> None:
+    """Copy the configuration shared by all versions to the multiverse directory."""
+    for filename in ("ruff.toml", "requirements.txt"):
+        if reset_config or not (multiverse_dir / filename).exists():
+            shutil.copyfile(MULTIVERSE_CONFIG_DIR / filename, multiverse_dir / filename)
 
 
-def _configure_python_env_for_branch(
-    branch_dir: Path,
+# Cloning
+
+
+def _clone_repos(
     multiverse_dir: Path,
-    reset_config: bool,
-    progress_updates: dict[str, ProgressUpdate],
-) -> None:
-    """Configure a virtual Python environment with all dependencies for a branch.
+    multi_branch_repos: list[OdooRepo],
+    single_branch_repos: list[OdooRepo],
+) -> list[RepoResult]:
+    """Clone the multi-branch repositories as bare repositories, and the single-branch ones as regular ones."""
+    with ThreadPoolExecutor() as executor, TransientProgress() as progress:
 
-    :param branch_dir: The directory in which to create the virtual environment.
-    :param reset_config: Whether we want to erase the existing virtual environment.
+        def clone(repo: OdooRepo) -> RepoResult:
+            task = progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None)
+
+            def update_progress(_op_code: int, cur_count: str | float, max_count: str | float | None, _msg: str) -> None:
+                progress.update(task, completed=float(cur_count), total=float(max_count) if max_count else None)
+
+            if repo in multi_branch_repos:
+                return clone_bare_repo(repo, multiverse_dir / WORKTREE_SOURCE_DIR / repo.value, update_progress)
+            return clone_repo(repo, multiverse_dir / repo.value, update_progress)
+
+        futures = [
+            executor.submit(run_safely, repo.value, lambda repo=repo: clone(repo))
+            for repo in [*multi_branch_repos, *single_branch_repos]
+        ]
+        return [future.result() for future in futures]
+
+
+def clone_bare_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | None = None) -> RepoResult:
+    """Clone a repository as a bare repository to add worktrees from, and configure its remotes.
+
+    The clone is partial: file contents are only downloaded when a worktree needs them, which saves gigabytes.
     """
-    branch = branch_dir.name
-    # Configure Python virtual environment.
-    venv_path = branch_dir / ".venv"
-    if venv_path.is_file():
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            branch,
-            completed=1,
-            total=1,
-            status=Status.PARTIAL,
-            message=f"The path [u]{venv_path}[/u] is not a directory. Skipping ...",
+    bare_dir = repo_dir / ".bare"
+    if bare_dir.exists():
+        bare_repo = Repo(bare_dir)
+        message = "already cloned"
+    else:
+        bare_repo = Repo.clone_from(
+            GIT_URL.format(owner="odoo", repo=repo.value),
+            bare_dir,
+            progress=progress,
+            bare=True,
+            multi_options=["--filter=blob:none"],
         )
-        return
+        message = "cloned"
 
-    if venv_path.is_dir() and reset_config:
-        shutil.rmtree(venv_path)
-
-    # Find the system Python interpreter to create the virtual environment with.
-    python = shutil.which("python3") or "python3"
-
-    uv = shutil.which("uv")
-    try:
-        # Try creating the virtual environment.
-        cmd: list[str] = [uv, "venv", str(venv_path)] if uv else [python, "-m", "venv", str(venv_path)]
-        subprocess.run(cmd, capture_output=True, check=True)
-
-        # Locate the Python executable in the virtual environment.
-        python = venv_path / "bin" / "python"  # Linux and MacOS
-        if not python.exists():
-            python = venv_path / "Scripts" / "python.exe"  # Windows
-
-        # Try upgrading pip.
-        if uv:
-            cmd = [uv, "pip", "install", "--python", str(python), "-q", "--upgrade", "pip"]
-        else:
-            cmd = [str(python), "-m", "pip", "install", "-q", "--upgrade", "pip"]
-        subprocess.run(cmd, capture_output=True, check=True)
-
-        for req_path in [
-            branch_dir / "odoo" / "requirements.txt",
-            branch_dir / "documentation" / "requirements.txt",
-            branch_dir / "documentation" / "tests" / "requirements.txt",
-            multiverse_dir / "requirements.txt",
-        ]:
-            _pip_install_requirements(uv, python, req_path)
-
-    except CalledProcessError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            branch,
-            completed=1,
-            total=1,
-            status=Status.FAILURE,
-            message=f"Installing Python dependencies for [b]{branch}[/b] failed.\nThe command that failed was:\n"
-                f"[b]{' '.join(str(p) for p in e.cmd)}[/b]\n",
-            stacktrace=e.stderr.strip(),
-        )
+    # Fetch every remote branch into a remote-tracking branch, which a bare clone doesn't do by default.
+    bare_repo.git.config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+    if repo in ODOO_DEV_REPOS:
+        if "dev" not in {remote.name for remote in bare_repo.remotes}:
+            bare_repo.create_remote("dev", GIT_URL.format(owner="odoo-dev", repo=repo.value))
+        # Pushing goes to the "dev" remote, never to "origin".
+        bare_repo.git.remote("set-url", "--push", "origin", "NO_PUSH_TRY_DEV_REPO")
+    # Allow running Git commands from the repository directory itself.
+    if not (repo_dir / ".git").exists():
+        (repo_dir / ".git").write_text("gitdir: ./.bare\n", encoding="utf-8")
+    # Forget worktrees whose directories were deleted.
+    bare_repo.git.worktree("prune")
+    return RepoResult(repo.value, Outcome.UPDATED if message == "cloned" else Outcome.SKIPPED, message)
 
 
-def _get_version_number(branch_name: str) -> float:
-    """Get the Odoo version number as a float based on the branch name.
+def clone_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | None = None) -> RepoResult:
+    """Clone a single-branch repository, which all versions share."""
+    if (repo_dir / ".git").exists():
+        return RepoResult(repo.value, Outcome.SKIPPED, "already cloned")
+    if repo_dir.exists() and any(repo_dir.iterdir()):
+        return RepoResult(repo.value, Outcome.FAILED, f"[u]{repo_dir}[/u] exists but is not a Git repository")
+    Repo.clone_from(GIT_URL.format(owner="odoo", repo=repo.value), repo_dir, progress=progress)
+    return RepoResult(repo.value, Outcome.UPDATED, "cloned")
 
-    :param branch_name: The Odoo branch name to get the version number from.
-    :return: The version number as a float.
+
+# Worktrees
+
+
+def _add_worktrees(multiverse_dir: Path, branches: list[str], repos: list[OdooRepo]) -> list[RepoResult]:
+    """Add a worktree for every version of every multi-branch repository.
+
+    The repositories are handled in parallel, but the versions of one repository one after the other, since Git locks
+    a repository while adding a worktree to it.
     """
-    if branch_name == "master":
-        return 1000.0
-    match = re.search(r"(\d+.\d)", branch_name)
-    if match:
-        return float(match.group(0))
-    return 0.0
 
-
-def _enable_js_tooling(root_dir: Path, progress_updates: dict[str, ProgressUpdate], branch: str) -> None:
-    """Enable Javascript tooling in the Community and Enterprise repositories.
-
-    :param root_dir: The parent directory of the `odoo` and `enterprise` repositories.
-    """
-    com_dir = root_dir / "odoo"
-    ent_dir = root_dir / "enterprise"
-    tooling_dir = com_dir / "addons" / "web" / "tooling"
-
-    if not com_dir.is_dir():
-        return
-
-    # Set up tools in Community.
-    shutil.copyfile(tooling_dir / "_eslintignore", com_dir / ".eslintignore")
-    shutil.copyfile(tooling_dir / "_eslintrc.json", com_dir / ".eslintrc.json")
-    if _get_version_number(root_dir.name) >= JS_TOOLING_NEW_VERSION:
-        shutil.copyfile(tooling_dir / "_jsconfig.json", com_dir / "jsconfig.json")
-    shutil.copyfile(tooling_dir / "_package.json", com_dir / "package.json")
-    cmd = ["npm", "install"]
-    try:
-        subprocess.run(cmd, capture_output=True, check=True, cwd=com_dir, text=True)
-    except CalledProcessError as e:
-        ProgressUpdate.update_in_dict(
-            progress_updates,
-            branch,
-            status=Status.FAILURE,
-            message=f"Installing Javascript tooling dependencies failed in [b]{branch}[/b].\n"
-                f"The command that failed was:\n\n[b]{' '.join(cmd)}[/b]",
-            stacktrace=e.stderr.strip(),
-        )
-        return
-
-    if not ent_dir.is_dir():
-        return
-
-    # Set up tools in Enterprise.
-    shutil.copyfile(tooling_dir / "_eslintignore", ent_dir / ".eslintignore")
-    shutil.copyfile(tooling_dir / "_eslintrc.json", ent_dir / ".eslintrc.json")
-    shutil.copyfile(tooling_dir / "_package.json", ent_dir / "package.json")
-    if _get_version_number(root_dir.name) >= JS_TOOLING_NEW_VERSION:
-        shutil.copyfile(tooling_dir / "_jsconfig.json", ent_dir / "jsconfig.json")
-        try:
-            # Replace "addons" path with relative path from Enterprise in jsconfig.json.
-            with (ent_dir / "jsconfig.json").open("r", encoding="utf-8") as jsconfig_file:
-                jsconfig_content = jsconfig_file.read().replace(
-                    "addons",
-                    f"{os.path.relpath(com_dir, ent_dir)}/addons",
-                )
-            with (ent_dir / "jsconfig.json").open("w", encoding="utf-8") as jsconfig_file:
-                jsconfig_file.write(jsconfig_content)
-        except OSError as e:
-            ProgressUpdate.update_in_dict(
-                progress_updates,
-                branch,
-                status=Status.FAILURE,
-                message=f"Modifying the jsconfig.json file in [b]{branch}[/b] to use relative paths failed.",
-                stacktrace=str(e),
+    def add_for_repo(repo: OdooRepo, task: TaskID) -> list[RepoResult]:
+        results: list[RepoResult] = []
+        for branch in branches:
+            results.append(
+                run_safely(
+                    f"{branch}/{repo.value}",
+                    lambda branch=branch: add_worktree(
+                        multiverse_dir / WORKTREE_SOURCE_DIR / repo.value / ".bare",
+                        multiverse_dir / branch / repo.value,
+                        branch,
+                    ),
+                ),
             )
-            return
-    # Copy over node_modules and package-lock.json to avoid "npm install" twice.
-    shutil.copyfile(com_dir / "package-lock.json", ent_dir / "package-lock.json")
-    shutil.copytree(com_dir / "node_modules", ent_dir / "node_modules", dirs_exist_ok=True)
+            progress.advance(task)
+        return results
+
+    with ThreadPoolExecutor() as executor, TransientProgress() as progress:
+        futures = [
+            executor.submit(
+                add_for_repo, repo, progress.add_task(f"Adding [b]{repo.value}[/b] worktrees", total=len(branches)),
+            )
+            for repo in repos
+        ]
+        results = [result for future in futures for result in future.result()]
+    # Group the results per version.
+    return sorted(results, key=lambda result: branches.index(result.name.split("/")[0]))
 
 
-def _disable_js_tooling(root_dir: Path) -> None:
-    """Disable Javascript tooling in the Community and Enterprise repositories.
+def add_worktree(bare_dir: Path, worktree_dir: Path, branch: str) -> RepoResult:
+    """Add a worktree for a branch, tracking the branch on `origin`.
 
-    :param root_dir: The parent directory of the "odoo" and "enterprise" repositories.
+    :param bare_dir: The bare repository to add the worktree from.
+    :param worktree_dir: The directory of the new worktree.
+    :param branch: The branch to check out.
+    :return: The result of adding the worktree.
     """
-    com_dir = root_dir / "odoo"
-    ent_dir = root_dir / "enterprise"
+    name = f"{worktree_dir.parent.name}/{worktree_dir.name}"
+    if (worktree_dir / ".git").exists():
+        return RepoResult(name, Outcome.SKIPPED, "already set up")
+    if worktree_dir.exists() and any(worktree_dir.iterdir()):
+        return RepoResult(name, Outcome.FAILED, f"[u]{worktree_dir}[/u] exists but is not a Git worktree")
 
-    for odoo_dir in (com_dir, ent_dir):
-        if odoo_dir.is_dir():
-            (odoo_dir / ".eslintignore").unlink(missing_ok=True)
-            (odoo_dir / ".eslintrc.json").unlink(missing_ok=True)
-            (odoo_dir / "jsconfig.json").unlink(missing_ok=True)
-            (odoo_dir / "package.json").unlink(missing_ok=True)
-            (odoo_dir / "package-lock.json").unlink(missing_ok=True)
-            shutil.rmtree(odoo_dir / "node_modules", ignore_errors=True)
-            # Support old versions
-            (odoo_dir / ".prettierignore").unlink(missing_ok=True)
-            (odoo_dir / ".prettierrc.json").unlink(missing_ok=True)
+    bare_repo = Repo(bare_dir)
+    try:
+        fetch_branch(bare_repo, "origin", branch)
+    except GitCommandError as e:
+        if "couldn't find remote ref" in git_error_message(e):
+            return RepoResult(name, Outcome.SKIPPED, f"no [b]{branch}[/b] branch in this repository")
+        raise
+
+    upstream = f"origin/{branch}"
+    if branch in bare_repo.heads:
+        # The bare clone created a local branch, which may be behind the remote one.
+        bare_repo.git.worktree("add", str(worktree_dir), branch)
+        worktree_repo = Repo(worktree_dir)
+        worktree_repo.git.branch("--set-upstream-to", upstream, branch)
+        try:
+            worktree_repo.git.merge("--ff-only", upstream)
+        except GitCommandError:
+            return RepoResult(name, Outcome.WARNING, f"added, but [b]{branch}[/b] has diverged from [b]{upstream}[/b]")
+    else:
+        bare_repo.git.worktree("add", "--track", "-b", branch, str(worktree_dir), upstream)
+    return RepoResult(name, Outcome.UPDATED, "added")
+
+
+# Version configuration
+
+
+def _configure_versions(
+    multiverse_dir: Path,
+    branches: list[str],
+    *,
+    shared_repos: list[OdooRepo],
+    reset_config: bool,
+    vscode: bool,
+) -> dict[str, list[RepoResult]]:
+    """Configure every version directory in parallel."""
+    versions = get_versions()
+
+    def configure(branch: str, task: TaskID) -> list[RepoResult]:
+        version_dir = multiverse_dir / branch
+        if not version_dir.is_dir():
+            return [RepoResult("version", Outcome.SKIPPED, "no repositories for this version")]
+        steps: list[tuple[str, Callable[[], RepoResult]]] = [
+            ("shared repositories", lambda: link_shared_repos(version_dir, shared_repos)),
+            (
+                "python",
+                lambda: setup_python_env(
+                    version_dir,
+                    python=versions[branch].python if branch in versions else None,
+                    requirements=[version_dir / path for path in VERSION_REQUIREMENTS]
+                    + [multiverse_dir / "requirements.txt"],
+                    reset=reset_config,
+                ),
+            ),
+            ("javascript", lambda: setup_js_tooling(version_dir)),
+        ]
+        if vscode:
+            steps.append(
+                ("vscode", lambda: write_vscode_config(version_dir, shared_repos=shared_repos, reset=reset_config)),
+            )
+        results: list[RepoResult] = []
+        for name, step in steps:
+            progress.update(task, description=f"Configuring [b]{branch}[/b]: {name}")
+            results.append(run_safely(name, step))
+            progress.advance(task)
+        return results
+
+    with ThreadPoolExecutor() as executor, TransientProgress() as progress:
+        futures = {
+            branch: executor.submit(
+                configure, branch, progress.add_task(f"Configuring [b]{branch}[/b]", total=4 if vscode else 3),
+            )
+            for branch in branches
+        }
+        return {branch: future.result() for branch, future in futures.items()}
+
+
+def link_shared_repos(version_dir: Path, shared_repos: list[OdooRepo]) -> RepoResult:
+    """Link the single-branch repositories, which all versions share, into a version directory.
+
+    The links are relative, so the multiverse directory can be moved.
+    """
+    linked: list[str] = []
+    blocked: list[str] = []
+    for repo in shared_repos:
+        link = version_dir / repo.value
+        target = Path("..") / repo.value
+        if link.is_symlink():
+            if link.readlink() != target:
+                link.unlink()
+                link.symlink_to(target, target_is_directory=True)
+            linked.append(repo.value)
+        elif link.exists():
+            blocked.append(repo.value)
+        else:
+            link.symlink_to(target, target_is_directory=True)
+            linked.append(repo.value)
+
+    if blocked:
+        return RepoResult(
+            "shared repositories",
+            Outcome.WARNING,
+            f"[b]{'[/b], [b]'.join(blocked)}[/b] already exist as regular folders, so they aren't linked to the "
+            "shared repositories. Remove them to link them.",
+        )
+    if not linked:
+        return RepoResult("shared repositories", Outcome.SKIPPED, "none selected")
+    return RepoResult("shared repositories", Outcome.UPDATED, f"linked [b]{'[/b], [b]'.join(linked)}[/b]")
+
+
+def setup_python_env(version_dir: Path, *, python: str | None, requirements: list[Path], reset: bool) -> RepoResult:
+    """Create a virtual environment for a version and install its dependencies, using uv.
+
+    The environment serves the editor (code completion, linting, ...). Odoo itself runs in Docker, so packages that
+    fail to build on this machine are reported, but don't fail the setup.
+
+    :param version_dir: The version directory to create the `.venv` in.
+    :param python: The Python version to use, like `3.12`, or None for uv's default.
+    :param requirements: The requirement files to install, if they exist.
+    :param reset: Whether to recreate an existing environment.
+    :return: The result of the setup.
+    """
+    venv_dir = version_dir / ".venv"
+    if venv_dir.exists() and (reset or (python and get_venv_python(venv_dir) != python)):
+        shutil.rmtree(venv_dir)
+
+    venv_cmd = ["uv", "venv", "--seed", "--allow-existing", "--quiet"]
+    if python:
+        venv_cmd += ["--python", python]
+    try:
+        _run([*venv_cmd, str(venv_dir)])
+    except CalledProcessError as e:
+        error = (e.stderr or "").strip().splitlines()
+        return RepoResult("python", Outcome.FAILED, f"creating the environment failed: {error[-1] if error else e}")
+
+    # The Odoo language server doesn't follow the venv's symlinked interpreter, so point it to the real path.
+    python_path = (venv_dir / "bin" / "python").absolute()
+    (version_dir / "odools.toml").write_text(f'[[config]]\npython_path = "{python_path}"\n', encoding="utf-8")
+
+    failed = install_requirements(venv_dir / "bin" / "python", [path for path in requirements if path.is_file()])
+    version = get_venv_python(venv_dir) or "?"
+    if failed:
+        return RepoResult(
+            "python",
+            Outcome.WARNING,
+            f"Python {version}; could not install [b]{'[/b], [b]'.join(failed)}[/b]. Only code completion for these "
+            "is affected, since Odoo runs in Docker.",
+        )
+    return RepoResult("python", Outcome.UPDATED, f"Python {version} with all requirements")
+
+
+def install_requirements(python: Path, requirement_files: list[Path]) -> list[str]:
+    """Install requirement files into a virtual environment, skipping the requirements that fail to install.
+
+    :param python: The Python interpreter of the virtual environment.
+    :param requirement_files: The requirement files to install.
+    :return: The requirements that failed to install.
+    """
+    if not requirement_files:
+        return []
+    install_cmd = ["uv", "pip", "install", "--quiet", "--python", str(python)]
+    try:
+        _run([*install_cmd, *(arg for path in requirement_files for arg in ("-r", str(path)))])
+    except CalledProcessError:
+        pass
+    else:
+        return []
+
+    # Installing everything at once failed, so find out which requirements are to blame.
+    failed: list[str] = []
+    for requirement in parse_requirements(requirement_files):
+        try:
+            _run([*install_cmd, requirement])
+        except CalledProcessError:  # noqa: PERF203 (each requirement must be tried separately)
+            failed.append(requirement.split(";")[0].strip())
+    return failed
+
+
+def parse_requirements(requirement_files: list[Path]) -> list[str]:
+    """Get the requirements in requirement files, without comments, options and duplicates.
+
+    :param requirement_files: The requirement files to read.
+    :return: The requirements, including their version specifiers and environment markers.
+    """
+    requirements: dict[str, None] = {}
+    for path in requirement_files:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            requirement = line.split(" #")[0].strip()
+            if requirement and not requirement.startswith(("#", "-")):
+                requirements[requirement] = None
+    return list(requirements)
+
+
+def get_venv_python(venv_dir: Path) -> str | None:
+    """Get the `major.minor` Python version of a virtual environment."""
+    config = venv_dir / "pyvenv.cfg"
+    if not config.is_file():
+        return None
+    for line in config.read_text(encoding="utf-8").splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() in {"version_info", "version"}:
+            return ".".join(value.strip().split(".")[:2])
+    return None
+
+
+def setup_js_tooling(version_dir: Path) -> RepoResult:
+    """Set up the JavaScript tooling (ESLint, type checking) in the Community and Enterprise repositories."""
+    com_dir = version_dir / "odoo"
+    ent_dir = version_dir / "enterprise"
+    tooling_dir = com_dir / "addons" / "web" / "tooling"
+    if not tooling_dir.is_dir():
+        return RepoResult("javascript", Outcome.SKIPPED, "no Community repository")
+    if not shutil.which("npm"):
+        return RepoResult("javascript", Outcome.WARNING, "[b]npm[/b] not found, so the tooling isn't installed")
+
+    for source, target in JS_TOOLING_FILES.items():
+        shutil.copyfile(tooling_dir / source, com_dir / target)
+    try:
+        _run(["npm", "install", "--silent"], cwd=com_dir)
+    except CalledProcessError as e:
+        error = (e.stderr or "").strip().splitlines()
+        return RepoResult("javascript", Outcome.FAILED, f"npm install failed: {error[-1] if error else e}")
+
+    if ent_dir.is_dir():
+        for source, target in JS_TOOLING_FILES.items():
+            shutil.copyfile(tooling_dir / source, ent_dir / target)
+        # Enterprise refers to the Community addons, so make the paths relative to Enterprise.
+        jsconfig = ent_dir / "jsconfig.json"
+        jsconfig.write_text(
+            jsconfig.read_text(encoding="utf-8").replace("addons", f"{os.path.relpath(com_dir, ent_dir)}/addons"),
+            encoding="utf-8",
+        )
+        # Reuse the Community dependencies instead of installing them twice.
+        shutil.copyfile(com_dir / "package-lock.json", ent_dir / "package-lock.json")
+        shutil.copytree(com_dir / "node_modules", ent_dir / "node_modules", dirs_exist_ok=True, symlinks=True)
+    return RepoResult("javascript", Outcome.UPDATED, "ESLint and type checking set up")
+
+
+def write_vscode_config(version_dir: Path, *, shared_repos: list[OdooRepo], reset: bool) -> RepoResult:
+    """Write the Visual Studio Code configuration of a version directory.
+
+    :param version_dir: The version directory.
+    :param shared_repos: The single-branch repositories linked into the version directory.
+    :param reset: Whether to overwrite existing configuration files.
+    :return: The result of writing the configuration.
+    """
+    vscode_dir = version_dir / ".vscode"
+    vscode_dir.mkdir(exist_ok=True)
+    source_dir = MULTIVERSE_CONFIG_DIR / ".vscode"
+    linked_repos = [repo.value for repo in shared_repos if (version_dir / repo.value).is_symlink()]
+
+    settings = _read_json(source_dir / "settings.json")
+    settings["python.defaultInterpreterPath"] = "${workspaceFolder}/.venv/bin/python"
+    # Source Control doesn't look inside linked folders by itself.
+    settings["git.scanRepositories"] = linked_repos
+
+    launch = _read_json(source_dir / "launch.json")
+    # Map the paths of the current development containers, which mount the multiverse in `/code`.
+    for configuration in launch["configurations"]:
+        if configuration.get("request") == "attach":
+            configuration["pathMappings"] = [
+                *({"localRoot": f"${{workspaceFolder}}/{repo}", "remoteRoot": f"/code/{repo}"} for repo in linked_repos),
+                {"localRoot": "${workspaceFolder}", "remoteRoot": f"/code/{version_dir.name}"},
+            ]
+
+    files = {
+        vscode_dir / "settings.json": settings,
+        vscode_dir / "launch.json": launch,
+        vscode_dir / "extensions.json": _read_json(source_dir / "extensions.json"),
+    }
+    written = [path.name for path, content in files.items() if _write_json(path, content, overwrite=reset)]
+
+    if not written:
+        return RepoResult("vscode", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)")
+    return RepoResult("vscode", Outcome.UPDATED, f"wrote [b]{'[/b], [b]'.join(written)}[/b]")
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    with path.open(encoding="utf-8") as file:
+        return json.load(file)
+
+
+def _write_json(path: Path, content: dict[str, Any], *, overwrite: bool) -> bool:
+    """Write a JSON file, unless it exists and shouldn't be overwritten.
+
+    :return: Whether the file was written.
+    """
+    if path.exists() and not overwrite:
+        return False
+    path.write_text(json.dumps(content, indent=4) + "\n", encoding="utf-8")
+    return True
+
+
+def _run(cmd: list[str], cwd: Path | None = None) -> None:
+    """Run a command, capturing its output.
+
+    :raises CalledProcessError: If the command failed.
+    """
+    subprocess.run(cmd, cwd=cwd, capture_output=True, check=True, text=True)
