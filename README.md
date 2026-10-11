@@ -76,8 +76,8 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | Command                           | Purpose                                                                                        |
 | --------------------------------- | ---------------------------------------------------------------------------------------------- |
 | [`otk mv setup`](#otk-mv-setup)   | Set up an Odoo Multiverse environment, having different branches checked out at the same time. |
-| [`otk mv reset`](#otk-mv-reset)   | Reset the repositories inside an Odoo Multiverse branch directory.                             |
-| [`otk mv switch`](#otk-mv-switch) | Switch branches inside an Odoo Multiverse branch directory.                                    |
+| [`otk mv reset`](#otk-mv-reset)   | Reset the repositories inside an Odoo Multiverse version directory.                            |
+| [`otk mv switch`](#otk-mv-switch) | Switch branches inside an Odoo Multiverse version directory.                                   |
 
 
 ## Odoo Translation Files (`otk po`)
@@ -764,11 +764,11 @@ $ otk mv setup -b 16.0 -b 17.0 -b 18.0 -r odoo -r enterprise -r upgrade -r upgra
 
 ## `otk mv reset`
 
-**Reset the repositories inside an Odoo Multiverse branch directory.**
+**Reset the repositories inside an Odoo Multiverse version directory.**
 
-You can run this command inside one of the multiverse directories (corresponding to a branch). It will go through all repositories inside the directory and reset them to their original branch. By default it will only reset the multi-branch repositories. If you pass the `--all` flag, it will also reset the single-branch repositories.
+Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every multi-branch repository is checked out on the version's branch and reset to the latest state on `origin`, so you start with a clean slate.
 
-Meanwhile, it will pull the latest changes from `origin` so you're ready to start with a clean slate.
+Uncommitted changes are stashed with a label telling where they came from (like `otk: 19.0/odoo before reset to 19.0`), so you can restore them later. Local commits on the version's branch are discarded, but reported with the commit to recover them from. Leftover `__pycache__` folders of deleted or moved modules are removed as well.
 
 ### Usage
 
@@ -778,17 +778,19 @@ $ otk mv reset [OPTIONS]
 
 ### Options
 
-* `--all`: Also reset the single-branch repositories.
+* `--shared, --all`: Also reset the single-branch repositories (like `upgrade`) to their default branch. They are shared by all versions, so this affects every version directory.
 * `--help`: Show this message and exit.
 
 
 ## `otk mv switch`
 
-**Switch branches inside an Odoo Multiverse branch directory.**
+**Switch branches inside an Odoo Multiverse version directory.**
 
-This will try to pull the given branch for every repository inside the current branch directory and switch to it. If the given branch doesn't exist on the remote for a repository, we will just pull the current branch's latest changes.
+Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every repository that has the given branch on one of its remotes is switched to it and fast-forwarded. The other repositories stay on their current branch, which is fast-forwarded to its upstream.
 
 A common use-case is to switch to a specific task's branches.
+
+Uncommitted changes are stashed with a label telling where they came from, so you can restore them later. Local commits are never discarded: if a branch has diverged from its remote, it is left as is and reported.
 
 ### Usage
 
@@ -807,4 +809,5 @@ $ otk mv switch odoo-dev:master-fix-abc
 ### Options
 
 * `-r, --remote [dev|origin]`: Use this local remote for finding the given branch.
+* `--shared`: Also switch the single-branch repositories (like `upgrade`). They are shared by all versions, so this affects every version directory.
 * `--help`: Show this message and exit.

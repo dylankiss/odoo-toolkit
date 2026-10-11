@@ -1,15 +1,28 @@
-import contextlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from itertools import chain
 from pathlib import Path
 from typing import Annotated
 
-from git import GitCommandError, InvalidGitRepositoryError, Repo
-from typer import Argument, Option, Typer
+from git import Repo
+from typer import Argument, Exit, Option, Typer
 
-from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_success
+from odoo_toolkit.common import print, print_command_title, print_error
 
-from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRemote
+from .common import OdooRemote
+from .repos import (
+    Outcome,
+    RepoResult,
+    checkout_and_fast_forward,
+    fast_forward,
+    fetch_branch,
+    find_version_dir,
+    get_current_branch,
+    get_other_worktree_using_branch,
+    get_repo_dirs,
+    preauthenticate_ssh,
+    print_results,
+    remote_has_branch,
+    run_on_repos,
+    stash_if_dirty,
+)
 
 app = Typer()
 
@@ -26,100 +39,96 @@ def switch(
     remote: Annotated[
         OdooRemote | None, Option("--remote", "-r", help="Use this local remote for finding the given branch."),
     ] = None,
+    include_shared: Annotated[
+        bool,
+        Option(
+            "--shared",
+            help="Also switch the single-branch repositories (like `upgrade`). They are shared by all versions, so "
+            "this affects every version directory.",
+        ),
+    ] = False,
 ) -> None:
-    """Switch branches :twisted_rightwards_arrows: inside an Odoo Multiverse branch directory.
+    """Switch branches :twisted_rightwards_arrows: inside an Odoo Multiverse version directory.
 
-    This will try to pull the given branch for every repository inside the current branch directory and switch to it. If
-    the given branch doesn't exist on the remote for a repository, we will just pull the current branch's latest
-    changes.\n
+    Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every repository that has
+    the given branch on one of its remotes is switched to it and fast-forwarded. The other repositories stay on their
+    current branch, which is fast-forwarded to its upstream.\n
     \n
-    A common use-case is to switch to a specific task's branches.
+    A common use-case is to switch to a specific task's branches.\n
+    \n
+    Uncommitted changes are stashed with a label telling where they came from, so you can restore them later. Local
+    commits are never discarded: if a branch has diverged from its remote, it is left as is and reported.
     """
-    print_command_title(":inbox_tray: Switch Multiverse Branches")
+    print_command_title(":twisted_rightwards_arrows: Switch Multiverse Branches")
 
     if branch.startswith("odoo-dev:"):
-        remote, branch = OdooRemote.DEV, branch[9:]
+        remote, branch = OdooRemote.DEV, branch.removeprefix("odoo-dev:")
     elif branch.startswith("odoo:"):
-        remote, branch = OdooRemote.ORIGIN, branch[5:]
+        remote, branch = OdooRemote.ORIGIN, branch.removeprefix("odoo:")
 
-    branch_dir = Path.cwd()
-    repo_dirs = [
-        branch_dir / repo.value
-        for repo in chain(MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS)
-        if (branch_dir / repo.value).is_dir()
-    ]
-    switched_repos = set[str]()
+    version_dir = find_version_dir(Path.cwd())
+    if not version_dir:
+        print_error("Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo-mv/19.0[/u]).\n")
+        raise Exit(1)
 
-    with ThreadPoolExecutor() as executor, TransientProgress() as progress:
-        progress_task = progress.add_task(f"Switching to branch [b]{branch}[/b]", total=len(repo_dirs))
-        future_to_repo = {
-            executor.submit(_switch_branch_for_repo, repo_dir, branch, remote and remote.value, progress): repo_dir.name
-            for repo_dir in repo_dirs
-        }
+    repo_dirs = get_repo_dirs(version_dir, include_shared=include_shared)
+    print(f"Switching the repositories in [u]{version_dir}[/u] to [b]{branch}[/b]\n")
 
-        for future in as_completed(future_to_repo):
-            with contextlib.suppress(Exception):
-                if future.result():
-                    switched_repos.add(future_to_repo[future])
-            progress.advance(progress_task, 1)
+    preauthenticate_ssh(repo_dir for _, repo_dir in repo_dirs)
+    results = run_on_repos(
+        repo_dirs,
+        lambda repo_dir: switch_repo(repo_dir, branch=branch, remote=remote and remote.value, version=version_dir.name),
+        f"Switching to {branch}",
+    )
 
-    if not switched_repos:
-        if remote:
-            print_error(
-                f"The branch [b]{branch}[/b] could not be found on remote [b]{remote.value}[/b] for any repository.\n",
+    success = print_results(results, version_dir)
+    if not any(result.branch_found for result in results):
+        where = f"remote [b]{remote.value}[/b]" if remote else "any remote"
+        print_error(f"The branch [b]{branch}[/b] could not be found on {where} for any repository.\n")
+        success = False
+    if not success:
+        raise Exit(1)
+
+
+def switch_repo(repo_dir: Path, *, branch: str, remote: str | None, version: str) -> RepoResult:
+    """Switch a repository to the given branch, or fast-forward its current branch if the branch doesn't exist.
+
+    :param repo_dir: The repository directory.
+    :param branch: The branch to switch to.
+    :param remote: The remote to look for the branch on, or None to look on every remote.
+    :param version: The multiverse version, used to label stashed changes.
+    :return: The result of the switch.
+    """
+    repo = Repo(repo_dir)
+    name = repo_dir.name
+    remote_names = [r.name for r in repo.remotes]
+    candidates = [remote] if remote in remote_names else remote_names
+    found_remote = next((r for r in candidates if remote_has_branch(repo, r, branch)), None)
+
+    if not found_remote:
+        return _update_current_branch(repo, name, reason=f"[b]{branch}[/b] not found on {', '.join(candidates)}")
+
+    # Make sure the branch can be checked out before touching any uncommitted changes.
+    fetch_branch(repo, found_remote, branch)
+    stash = None
+    if get_current_branch(repo) != branch:
+        if other_worktree := get_other_worktree_using_branch(repo, branch):
+            return RepoResult(
+                name, Outcome.FAILED, f"[b]{branch}[/b] is checked out in [u]{other_worktree}[/u]", branch_found=True,
             )
-        else:
-            print_error(f"The branch [b]{branch}[/b] could not be found on any remote for any repository.\n")
-    elif len(switched_repos) > 1:
-        print_success(
-            f"Repositories [b]{'[/b], [b]'.join(switched_repos)}[/b] were switched to branch [b]{branch}[/b].\n",
-        )
-    else:
-        print_success(f"Repository [b]{next(iter(switched_repos))}[/b] was switched to branch [b]{branch}[/b].\n")
+        stash = stash_if_dirty(repo, f"otk: {version}/{name} before switch to {branch}")
+
+    outcome, message = checkout_and_fast_forward(repo, found_remote, branch)
+    return RepoResult(name, outcome, message, stash, branch_found=True)
 
 
-def _switch_branch_for_repo(repo_dir: Path, branch: str, remote: str | None, progress: TransientProgress) -> bool:
-    try:
-        repo = Repo(repo_dir)
+def _update_current_branch(repo: Repo, name: str, reason: str) -> RepoResult:
+    """Fast-forward the current branch to its upstream, for repositories that don't have the requested branch."""
+    current_branch = get_current_branch(repo)
+    tracking = repo.active_branch.tracking_branch() if current_branch else None
+    if not current_branch or not tracking:
+        return RepoResult(name, Outcome.SKIPPED, f"{reason}; current branch has no upstream to update from")
 
-        if remote and all(r.name != remote for r in repo.remotes):
-            # If the remote does not exist for this repo, fallback to the first existing remote.
-            remote = repo.remotes[0].name
-
-        if not remote:
-            # If no remote is given, try to find the first remote containing the requested branch.
-            # If no remote containing the branch can be found, take the first remote of the repo.
-            remote = repo.remotes[0].name
-            for r in repo.remotes:
-                if repo.git.ls_remote("--heads", r, branch):
-                    remote = r.name
-                    break
-
-        if not repo.git.ls_remote("--heads", remote, branch):
-            # Branch does not exist on remote. Just pull the latest changes.
-            progress_task = progress.add_task(f"Pulling latest changes for [b]{repo_dir.name}[/b]", total=1)
-            repo.git.pull()
-            progress.advance(progress_task, 1)
-            return False
-
-        progress_task = progress.add_task(f"Switching [b]{repo_dir.name}[/b] to [b]{branch}[/b]", total=3)
-        if repo.is_dirty(untracked_files=True):
-            # Stash potential changes before switching.
-            repo.git.stash("push", "--include-untracked")
-            print(f":arrows_counterclockwise: Stashed dirty changes in [u]{repo_dir}[/u] before resetting.")
-        # Pull latest refs from the remote.
-        repo.remote(remote).fetch(branch)
-        progress.advance(progress_task, 1)
-        # Check if the branch exists locally
-        if branch in repo.heads:
-            repo.git.checkout(branch)
-        else:
-            # Create a new tracking branch from the remote branch
-            repo.git.checkout("-b", branch, f"{remote}/{branch}")
-        progress.advance(progress_task, 1)
-        # Pull the latest changes
-        repo.git.pull(remote, branch)
-        progress.advance(progress_task, 1)
-    except (GitCommandError, InvalidGitRepositoryError):
-        return False
-    return True
+    fetch_branch(repo, tracking.remote_name, tracking.remote_head)
+    outcome, message = fast_forward(repo, tracking.name)
+    return RepoResult(name, Outcome.SKIPPED if outcome == Outcome.UPDATED else outcome, f"{reason}; {message}")
