@@ -1,0 +1,42 @@
+{
+  "18.0": {
+    "image": "Docker18",
+    "ubuntu": "noble",
+    "python": "3.12"
+  },
+  "19.0": {
+    "image": "Docker19",
+    "ubuntu": "noble",
+    "python": "3.12"
+  },
+  "saas-19.1": {
+    "image": "Docker191",
+    "ubuntu": "noble",
+    "python": "3.12"
+  },
+  "saas-19.2": {
+    "image": "Docker191",
+    "ubuntu": "noble",
+    "python": "3.12"
+  },
+  "saas-19.3": {
+    "image": "Docker191",
+    "ubuntu": "noble",
+    "python": "3.12"
+  },
+  "saas-19.4": {
+    "image": "Docker194",
+    "ubuntu": "resolute",
+    "python": "3.14"
+  },
+  "20.0": {
+    "image": "DockerMaster",
+    "ubuntu": "resolute",
+    "python": "3.14"
+  },
+  "master": {
+    "image": "DockerMaster",
+    "ubuntu": "resolute",
+    "python": "3.14"
+  }
+}

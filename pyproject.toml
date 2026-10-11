@@ -38,6 +38,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"scripts/**" = [
+    "INP001",   # implicit-namespace-package
+    "T201",     # print
+]
 "tests/**" = [
     "D",        # pydocstyle
     "INP001",   # implicit-namespace-package
