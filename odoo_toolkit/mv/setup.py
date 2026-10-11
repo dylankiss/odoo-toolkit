@@ -463,7 +463,7 @@ def install_requirements(python: Path, requirement_files: list[Path]) -> list[st
     for requirement in parse_requirements(requirement_files):
         try:
             _run([*install_cmd, requirement])
-        except CalledProcessError:  # noqa: PERF203 (each requirement must be tried separately)
+        except CalledProcessError:
             failed.append(requirement.split(";")[0].strip())
     return failed
 

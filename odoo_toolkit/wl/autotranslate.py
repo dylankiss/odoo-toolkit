@@ -1,6 +1,6 @@
 import itertools
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 from typer import Argument, Exit, Option, Typer, confirm
@@ -29,7 +29,7 @@ from .common import (
 )
 
 
-class TranslationMode(str, Enum):
+class TranslationMode(StrEnum):
     """Translation modes available for the autotranslate endpoint."""
 
     SUGGEST = "suggest"
@@ -38,7 +38,7 @@ class TranslationMode(str, Enum):
     APPROVED = "approved"
 
 
-class TranslationEngines(str, Enum):
+class TranslationEngines(StrEnum):
     """Translation engines available for the autotranslate endpoint."""
 
     ALIBABA = "alibaba"

@@ -3,14 +3,15 @@ name = "odoo-toolkit"
 version = "3.3.0"
 description = "This toolkit contains a few useful tools for Odoo development."
 authors = [{ name = "Dylan Kiss", email = "dyki@odoo.com" }]
-requires-python = "~=3.10"
+requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "requests>=2.32.4",
-    "typer>=0.15.4",
-    "python-on-whales>=0.76.1",
-    "gitpython>=3.1.46",
+    "gitpython>=3.2.0",
     "polib>=1.2.0",
+    "python-on-whales>=0.81.0",
+    "requests>=2.34.2",
+    "rich>=15.0.0",
+    "typer>=0.27.3",
 ]
 
 [project.scripts]
@@ -18,7 +19,7 @@ otk = "odoo_toolkit.main:app"
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 preview = false

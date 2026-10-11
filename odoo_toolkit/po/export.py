@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from fnmatch import fnmatch
 from operator import itemgetter
 from pathlib import Path
@@ -45,7 +45,7 @@ DEFAULT_RETRY_COMMAND_MAX_WIDTH = 100
 app = Typer()
 
 
-class _ServerType(str, Enum):
+class _ServerType(StrEnum):
     COM = "Community"
     ENT = "Enterprise"
     L10N = "Localizations"

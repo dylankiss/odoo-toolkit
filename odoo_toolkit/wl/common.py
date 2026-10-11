@@ -10,7 +10,7 @@ import zipfile
 from collections import defaultdict
 from collections.abc import Callable, Collection, Generator, Mapping
 from email.utils import parsedate_to_datetime
-from enum import Enum
+from enum import StrEnum
 from fnmatch import fnmatch
 from os import environ
 from pathlib import Path
@@ -708,7 +708,7 @@ class WeblateConfig:
         return self.config["projects"].get(project, [])
 
 
-class UploadMethod(str, Enum):
+class UploadMethod(StrEnum):
     """Upload methods available to the translation upload endpoint."""
 
     TRANSLATE = "translate"
@@ -716,7 +716,7 @@ class UploadMethod(str, Enum):
     SUGGEST = "suggest"
 
 
-class UploadConflicts(str, Enum):
+class UploadConflicts(StrEnum):
     """Conflict handling available to the translation upload endpoint."""
 
     IGNORE = "ignore"
@@ -724,7 +724,7 @@ class UploadConflicts(str, Enum):
     REPLACE_APPROVED = "replace-approved"
 
 
-class UploadFuzzy(str, Enum):
+class UploadFuzzy(StrEnum):
     """Fuzzy handling available to the translation upload endpoint."""
 
     IGNORE = "ignore"

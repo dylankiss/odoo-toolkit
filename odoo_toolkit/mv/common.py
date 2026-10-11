@@ -1,14 +1,14 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class OdooRemote(str, Enum):
+class OdooRemote(StrEnum):
     """Odoo remote names used locally."""
 
     DEV = "dev"
     ORIGIN = "origin"
 
 
-class OdooRepo(str, Enum):
+class OdooRepo(StrEnum):
     """Odoo repositories available for cloning."""
 
     DESIGN_THEMES = "design-themes"
