@@ -149,9 +149,12 @@ def test_write_vscode_config(tmp_path: Path) -> None:
     assert settings["python.defaultInterpreterPath"] == "${workspaceFolder}/.venv/bin/python"
     assert settings["git.scanRepositories"] == ["upgrade"]
     launch = json.loads((version_dir / ".vscode" / "launch.json").read_text())
-    attach = next(c for c in launch["configurations"] if c["request"] == "attach")
-    assert {"localRoot": "${workspaceFolder}", "remoteRoot": "/code/19.0"} in attach["pathMappings"]
-    assert {"localRoot": "${workspaceFolder}/upgrade", "remoteRoot": "/code/upgrade"} in attach["pathMappings"]
+    tasks = json.loads((version_dir / ".vscode" / "tasks.json").read_text())
+    run_and_debug = launch["configurations"][0]
+    # F5 runs Odoo with the debugger, and the paths are the same in the container, so no mappings are needed.
+    assert run_and_debug["preLaunchTask"] in {task["label"] for task in tasks["tasks"]}
+    assert run_and_debug["postDebugTask"] in {task["label"] for task in tasks["tasks"]}
+    assert "pathMappings" not in run_and_debug
     # Existing configuration is kept, unless resetting.
     assert mv_setup.write_vscode_config(version_dir, reset=False).outcome == Outcome.SKIPPED
     assert mv_setup.write_vscode_config(version_dir, reset=True).outcome == Outcome.UPDATED
@@ -279,4 +282,3 @@ def test_follow_default_branch_leaves_your_work_alone(tmp_path: Path, remotes: P
     assert result.outcome == Outcome.WARNING
     assert "uncommitted changes" in result.message
     assert repo.current_branch() == "18.0"
-

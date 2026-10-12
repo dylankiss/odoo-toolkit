@@ -132,7 +132,7 @@ def setup(
     - a link to every shared repository (like `upgrade`), which all versions use,\n
     - a link to the pinned repositories that run on this version (like `odoofin`),\n
     - a Python virtual environment with the same Python version as Runbot and the version's dependencies,\n
-    - the JavaScript tooling, and the Visual Studio Code configuration.\n
+    - the JavaScript tooling, and the Visual Studio Code configuration, where `F5` runs Odoo with the debugger.\n
     \n
     > Make sure you have set up your **GitHub SSH key**, and installed [`uv`](https://docs.astral.sh/uv/) and `npm`.\n
     \n
@@ -788,18 +788,11 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # Source Control doesn't look inside linked folders by itself.
     settings["git.scanRepositories"] = linked_repos
 
-    launch = _read_json(source_dir / "launch.json")
-    # Map the paths of the current development containers, which mount the multiverse in `/code`.
-    for configuration in launch["configurations"]:
-        if configuration.get("request") == "attach":
-            configuration["pathMappings"] = [
-                *({"localRoot": f"${{workspaceFolder}}/{repo}", "remoteRoot": f"/code/{repo}"} for repo in linked_repos),
-                {"localRoot": "${workspaceFolder}", "remoteRoot": f"/code/{version_dir.name}"},
-            ]
-
+    # The debug configurations need no path mappings: `otk dev run` mounts the multiverse at the same path.
     files = {
         vscode_dir / "settings.json": settings,
-        vscode_dir / "launch.json": launch,
+        vscode_dir / "launch.json": _read_json(source_dir / "launch.json"),
+        vscode_dir / "tasks.json": _read_json(source_dir / "tasks.json"),
         vscode_dir / "extensions.json": _read_json(source_dir / "extensions.json"),
     }
     written = [path.name for path, content in files.items() if _write_json(path, content, overwrite=reset)]

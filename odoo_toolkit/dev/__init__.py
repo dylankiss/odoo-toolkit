@@ -1,24 +1,21 @@
 from typer import Typer
 
-from .start import app as start_app
-from .start_db import app as start_db_app
+from .db import app as db_app
+from .run import app as run_app
 from .stop import app as stop_app
 
 app = Typer(no_args_is_help=True)
-app.add_typer(start_app)
-app.add_typer(start_db_app)
+app.add_typer(run_app)
 app.add_typer(stop_app)
+app.add_typer(db_app)
 
 
 @app.callback()
 def callback() -> None:
-    """Launch an :computer: Odoo Development Server using :whale: Docker.
+    """Run :computer: Odoo in :whale: Docker, in the same environment as Runbot.
 
-    The following commands allow you to automatically start and stop a fully configured Docker container to run your
-    Odoo server(s) during development.
+    Run these commands inside an Odoo Multiverse version directory (like `19.0`). Odoo runs in a container per run,
+    with your source code mounted, next to shared PostgreSQL and Mailpit containers.
     \n\n
-    These tools require Docker Desktop to be installed on your system.
-    \n\n
-    The Docker container is configured to resemble Odoo's CI or production servers and thus tries to eliminate
-    discrepancies between your local system and the CI or production server.
+    These tools require Docker to be installed on your system.
     """

@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from fnmatch import fnmatch
 from typing import Annotated, Literal, TypedDict, cast
@@ -302,7 +302,7 @@ def _update_single_team(weblate_api: WeblateApi, team: WeblateGroupResponse, upd
 
 
 @contextmanager
-def _weblate_error_handler() -> Iterator[None]:
+def _weblate_error_handler() -> Generator[None]:
     """Handle WeblateApiError within a 'with' block."""
     try:
         yield

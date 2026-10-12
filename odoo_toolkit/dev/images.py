@@ -4,10 +4,14 @@ Runbot's Dockerfiles are stored verbatim in `docker/runbot/` and only build for 
 target architecture, declares the build arguments Runbot passes implicitly, and appends the development layer.
 """
 
+import json
+import platform
 import re
+import subprocess
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import requests
 
@@ -17,6 +21,9 @@ from odoo_toolkit.versions import get_versions
 Arch = Literal["amd64", "arm64"]
 
 DOCKER_REPOSITORY = "dylankiss/odoo-dev"
+# The label telling the images of this toolkit apart from the ones of odoo-toolkit 3.x, which used the same tags.
+LAYOUT_LABEL = "io.github.dylankiss.odoo-toolkit.layout"
+LAYOUT_VERSION = "2"
 DOCKER_DIR = Path(__file__).parent.parent / "docker"
 RUNBOT_DOCKERFILES_DIR = DOCKER_DIR / "runbot"
 DEV_LAYER_FILE = DOCKER_DIR / "dev.Dockerfile"
@@ -160,3 +167,93 @@ def get_image_tags(image: str) -> list[str]:
 def get_images() -> list[str]:
     """Get the Runbot image names used by the supported versions, from oldest to newest."""
     return list(dict.fromkeys(version.image for version in get_versions().values()))
+
+
+def get_native_arch() -> Arch:
+    """Get the architecture of this machine, as Docker calls it."""
+    return "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "amd64"
+
+
+def arch_tag(image: str, arch: Arch) -> str:
+    """Get the tag of an image for one architecture, like `dylankiss/odoo-dev:docker19-arm64`."""
+    return f"{DOCKER_REPOSITORY}:{image.lower()}-{arch}"
+
+
+def build_image(image: str, arch: Arch, *, push: bool = False, load: bool = True) -> None:
+    """Build an image for one architecture.
+
+    :param image: The Runbot image name, like `Docker19`.
+    :param arch: The architecture to build for.
+    :param push: Whether to push the image to the registry.
+    :param load: Whether to load the image in the local Docker, tagged with its Odoo versions.
+    :raises subprocess.CalledProcessError: If the build failed.
+    """
+    with tempfile.TemporaryDirectory() as context_dir:
+        dockerfile = Path(context_dir) / "Dockerfile"
+        dockerfile.write_text(render_dockerfile(image, arch), encoding="utf-8")
+        tags = [arch_tag(image, arch), *(get_image_tags(image) if load else [])]
+        cmd = [
+            "docker", "buildx", "build",
+            "--platform", f"linux/{arch}",
+            "--file", str(dockerfile),
+            *(arg for tag in tags for arg in ("--tag", tag)),
+            *(["--push"] if push else []),
+            *(["--load"] if load else []),
+            context_dir,
+        ]
+        subprocess.run(cmd, check=True)
+
+
+def get_remote_image_layout(tag: str, arch: Arch) -> str | None:
+    """Get the layout version of an image on Docker Hub, without pulling it.
+
+    :param tag: The image tag, like `dylankiss/odoo-dev:19.0`.
+    :param arch: The architecture of the image.
+    :return: The layout version, or None if Docker Hub has no image of this toolkit for the architecture.
+    """
+    result = subprocess.run(
+        ["docker", "buildx", "imagetools", "inspect", "--format", "{{json .Image}}", tag],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        return None
+    return parse_image_layouts(result.stdout).get(arch)
+
+
+def parse_image_layouts(image_json: str) -> dict[str, str | None]:
+    """Get the layout version per architecture from the image configuration(s) `docker buildx imagetools` shows.
+
+    :param image_json: The configuration of a single-architecture image, or the configurations per platform (like
+        `linux/arm64`) of a multi-architecture one.
+    :return: The layout version per architecture, like `{"arm64": "2"}`.
+    """
+    data: dict[str, Any] = json.loads(image_json or "{}")
+    images: dict[str, dict[str, Any]] = {f"linux/{data['architecture']}": data} if "architecture" in data else data
+    layouts: dict[str, str | None] = {}
+    for image_platform, image in images.items():
+        if image_platform.startswith("linux/"):
+            config: dict[str, Any] = image.get("config") or {}
+            labels: dict[str, str] = config.get("Labels") or {}
+            layouts[image_platform.removeprefix("linux/")] = labels.get(LAYOUT_LABEL)
+    return layouts
+
+
+def get_image_layout(tag: str, arch: Arch) -> str | None:
+    """Get the layout version of a local image, or None if it doesn't exist or is from odoo-toolkit 3.x.
+
+    :param tag: The image tag, like `dylankiss/odoo-dev:19.0`.
+    :param arch: The architecture of the image, since one tag can hold both.
+    :return: The layout version, like `2`.
+    """
+    result = subprocess.run(
+        ["docker", "image", "inspect", "--platform", f"linux/{arch}", "--format", "{{json .Config.Labels}}", tag],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        return None
+    labels: dict[str, str] | None = json.loads(result.stdout or "null")
+    return (labels or {}).get(LAYOUT_LABEL)

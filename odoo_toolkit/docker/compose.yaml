@@ -1,238 +1,71 @@
-name: odoo-dev
+# The services shared by every Odoo development server started with `otk dev run`.
+# Odoo itself runs in its own container per run, on this project's network.
+name: otk
 
 services:
-  odoo-master:
-    build:
-      context: ./odoo
-      dockerfile: master.Dockerfile
-      platforms:
-        - linux/amd64
-    image: dylankiss/odoo-dev:master
-    container_name: odoo-master
-    hostname: odoo-master
-    platform: linux/amd64
-    depends_on:
-      - postgres
-      - mailpit
-      - pgadmin
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - odoo-postgres-sockets:/var/run/postgresql
-      - odoo-ssh-keys:/home/odoo/.ssh
-    ports:
-      - 5678:5678  # debugpy
-      - 8070:8070  # odoo
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
-  odoo-19.3:
-    build:
-      context: ./odoo
-      dockerfile: 19.3.Dockerfile
-      platforms:
-        - linux/amd64
-    image: dylankiss/odoo-dev:19.3
-    container_name: odoo-19.1-19.3
-    hostname: odoo-19-1-19-3
-    platform: linux/amd64
-    depends_on:
-      - postgres
-      - mailpit
-      - pgadmin
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - odoo-postgres-sockets:/var/run/postgresql
-      - odoo-ssh-keys:/home/odoo/.ssh
-    ports:
-      - 5683:5678  # debugpy
-      - 8075:8075  # odoo
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
-  odoo-19.0:
-    build:
-      context: ./odoo
-      dockerfile: 19.0.Dockerfile
-      platforms:
-        - linux/amd64
-    image: dylankiss/odoo-dev:19.0
-    container_name: odoo-19.0
-    hostname: odoo-19
-    platform: linux/amd64
-    depends_on:
-      - postgres
-      - mailpit
-      - pgadmin
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - odoo-postgres-sockets:/var/run/postgresql
-      - odoo-ssh-keys:/home/odoo/.ssh
-    ports:
-      - 5682:5678  # debugpy
-      - 8074:8074  # odoo
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
-  odoo-18.4:
-    build:
-      context: ./odoo
-      dockerfile: 18.4.Dockerfile
-      platforms:
-        - linux/amd64
-    image: dylankiss/odoo-dev:18.4
-    container_name: odoo-18.1-18.4
-    hostname: odoo-18-1-18-4
-    platform: linux/amd64
-    depends_on:
-      - postgres
-      - mailpit
-      - pgadmin
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - odoo-postgres-sockets:/var/run/postgresql
-      - odoo-ssh-keys:/home/odoo/.ssh
-    ports:
-      - 5681:5678  # debugpy
-      - 8073:8073  # odoo
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
-  odoo-18.0:
-    build:
-      context: ./odoo
-      dockerfile: 18.0.Dockerfile
-      platforms:
-        - linux/amd64
-    image: dylankiss/odoo-dev:18.0
-    container_name: odoo-18.0
-    hostname: odoo-18
-    platform: linux/amd64
-    depends_on:
-      - postgres
-      - mailpit
-      - pgadmin
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - odoo-bash-history-data-noble:/home/odoo/.bash_history_data
-      - odoo-postgres-sockets:/var/run/postgresql
-      - odoo-ssh-keys:/home/odoo/.ssh
-    ports:
-      - 5680:5678  # debugpy
-      - 8072:8072  # odoo
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
-  odoo-17.0:
-    build:
-      context: ./odoo
-      dockerfile: 17.0.Dockerfile
-      platforms:
-        - linux/amd64
-    image: dylankiss/odoo-dev:17.0
-    container_name: odoo-17.0
-    hostname: odoo-17
-    platform: linux/amd64
-    depends_on:
-      - postgres
-      - mailpit
-      - pgadmin
-    volumes:
-      - ${ODOO_WORKSPACE_DIR:-~}:/code
-      - ${GITCONFIG_PATH:-~/.gitconfig}:/home/odoo/.gitconfig
-      - odoo-filestore:/home/odoo/.local/share/Odoo
-      - odoo-bash-history-data-jammy:/home/odoo/.bash_history_data
-      - odoo-postgres-sockets:/var/run/postgresql
-      - odoo-ssh-keys:/home/odoo/.ssh
-    ports:
-      - 5679:5678  # debugpy
-      - 8071:8071  # odoo
-    working_dir: /code
-    stdin_open: true
-    tty: true
-
   postgres:
-    image: pgvector/pgvector:pg17
-    container_name: postgres
+    image: pgvector/pgvector:pg18
+    container_name: otk-postgres
     environment:
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: odoo
       POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+      # Accept connections without a password, like a local PostgreSQL, so an Odoo running directly on your machine
+      # connects without extra options. The port is only published to your machine. This only applies to new volumes.
       POSTGRES_HOST_AUTH_METHOD: trust
-      PGDATA: /var/lib/postgresql/data/pgdata
-      PGHOST: /var/run/postgresql
     volumes:
-      - odoo-postgres-data:/var/lib/postgresql/data
-      - odoo-postgres-sockets:/var/run/postgresql
+      # PostgreSQL 18 images keep their data in a version-specific folder below this one.
+      - otk-postgres-data:/var/lib/postgresql
     ports:
-      - ${DB_PORT:-5432}:5432
+      - 127.0.0.1:${OTK_DB_PORT:-5432}:5432
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username", "odoo"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
   mailpit:
-    image: axllent/mailpit:latest
-    container_name: mailpit
+    image: axllent/mailpit:v1.27
+    container_name: otk-mailpit
     environment:
       MP_MAX_MESSAGES: 5000
       MP_DATABASE: /data/mailpit.db
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
     volumes:
-      - odoo-mailpit-data:/data
+      - otk-mailpit-data:/data
     ports:
-      - 1025:1025
-      - 8025:8025
+      - 127.0.0.1:1025:1025  # SMTP
+      - 127.0.0.1:8025:8025  # Web interface
 
   pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin
+    image: dpage/pgadmin4:9
+    container_name: otk-pgadmin
+    # Only started with `otk dev db --pgadmin`.
+    profiles: [pgadmin]
     environment:
       PGADMIN_DEFAULT_EMAIL: pgadmin4@pgadmin.org
       PGADMIN_DEFAULT_PASSWORD: pgadmin
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      # Let the server in servers.json get its password from a command, so pgAdmin connects without asking for one.
+      PGADMIN_CONFIG_ENABLE_SERVER_PASS_EXEC_CMD: "True"
     depends_on:
       - postgres
     volumes:
       - ./pgadmin/servers.json:/pgadmin4/servers.json
-      - odoo-pgadmin-data:/var/lib/pgadmin
+      - otk-pgadmin-data:/var/lib/pgadmin
     ports:
-      - 5050:80
+      - 127.0.0.1:5050:80
 
 volumes:
-  odoo-bash-history-data-jammy:
-    name: odoo-bash-history-data-jammy
-  odoo-bash-history-data-noble:
-    name: odoo-bash-history-data-noble
-  odoo-ssh-keys:
-    name: odoo-ssh-keys
-  odoo-postgres-data:
-    name: odoo-postgres-data
-  odoo-postgres-sockets:
-    name: odoo-postgres-sockets
-  odoo-filestore:
-    name: odoo-filestore
-  odoo-mailpit-data:
-    name: odoo-mailpit-data
-  odoo-pgadmin-data:
-    name: odoo-pgadmin-data
+  otk-postgres-data:
+    name: otk-postgres-data
+  otk-mailpit-data:
+    name: otk-mailpit-data
+  otk-pgadmin-data:
+    name: otk-pgadmin-data
 
 networks:
   default:
-    name: odoo-network
+    name: otk

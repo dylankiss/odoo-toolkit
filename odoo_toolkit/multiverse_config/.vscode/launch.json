@@ -2,112 +2,28 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Odoo: Docker [master]",
+            "name": "Odoo: run and debug",
             "type": "debugpy",
             "request": "attach",
             "connect": {
                 "host": "localhost",
                 "port": 5678
             },
-            "redirectOutput": false,
-            "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Odoo: Docker [19.1 to 19.3]",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5683
-            },
-            "redirectOutput": false,
-            "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Odoo: Docker [19.0]",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5682
-            },
-            "redirectOutput": false,
-            "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Odoo: Docker [18.1 to 18.4]",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5681
-            },
-            "redirectOutput": false,
-            "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Odoo: Docker [18.0]",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5680
-            },
-            "redirectOutput": false,
-            "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Odoo: Docker [17.0]",
-            "type": "debugpy",
-            "request": "attach",
-            "connect": {
-                "host": "localhost",
-                "port": 5679
-            },
-            "redirectOutput": false,
-            "internalConsoleOptions": "openOnSessionStart",
-            "justMyCode": false
-        },
-        {
-            "name": "Debug Odoo: Community",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "'${workspaceFolder}/odoo/odoo-bin'",
-            "console": "integratedTerminal",
+            "preLaunchTask": "otk: run Odoo with the debugger",
+            "postDebugTask": "otk: stop Odoo",
             "justMyCode": false,
-            "args": "--addons-path '${workspaceFolder}/odoo/addons' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
+            "redirectOutput": false
         },
         {
-            "name": "Debug Odoo: Enterprise",
+            "name": "Odoo: attach to the debugger",
             "type": "debugpy",
-            "request": "launch",
-            "program": "'${workspaceFolder}/odoo/odoo-bin'",
-            "console": "integratedTerminal",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
             "justMyCode": false,
-            "args": "--addons-path '${workspaceFolder}/enterprise,${workspaceFolder}/odoo/addons' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
-        },
-        {
-            "name": "Debug Odoo: Upgrade Community",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "'${workspaceFolder}/odoo/odoo-bin'",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": "--addons-path '${workspaceFolder}/odoo/addons' --upgrade-path '${workspaceFolder}/upgrade-util/src,${workspaceFolder}/upgrade/migrations' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
-        },
-        {
-            "name": "Debug Odoo: Upgrade Enterprise",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "'${workspaceFolder}/odoo/odoo-bin'",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "args": "--addons-path '${workspaceFolder}/enterprise,${workspaceFolder}/odoo/addons' --upgrade-path '${workspaceFolder}/upgrade-util/src,${workspaceFolder}/upgrade/migrations' --limit-time-cpu 99999999 --limit-time-real 99999999 ${command:pickArgs}"
+            "redirectOutput": false
         }
     ]
 }

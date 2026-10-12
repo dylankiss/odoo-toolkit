@@ -6,6 +6,7 @@ from odoo_toolkit.dev.images import (
     RUNBOT_DOCKERFILES_DIR,
     get_image_tags,
     get_images,
+    parse_image_layouts,
     render_dockerfile,
     split_instructions,
 )
@@ -44,6 +45,8 @@ def test_render_amd64_only_adds_to_runbot(image: str) -> None:
     assert "ARG USERNAME=odoo" in dockerfile
     assert dockerfile.index("RUN userdel --remove ubuntu") < dockerfile.index("groupadd")
     assert "debugpy" in dockerfile
+    # Odoo's `--dev=reload` needs a file watcher.
+    assert "watchdog" in dockerfile
 
 
 @pytest.mark.parametrize("image", get_images())
@@ -67,3 +70,16 @@ def test_render_arm64_keeps_pinned_chrome_when_built_for_arm64() -> None:
 def test_image_tags_cover_every_version() -> None:
     tags = [tag for image in get_images() for tag in get_image_tags(image)]
     assert sorted(tags) == sorted(f"dylankiss/odoo-dev:{version}" for version in get_versions())
+
+
+def test_parse_image_layouts() -> None:
+    # A single-architecture image of odoo-toolkit 3.x, without the label.
+    old = '{"architecture": "amd64", "os": "linux", "config": {"Labels": {"maintainer": "x"}}}'
+    assert parse_image_layouts(old) == {"amd64": None}
+    # A multi-architecture image of this toolkit.
+    new = (
+        '{"linux/amd64": {"config": {"Labels": {"io.github.dylankiss.odoo-toolkit.layout": "2"}}},'
+        ' "linux/arm64": {"config": {"Labels": {"io.github.dylankiss.odoo-toolkit.layout": "2"}}},'
+        ' "unknown/unknown": {}}'
+    )
+    assert parse_image_layouts(new) == {"amd64": "2", "arm64": "2"}

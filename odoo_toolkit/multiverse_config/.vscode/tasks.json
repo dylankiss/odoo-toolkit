@@ -1,0 +1,42 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "otk: run Odoo with the debugger",
+            "detail": "Pass Odoo options in the `args`, like \"-d\", \"mydb\".",
+            "type": "shell",
+            "command": "otk",
+            "args": ["dev", "run", "--debug", "--"],
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "otk",
+                "pattern": {
+                    "regexp": "^__otk_never_matches__$"
+                },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "^otk: starting Odoo",
+                    "endsPattern": "^otk: waiting for the debugger"
+                }
+            }
+        },
+        {
+            "label": "otk: run Odoo",
+            "type": "shell",
+            "command": "otk",
+            "args": ["dev", "run", "--"],
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "otk: stop Odoo",
+            "type": "shell",
+            "command": "otk",
+            "args": ["dev", "stop"],
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

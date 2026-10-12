@@ -13,43 +13,18 @@ Usage:
 import argparse
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
 from typing import cast
 
-from odoo_toolkit.dev.images import DOCKER_REPOSITORY, Arch, get_image_tags, get_images, render_dockerfile
+from odoo_toolkit.dev.images import Arch, arch_tag, build_image, get_image_tags, get_images
 
 ARCHS: list[Arch] = ["amd64", "arm64"]
 
 
-def arch_tag(image: str, arch: Arch) -> str:
-    """Get the tag of an image for one architecture, like `dylankiss/odoo-dev:docker19-arm64`."""
-    return f"{DOCKER_REPOSITORY}:{image.lower()}-{arch}"
-
-
 def build(image: str, arch: Arch, *, push: bool, load: bool) -> None:
-    """Build an image for one architecture.
-
-    :param image: The Runbot image name, like `Docker19`.
-    :param arch: The architecture to build for.
-    :param push: Whether to push the image to the registry.
-    :param load: Whether to load the image in the local Docker, tagged with its Odoo versions.
-    """
-    with tempfile.TemporaryDirectory() as context_dir:
-        dockerfile = Path(context_dir) / "Dockerfile"
-        dockerfile.write_text(render_dockerfile(image, arch), encoding="utf-8")
-        tags = [arch_tag(image, arch), *(get_image_tags(image) if load else [])]
-        cmd = [
-            "docker", "buildx", "build",
-            "--platform", f"linux/{arch}",
-            "--file", str(dockerfile),
-            *(arg for tag in tags for arg in ("--tag", tag)),
-            *(["--push"] if push else []),
-            *(["--load"] if load else []),
-            context_dir,
-        ]
-        print(f"Building {image} for {arch}: {', '.join(tags)}", flush=True)
-        subprocess.run(cmd, check=True)
+    """Build an image for one architecture, showing what is being built."""
+    tags = [arch_tag(image, arch), *(get_image_tags(image) if load else [])]
+    print(f"Building {image} for {arch}: {', '.join(tags)}", flush=True)
+    build_image(image, arch, push=push, load=load)
 
 
 def merge(image: str) -> None:

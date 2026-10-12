@@ -53,9 +53,10 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 | Command                                 | Purpose                                                                              |
 | --------------------------------------- | ------------------------------------------------------------------------------------ |
-| [`otk dev start`](#otk-dev-start)       | Start an Odoo Development Server using Docker and launch a terminal session into it. |
-| [`otk dev start-db`](#otk-dev-start-db) | Start a standalone PostgreSQL container for your Odoo databases.                     |
-| [`otk dev stop`](#otk-dev-stop)         | Stop and delete all running containers of the Odoo Development Server.               |
+| [`otk dev run`](#otk-dev-run)     | Run Odoo for the current Odoo Multiverse version directory, in Docker.              |
+| [`otk dev shell`](#otk-dev-shell) | Open a shell in the Odoo container of the current Odoo Multiverse version directory. |
+| [`otk dev stop`](#otk-dev-stop)   | Stop the Odoo containers started with `otk dev run`.                                 |
+| [`otk dev db`](#otk-dev-db)       | Start PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.        |
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
@@ -223,157 +224,89 @@ $ otk po update -l nl -l fr account account_accountant
 
 ## Odoo Development Server (`otk dev`)
 
-**Run an Odoo Development Server using Docker.**
+**Run Odoo in Docker, in the same environment as Runbot.**
 
-The following commands allow you to automatically start and stop a fully configured Docker container to run your Odoo server(s) during development.
+Run these commands inside an [Odoo Multiverse](#odoo-multiverse-otk-mv) version directory (like `19.0`). They require [Docker](https://docs.docker.com/get-started/get-docker/).
 
-> [!IMPORTANT]
-> These tools require [Docker Desktop](https://www.docker.com/products/docker-desktop/) to be installed on your system.
-> For Mac and Windows there are convenient installers.
-> For Linux there are specific instructions for installation. Below you can find the instructions for Debian-based amd64 systems.
+Odoo runs in a new container for every `otk dev run`, removed when Odoo stops. The containers use the images in [`dylankiss/odoo-dev`](https://hub.docker.com/r/dylankiss/odoo-dev), one per Odoo version (like `dylankiss/odoo-dev:19.0`), built for `amd64` and `arm64` (where Paper Muncher, which only exists for amd64, is left out) from [Runbot's Dockerfiles](https://runbot.odoo.com/runbot/versions), with Git, SSH and the debugger added. Next to them run shared containers for PostgreSQL 18 (`localhost:5432`, user `odoo`, no password needed) and [Mailpit](https://mailpit.axllent.org/) (`http://localhost:8025`), which catches all emails Odoo sends.
 
-```console
-# Prerequisite
-sudo apt install gnome-terminal
+The multiverse directory is mounted at the same path as on your machine, so the links between repositories and the Git worktrees work in the container, the debugger needs no path mappings, and the paths in tracebacks are the ones of your machine. All ports are only reachable from your machine.
 
-# Add official Docker GPG key
-sudo apt-get update
-sudo apt-get install ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-# Add the repository to Apt sources
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-
-# Download Docker Desktop package and install
-curl -SL https://desktop.docker.com/linux/main/amd64/docker-desktop-amd64.deb -o docker-desktop-amd64.deb
-sudo apt-get install ./docker-desktop-amd64.deb
-rm docker-desktop-amd64.deb
-
-# (Optional) Auto-start Docker Desktop on startup
-systemctl --user enable docker-desktop
-```
-
-The Docker container is configured to resemble Odoo's CI or production servers and thus tries to eliminate discrepancies between your local system and the CI or production server.
-
-
-## `otk dev start`
-
-**Start an Odoo Development Server using Docker and launch a terminal session into it.**
-
-This command will start both PostgreSQL, Mailhog, and pgAdmin containers, and an Odoo container containing your source code, located on your machine at the location specified by `-w`. Your specified workspace will be sourced in the container at the location `/code` and allows live code updates during local development.
-
-The container started will be tailored to the version you want to run in it. The containers are based on our Runbot containers, with some added tools.
-
-When you're done with the container, you can exit the session by running the `exit` command. At this point, the container will still be running and you can start a new session using the same `otk dev start` command.
-
-### Port Mapping
-
-Every container exposes a different port for the Odoo server, starting at `8070` for Odoo 17.0. The port used is displayed on the command line in your container. You can access the server on your local machine using `localhost:<port>`. When using the `o-bin-*` commands to run your server, the port is automatically set. When not using the `o-bin-*` command, you need to use the `--http-port` option to run on the right port.
-
-This allows you to run multiple Odoo servers (one per container), all accessible on your local machine. If you also have a local server running on default port `8069`, it will not clash with the Docker ports.
-
-### PostgreSQL Container
-
-The command starts a separate [PostgreSQL](https://www.postgresql.org/) container that you can access from your host machine at `localhost:5432` by default, using `odoo` as username and no password. Inside your other Docker containers, the hostname of this server is `postgres`. It is exposed to the Odoo containers via a socket as well in the `/var/run/postgresql` directory.
-
-### Mailpit Container
-
-The command starts a [Mailpit](https://mailpit.axllent.org/) container that is used for intercepting outgoing email messages from any of your Odoo instances. The application can be accessed from your local machine by going to http://localhost:8025. It allows you to view any sent email with its attachments and all possible related information. You can download them in `.eml` format, `.html` format, and even `.png` format as a screenshot.
-
-![Mailpit Interface](images/mailpit.png)
-
-The container uses a persistent storage (on the `odoo-mailpit-storage` volume) that saves up to 5000 messages. The oldest messages will be deleted after that. When the volume is deleted, all messages will be gone as well.
-
-### pgAdmin Container
-
-The command starts a [pgAdmin](https://www.pgadmin.org/) container that you can use to inspect and interact with the databases in the PostgreSQL container. The application can be accessed from your local machine by going to http://localhost:5050. When you connect to the PostgreSQL server for the first time, pgAdmin will ask for a password. You can just leave this empty.
-
-### Aliases
-
-The container contains some helpful aliases that you can use to run and debug Odoo from your workspace (*either `/code` or `/code/<branch>` if you're using the multiverse setup*). They contain some default configuration and set very high time limits by default (useful for debugging). You can check them in [`.bash_aliases`](odoo_toolkit/docker/.bash_aliases).
-
-**Running Odoo** (from within the workspace folder)
-- `o-bin` can be used instead of `odoo/odoo-bin` with the same arguments.
-
-**Running an Odoo shell** (from within the workspace folder)
-- `o-bin-sh` can be used instead of `odoo/odoo-bin shell` with the same arguments.
-
-**Upgrading Odoo** (from within the workspace folder)
-- `o-bin-up` can be used instead of `odoo/odoo-bin --upgrade-path=...` with the same arguments.
-
-**Debugging Odoo** (from within the workspace folder)
-- `o-bin-deb` can be used instead of `odoo/odoo-bin` with the same arguments, starts a debug session using [`debugpy`](https://github.com/microsoft/debugpy) and waits for your local debugger to connect to it before starting.
-
-**Debugging Odoo Upgrade** (from within the workspace folder)
-- `o-bin-deb-up` can be used instead of `odoo/odoo-bin --upgrade-path=...` with the same arguments, starts a debug session using [`debugpy`](https://github.com/microsoft/debugpy) and waits for your local debugger to connect to it before starting.
+What stays between runs:
+- your databases, in the `otk-postgres-data` volume,
+- the filestores, in the `otk-filestore` volume,
+- your SSH key, in the `odoo-ssh-keys` volume, for Odoo modules that run Git commands. If you didn't use odoo-toolkit 3.x, copy your key into it once, as the container's user:
+  ```console
+  $ docker run --rm -v odoo-ssh-keys:/home/odoo/.ssh -v ~/.ssh/id_ed25519:/tmp/key:ro dylankiss/odoo-dev:19.0 \
+      bash -c 'cp /tmp/key ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519'
+  ```
 
 > [!TIP]
-> Every alias can be appended by `-c` or `-e` to have the addons paths for respectively Community or Enterprise (e.g. `o-bin-deb-up-c`).
+> In Visual Studio Code, `F5` runs Odoo with the debugger and attaches to it, and stopping the debugger stops Odoo. The configuration comes with [`otk mv setup`](#otk-mv-setup).
 
-> [!TIP]
-> Compatible [Visual Studio Code](https://code.visualstudio.com/) debug configurations are available in [`launch.json`](odoo_toolkit/multiverse_config/.vscode/launch.json).
+## `otk dev run`
 
-### Docker Configuration
+**Run Odoo for the current Odoo Multiverse version directory, in Docker.**
 
-The configuration for the Docker containers is located in the `odoo_toolkit/docker` folder in this repository. The [`compose.yaml`](odoo_toolkit/docker/compose.yaml) file defines an `odoo-<version>` service for each set of versions that need a slightly different environment. They run the development containers with the right configuration and file mounts, and a `postgres`, `mailpit`, and `pgadmin` service that run the PostgreSQL server, the Mailpit server, and the pgAdmin server respectively.
+It starts PostgreSQL and Mailpit if needed, and runs Odoo with:
+- the addons path containing every repository of the version directory with modules in it, like `enterprise`, `odoo/addons`, `design-themes`, and linked repositories like `odoofin`,
+- the database and mail server set up,
+- no time limits, so requests don't stop while you're paused in the debugger.
 
-The development container configuration is laid out in e.g. [`master.Dockerfile`](odoo_toolkit/docker/odoo/master.Dockerfile) all other versions.
+Use `--community` to only load Odoo Community, or `--exclude` to leave out repositories, like `-x enterprise`. Pass any other Odoo options after `--`. Stop Odoo with `Ctrl+C`.
 
 ### Usage
 
 ```console
-$ otk dev start [OPTIONS] ODOO_BRANCH
+$ otk dev run [OPTIONS] [-- ODOO OPTIONS]
 ```
 e.g.
 ```console
-$ otk dev start 18.0
+$ otk dev run -- -d mydb -i sale
+$ otk dev run --port 8070 --debug -- -d mydb
+$ otk dev run --community -- -d community-db
 ```
-### Arguments
-
-* `ODOO_BRANCH`: The Odoo branch to start a development server for, like `19.0`, `saas-19.1`, `master`.  **[required]**
 
 ### Options
 
-* `-w, --workspace PATH`: Specify the path to your development workspace that will be mounted in the container's `/code` directory.  [default: `~/code/odoo`]
-* `-p, --db-port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
-* `--git-name TEXT`: Specify the Git user.name to be used within the container.
-* `--git-email TEXT`: Specify the Git user.email to be used within the container.
-* `--build`: Build the Docker image locally instead of pulling it from DockerHub.
-* `--build-no-cache`: Build the Docker image locally without using any cache.
+* `-p, --port INTEGER`: The port to reach Odoo on, on your machine.  [default: `8069`]
+* `--debug`: Start Odoo under the debugger, waiting for Visual Studio Code to attach.
+* `--debug-port INTEGER`: The port of the debugger, on your machine.  [default: `5678`]
+* `--upgrade`: Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path.
+* `-c, --community`: Only load the modules of Odoo Community (`odoo/addons`).
+* `-x, --exclude TEXT`: Leave these repositories out of the addons path, like `enterprise` or `odoofin,design-themes`.
+* `--build`: Build the image on your machine instead of pulling it.
+* `--db-port INTEGER`: The port to reach PostgreSQL on, on your machine.  [default: `5432`]
+* `--platform [amd64|arm64]`: Run the image of this architecture. On Apple Silicon, `amd64` runs emulated and slower, but has what only exists for amd64, like Paper Muncher. Defaults to the architecture of this machine.
 * `--help`: Show this message and exit.
 
+Run several versions at the same time by giving them different ports, like `otk dev run --port 8070` in another version directory.
 
-## `otk dev start-db`
 
-**Start a standalone PostgreSQL container for your Odoo databases.**
+## `otk dev shell`
 
-You can use this standalone container if you want to connect to it from your local machine which is running Odoo. By default it will listen on port 5432, but you can modify this if you already have another PostgreSQL server running locally.
+**Open a shell in the Odoo container of the current Odoo Multiverse version directory.**
+
+If Odoo is running for this version, the shell opens in its container. Otherwise it opens in a new container with the same environment, removed when you exit the shell.
 
 ### Usage
 
 ```console
-$ otk dev start-db [OPTIONS]
+$ otk dev shell [OPTIONS]
 ```
 
 ### Options
 
-* `-p, --port INTEGER`: Specify the port on your local machine the PostgreSQL database should listen on.  [default: `5432`]
+* `--build`: Build the image on your machine instead of pulling it.
+* `--platform [amd64|arm64]`: Use the image of this architecture. Defaults to the architecture of this machine.
 * `--help`: Show this message and exit.
 
 
 ## `otk dev stop`
 
-**Stop and delete all running containers of the Odoo Development Server.**
+**Stop the Odoo containers started with `otk dev run`.**
 
-This is useful if you want to build a new version of the container, or you want the container to have the latest version of `odoo-toolkit`.
-
-Running this is also necessary if you updated the `odoo-toolkit` package on your local machine. If not, your container won't be able to mount the configuration files.
+Inside a multiverse version directory, this stops the Odoo containers of that version. Elsewhere, it stops all of them. Your databases and filestores stay.
 
 ### Usage
 
@@ -383,6 +316,33 @@ $ otk dev stop [OPTIONS]
 
 ### Options
 
+* `--all`: Stop every Odoo container, and PostgreSQL, Mailpit and pgAdmin as well.
+* `--help`: Show this message and exit.
+
+
+## `otk dev db`
+
+**Start PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.**
+
+`otk dev run` starts them by itself. Use this command to connect to the databases with your own tools, to run an Odoo directly on your machine (with `--db_host=localhost --db_user=odoo`), or to use pgAdmin. Note that an Odoo on your machine keeps its filestore in its own data directory, not in the containers' `otk-filestore` volume.
+
+> [!TIP]
+> To connect without any options, from an Odoo on your machine as well as from tools like `psql`, `pg_dump` and [`otk po export`](#otk-po-export), add this to your shell profile (like `~/.zshrc`):
+> ```bash
+> export PGHOST=localhost PGUSER=odoo
+> ```
+> Odoo leaves the connection settings you don't pass to PostgreSQL's client library, which reads these variables. If you also run another PostgreSQL on your machine, the tools then connect to this one by default.
+
+### Usage
+
+```console
+$ otk dev db [OPTIONS]
+```
+
+### Options
+
+* `-p, --port INTEGER`: The port to reach PostgreSQL on, on your machine.  [default: `5432`]
+* `--pgadmin`: Start pgAdmin as well, on `http://localhost:5050`.
 * `--help`: Show this message and exit.
 
 
@@ -667,6 +627,7 @@ The following commands allow you to set up and Odoo Multiverse environment and p
 > **Upgrading from 3.x:** version 4.0 changes how the multiverse is laid out and fetched. The easiest way to upgrade is to set up a new multiverse. If you keep your existing one:
 > - `odoofin` is now a pinned repository: it's only linked into the version it runs on. Use `otk mv link odoofin` to link it elsewhere.
 > - The repositories only fetch the branches you use from now on. Run `otk mv cleanup` to remove the others and reclaim disk space.
+> - `otk dev start` is now `otk dev run`, which runs Odoo directly instead of opening a shell (use `otk dev shell` for that). It uses PostgreSQL 18 with new, empty databases. Stop the old containers with `docker compose --project-name odoo-dev down`.
 
 ## `otk mv setup`
 
@@ -736,7 +697,7 @@ The command will basically do the following:
 
 6. Set up the JavaScript tooling for `odoo` and `enterprise` (located in the `tooling` directory inside the `web` module).
 
-7. Write the [Visual Studio Code configuration](odoo_toolkit/multiverse_config/.vscode) in each version's `.vscode` directory: recommended extensions, settings using the version's `.venv`, and debug configurations (that also work with the Docker container started via [`otk dev start`](#otk-dev-start)).
+7. Write the [Visual Studio Code configuration](odoo_toolkit/multiverse_config/.vscode) in each version's `.vscode` directory: recommended extensions, settings using the version's `.venv`, and tasks and debug configurations to run Odoo with [`otk dev run`](#otk-dev-run), where `F5` runs it with the debugger.
 
 After all that is done, your directory structure should look like this with the default repositories selected:
 

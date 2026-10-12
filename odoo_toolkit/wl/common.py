@@ -696,7 +696,8 @@ class WeblateConfig:
     def clear(self, project: str | None = None) -> None:
         """Clear one or all projects' components from the config."""
         if project:
-            self.config["projects"].get(project, {}).clear()
+            if project in self.config["projects"]:
+                self.config["projects"][project].clear()
         else:
             self.config["projects"].clear()
 

@@ -1,40 +1,37 @@
-from python_on_whales import DockerException
-from typer import Exit, Typer
+import subprocess
+from pathlib import Path
+from typing import Annotated
 
-from odoo_toolkit.common import TransientProgress, print_command_title, print_error, print_success
+from typer import Option, Typer
 
-from .common import DOCKER
+from odoo_toolkit.common import print, print_command_title, print_success
+from odoo_toolkit.mv.config import find_version_dir
+
+from .common import get_run_containers, stop_services
 
 app = Typer()
 
 
 @app.command()
-def stop() -> None:
-    """Stop and delete all running containers of the Odoo Development Server.
+def stop(
+    include_services: Annotated[
+        bool, Option("--all", help="Stop every Odoo container, and PostgreSQL, Mailpit and pgAdmin as well."),
+    ] = False,
+) -> None:
+    """Stop :stop_sign: the Odoo containers started with `otk dev run`.
 
-    This is useful if you want to build a new version of the container, or you want the container to have the latest
-    version of `odoo-toolkit`.
+    Inside a multiverse version directory, this stops the Odoo containers of that version. Elsewhere, it stops all of
+    them. Your databases and filestores stay, so you can continue where you left off.
     """
-    print_command_title(":computer: Odoo Development Server")
-    stop_containers()
-
-
-def stop_containers() -> None:
-    """Stop and delete all running containers of the Odoo Development Server.
-
-    :raises Exit: If an error occurs while tearing down the containers.
-    """
-    try:
-        with TransientProgress() as progress:
-            progress_task = progress.add_task("Stopping containers ...", total=None)
-            # Stop and delete the running containers.
-            DOCKER.compose.down(quiet=True)
-            progress.update(progress_task, total=1, completed=1)
-            print_success("Containers stopped and deleted\n")
-    except DockerException as e:
-        print_error(
-            "Stopping the development server failed. The command that failed was:\n"
-            f"[b]{' '.join(e.docker_command)}[/b]\n",
-            "\n\n".join(o for o in (e.stderr, e.stdout) if o),
-        )
-        raise Exit from e
+    print_command_title(":stop_sign: Stop Odoo")
+    version_dir = find_version_dir(Path.cwd())
+    version = None if include_services or not version_dir else version_dir.name
+    if containers := get_run_containers(version):
+        subprocess.run(["docker", "stop", *containers], capture_output=True, check=False)
+        print_success(f"Stopped [b]{'[/b], [b]'.join(containers)}[/b].")
+    else:
+        print_success("No Odoo container is running" + (f" for [b]{version}[/b]." if version else "."))
+    if include_services:
+        stop_services()
+        print_success("Stopped PostgreSQL, Mailpit and pgAdmin.")
+    print()

@@ -1,13 +1,14 @@
 {
     "Servers": {
         "1": {
-            "Name": "PostgreSQL (Docker)",
+            "Name": "PostgreSQL (otk)",
             "Group": "Servers",
-            "Host": "postgres",
+            "Host": "otk-postgres",
             "Port": 5432,
             "MaintenanceDB": "postgres",
             "Username": "odoo",
-            "SSLMode": "disable"
+            "SSLMode": "disable",
+            "PasswordExecCommand": "echo odoo"
         }
     }
 }
