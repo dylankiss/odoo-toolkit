@@ -4,6 +4,8 @@ from collections.abc import Callable, Collection, Iterable
 from contextlib import suppress
 from enum import Enum, auto
 from fnmatch import fnmatch
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -15,6 +17,20 @@ from typer import Typer, get_app_dir
 
 APP_DIR = Path(get_app_dir("odoo-toolkit"))
 EMPTY_LIST: list[Any] = []
+
+
+def _get_version() -> str:
+    try:
+        return package_version("odoo-toolkit")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+VERSION = _get_version()
+# Identifies the toolkit in the HTTP requests it makes, so the servers' admins know which version sent them and where
+# to report problems.
+USER_AGENT = f"odoo-toolkit/{VERSION} (+https://github.com/dylankiss/odoo-toolkit)"
+HTTP_HEADERS = {"User-Agent": USER_AGENT}
 T = TypeVar("T")
 
 

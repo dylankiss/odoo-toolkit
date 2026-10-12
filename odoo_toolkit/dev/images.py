@@ -11,6 +11,7 @@ from typing import Literal
 
 import requests
 
+from odoo_toolkit.common import HTTP_HEADERS
 from odoo_toolkit.versions import get_versions
 
 Arch = Literal["amd64", "arm64"]
@@ -63,10 +64,12 @@ def get_arm64_chrome_version(pinned_version: str) -> str:
     :param pinned_version: The version Runbot pins, like `150.0.7871.114-1`.
     :return: The version to install.
     """
-    pinned = requests.head(f"{CHROME_POOL_URL}/google-chrome-stable_{pinned_version}_arm64.deb", timeout=TIMEOUT)
+    pinned = requests.head(
+        f"{CHROME_POOL_URL}/google-chrome-stable_{pinned_version}_arm64.deb", headers=HTTP_HEADERS, timeout=TIMEOUT,
+    )
     if pinned.ok:
         return pinned_version
-    packages = requests.get(CHROME_PACKAGES_URL.format(arch="arm64"), timeout=TIMEOUT)
+    packages = requests.get(CHROME_PACKAGES_URL.format(arch="arm64"), headers=HTTP_HEADERS, timeout=TIMEOUT)
     packages.raise_for_status()
     match = re.search(r"^Package: google-chrome-stable\n(?:.+\n)*?Version: (\S+)$", packages.text, re.MULTILINE)
     if not match:

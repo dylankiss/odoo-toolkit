@@ -21,7 +21,7 @@ from requests import ConnectionError as RequestsConnectionError
 from requests import ConnectTimeout, HTTPError, JSONDecodeError, Response, Session
 from requests import Timeout as RequestsTimeout
 
-from odoo_toolkit.common import print_warning
+from odoo_toolkit.common import USER_AGENT, print_warning
 
 WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
@@ -411,13 +411,13 @@ class WeblateApi:
         self.session = Session()
         self.session.headers.update({
             "Authorization": f"Token {WEBLATE_API_TOKEN}",
-            "User-Agent": "Odoo Toolkit",
+            "User-Agent": USER_AGENT,
         })
         self.json_session = Session()
         self.json_session.headers.update({
             "Authorization": f"Token {WEBLATE_API_TOKEN}",
             "Accept": "application/json",
-            "User-Agent": "Odoo Toolkit",
+            "User-Agent": USER_AGENT,
         })
 
     def _throttle_request_rate(self) -> None:

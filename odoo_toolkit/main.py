@@ -1,10 +1,8 @@
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
 from typing import Annotated
 
 from typer import Exit, Option, Typer
 
-from .common import print
+from .common import VERSION, print
 from .dev import app as dev_app
 from .mv import app as mv_app
 from .po import app as po_app
@@ -25,8 +23,5 @@ def main(version: Annotated[bool, Option("--version", help="Show the version and
     This toolkit contains several useful tools for Odoo development.
     """  # noqa: D400, D415
     if version:
-        try:
-            print(package_version("odoo-toolkit"))
-        except PackageNotFoundError:
-            print("Version could not be detected")
+        print(VERSION if VERSION != "unknown" else "Version could not be detected")
         raise Exit

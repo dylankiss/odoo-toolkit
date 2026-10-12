@@ -15,6 +15,7 @@ from pathlib import Path
 
 import requests
 
+from odoo_toolkit.common import HTTP_HEADERS
 from odoo_toolkit.versions import VERSIONS_FILE, version_sort_key
 
 RUNBOT_URL = "https://runbot.odoo.com"
@@ -80,7 +81,7 @@ def parse_ubuntu_release(dockerfile: str) -> str:
 
 def fetch(url: str, params: dict[str, str | int] | None = None) -> str:
     """Fetch a page from runbot as text."""
-    response = requests.get(url, params=params, timeout=TIMEOUT)
+    response = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=TIMEOUT)
     response.raise_for_status()
     return response.text
 
