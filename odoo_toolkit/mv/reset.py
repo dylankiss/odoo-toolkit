@@ -1,10 +1,10 @@
 from pathlib import Path
 from typing import Annotated
 
-from git import Repo
 from typer import Exit, Option, Typer
 
 from odoo_toolkit.common import print, print_command_title, print_error
+from odoo_toolkit.git_cli import Git
 
 from .common import SINGLE_BRANCH_REPOS
 from .repos import (
@@ -82,7 +82,7 @@ def reset_repo(repo_dir: Path, *, branch: str | None, version: str) -> RepoResul
     :param version: The multiverse version, used to label stashed changes.
     :return: The result of the reset.
     """
-    repo = Repo(repo_dir)
+    repo = Git(repo_dir)
     name = repo_dir.name
     branch = branch or get_default_branch(repo)
 

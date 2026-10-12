@@ -2,13 +2,11 @@ import json
 import os
 import shutil
 import subprocess
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
-from git import GitCommandError, Repo
 from rich.progress import TaskID
 from typer import Exit, Option, Typer
 
@@ -23,6 +21,7 @@ from odoo_toolkit.common import (
     print_success,
     print_warning,
 )
+from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone
 from odoo_toolkit.versions import get_versions
 
 from .common import MULTI_BRANCH_REPOS, ODOO_DEV_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
@@ -30,10 +29,12 @@ from .repos import (
     Outcome,
     RepoResult,
     fetch_branch,
-    git_error_message,
     print_result_table,
     run_safely,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 app = Typer()
 
@@ -46,8 +47,6 @@ DEFAULT_REPOS = [
 ]
 # The URL to clone a repository from, given its GitHub owner and name.
 GIT_URL = "git@github.com:{owner}/{repo}.git"
-# A Git clone progress callback, receiving the operation code, current count, maximum count and message.
-CloneProgress = Callable[[int, str | float, str | float | None, str], None]
 MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
 WORKTREE_SOURCE_DIR = ".worktree-source"
 # The requirement files to install in each version's virtual environment, relative to the version directory.
@@ -181,8 +180,10 @@ def _clone_repos(
         def clone(repo: OdooRepo) -> RepoResult:
             task = progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None)
 
-            def update_progress(_op_code: int, cur_count: str | float, max_count: str | float | None, _msg: str) -> None:
-                progress.update(task, completed=float(cur_count), total=float(max_count) if max_count else None)
+            def update_progress(stage: str, current: int, total: int) -> None:
+                progress.update(
+                    task, description=f"Cloning [b]{repo.value}[/b]: {stage.lower()}", completed=current, total=total,
+                )
 
             if repo in multi_branch_repos:
                 return clone_bare_repo(repo, multiverse_dir / WORKTREE_SOURCE_DIR / repo.value, update_progress)
@@ -202,30 +203,26 @@ def clone_bare_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | No
     """
     bare_dir = repo_dir / ".bare"
     if bare_dir.exists():
-        bare_repo = Repo(bare_dir)
+        bare_repo = Git(bare_dir)
         message = "already cloned"
     else:
-        bare_repo = Repo.clone_from(
-            GIT_URL.format(owner="odoo", repo=repo.value),
-            bare_dir,
-            progress=progress,
-            bare=True,
-            multi_options=["--filter=blob:none"],
+        bare_repo = clone(
+            GIT_URL.format(owner="odoo", repo=repo.value), bare_dir, "--bare", "--filter=blob:none", progress=progress,
         )
         message = "cloned"
 
     # Fetch every remote branch into a remote-tracking branch, which a bare clone doesn't do by default.
-    bare_repo.git.config("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+    bare_repo("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
     if repo in ODOO_DEV_REPOS:
-        if "dev" not in {remote.name for remote in bare_repo.remotes}:
-            bare_repo.create_remote("dev", GIT_URL.format(owner="odoo-dev", repo=repo.value))
+        if "dev" not in bare_repo.remotes():
+            bare_repo("remote", "add", "dev", GIT_URL.format(owner="odoo-dev", repo=repo.value))
         # Pushing goes to the "dev" remote, never to "origin".
-        bare_repo.git.remote("set-url", "--push", "origin", "NO_PUSH_TRY_DEV_REPO")
+        bare_repo("remote", "set-url", "--push", "origin", "NO_PUSH_TRY_DEV_REPO")
     # Allow running Git commands from the repository directory itself.
     if not (repo_dir / ".git").exists():
         (repo_dir / ".git").write_text("gitdir: ./.bare\n", encoding="utf-8")
     # Forget worktrees whose directories were deleted.
-    bare_repo.git.worktree("prune")
+    bare_repo("worktree", "prune")
     return RepoResult(repo.value, Outcome.UPDATED if message == "cloned" else Outcome.SKIPPED, message)
 
 
@@ -235,7 +232,7 @@ def clone_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | None = 
         return RepoResult(repo.value, Outcome.SKIPPED, "already cloned")
     if repo_dir.exists() and any(repo_dir.iterdir()):
         return RepoResult(repo.value, Outcome.FAILED, f"[u]{repo_dir}[/u] exists but is not a Git repository")
-    Repo.clone_from(GIT_URL.format(owner="odoo", repo=repo.value), repo_dir, progress=progress)
+    clone(GIT_URL.format(owner="odoo", repo=repo.value), repo_dir, progress=progress)
     return RepoResult(repo.value, Outcome.UPDATED, "cloned")
 
 
@@ -291,26 +288,26 @@ def add_worktree(bare_dir: Path, worktree_dir: Path, branch: str) -> RepoResult:
     if worktree_dir.exists() and any(worktree_dir.iterdir()):
         return RepoResult(name, Outcome.FAILED, f"[u]{worktree_dir}[/u] exists but is not a Git worktree")
 
-    bare_repo = Repo(bare_dir)
+    bare_repo = Git(bare_dir)
     try:
         fetch_branch(bare_repo, "origin", branch)
-    except GitCommandError as e:
-        if "couldn't find remote ref" in git_error_message(e):
+    except GitError as e:
+        if "couldn't find remote ref" in e.message:
             return RepoResult(name, Outcome.SKIPPED, f"no [b]{branch}[/b] branch in this repository")
         raise
 
     upstream = f"origin/{branch}"
-    if branch in bare_repo.heads:
+    if bare_repo.has_branch(branch):
         # The bare clone created a local branch, which may be behind the remote one.
-        bare_repo.git.worktree("add", str(worktree_dir), branch)
-        worktree_repo = Repo(worktree_dir)
-        worktree_repo.git.branch("--set-upstream-to", upstream, branch)
+        bare_repo("worktree", "add", str(worktree_dir), branch)
+        worktree_repo = Git(worktree_dir)
+        worktree_repo("branch", "--set-upstream-to", upstream, branch)
         try:
-            worktree_repo.git.merge("--ff-only", upstream)
-        except GitCommandError:
+            worktree_repo("merge", "--ff-only", upstream)
+        except GitError:
             return RepoResult(name, Outcome.WARNING, f"added, but [b]{branch}[/b] has diverged from [b]{upstream}[/b]")
     else:
-        bare_repo.git.worktree("add", "--track", "-b", branch, str(worktree_dir), upstream)
+        bare_repo("worktree", "add", "--track", "-b", branch, str(worktree_dir), upstream)
     return RepoResult(name, Outcome.UPDATED, "added")
 
 

@@ -2,9 +2,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from git import Repo
 from typer.testing import CliRunner
 
+from odoo_toolkit.git_cli import Git
 from odoo_toolkit.main import app
 from odoo_toolkit.mv.repos import (
     Outcome,
@@ -79,7 +79,7 @@ def test_find_version_dir_from_nested_path(multiverse: Path) -> None:
 
 
 def test_remote_has_branch_matches_exact_name(multiverse: Path) -> None:
-    repo = Repo(multiverse / "19.0" / "odoo")
+    repo = Git(multiverse / "19.0" / "odoo")
     assert remote_has_branch(repo, "dev", "19.0-fix-abc")
     # `fix/master` exists on dev, which must not count as `master`.
     assert not remote_has_branch(repo, "dev", "master")
@@ -89,7 +89,7 @@ def test_get_default_branch_of_regular_clone(tmp_path: Path, remotes: dict[str, 
     # `git remote show -n origin` reports "(not queried)", which used to be parsed as the branch name.
     clone = tmp_path / "upgrade"
     git(tmp_path, "clone", "-q", str(remotes["origin"]), str(clone))
-    assert get_default_branch(Repo(clone)) == "master"
+    assert get_default_branch(Git(clone)) == "master"
 
 
 def test_reset_stashes_with_label_and_fast_forwards(multiverse: Path, remotes: dict[str, Path]) -> None:
@@ -202,7 +202,7 @@ def test_cli_outside_multiverse_fails(tmp_path: Path, monkeypatch: pytest.Monkey
 def test_switch_to_branch_used_by_other_worktree_fails_without_stashing(multiverse: Path) -> None:
     worktree = multiverse / "19.0" / "odoo"
     (worktree / "base.txt").write_text("uncommitted")
-    assert get_other_worktree_using_branch(Repo(worktree), "master") == (multiverse / "master" / "odoo").resolve()
+    assert get_other_worktree_using_branch(Git(worktree), "master") == (multiverse / "master" / "odoo").resolve()
 
     result = switch_repo(worktree, branch="master", remote=None, version="19.0")
 

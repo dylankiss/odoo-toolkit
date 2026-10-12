@@ -1,10 +1,10 @@
 from pathlib import Path
 from typing import Annotated
 
-from git import Repo
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import print, print_command_title, print_error
+from odoo_toolkit.git_cli import Git
 
 from .common import OdooRemote
 from .repos import (
@@ -14,7 +14,6 @@ from .repos import (
     fast_forward,
     fetch_branch,
     find_version_dir,
-    get_current_branch,
     get_other_worktree_using_branch,
     get_repo_dirs,
     preauthenticate_ssh,
@@ -99,9 +98,9 @@ def switch_repo(repo_dir: Path, *, branch: str, remote: str | None, version: str
     :param version: The multiverse version, used to label stashed changes.
     :return: The result of the switch.
     """
-    repo = Repo(repo_dir)
+    repo = Git(repo_dir)
     name = repo_dir.name
-    remote_names = [r.name for r in repo.remotes]
+    remote_names = repo.remotes()
     candidates = [remote] if remote in remote_names else remote_names
     found_remote = next((r for r in candidates if remote_has_branch(repo, r, branch)), None)
 
@@ -111,7 +110,7 @@ def switch_repo(repo_dir: Path, *, branch: str, remote: str | None, version: str
     # Make sure the branch can be checked out before touching any uncommitted changes.
     fetch_branch(repo, found_remote, branch)
     stash = None
-    if get_current_branch(repo) != branch:
+    if repo.current_branch() != branch:
         if other_worktree := get_other_worktree_using_branch(repo, branch):
             return RepoResult(
                 name, Outcome.FAILED, f"[b]{branch}[/b] is checked out in [u]{other_worktree}[/u]", branch_found=True,
@@ -122,13 +121,13 @@ def switch_repo(repo_dir: Path, *, branch: str, remote: str | None, version: str
     return RepoResult(name, outcome, message, stash, branch_found=True)
 
 
-def _update_current_branch(repo: Repo, name: str, reason: str) -> RepoResult:
+def _update_current_branch(repo: Git, name: str, reason: str) -> RepoResult:
     """Fast-forward the current branch to its upstream, for repositories that don't have the requested branch."""
-    current_branch = get_current_branch(repo)
-    tracking = repo.active_branch.tracking_branch() if current_branch else None
-    if not current_branch or not tracking:
+    upstream = repo.upstream()
+    if not upstream:
         return RepoResult(name, Outcome.SKIPPED, f"{reason}; current branch has no upstream to update from")
 
-    fetch_branch(repo, tracking.remote_name, tracking.remote_head)
-    outcome, message = fast_forward(repo, tracking.name)
+    remote, remote_branch = upstream
+    fetch_branch(repo, remote, remote_branch)
+    outcome, message = fast_forward(repo, f"{remote}/{remote_branch}")
     return RepoResult(name, Outcome.SKIPPED if outcome == Outcome.UPDATED else outcome, f"{reason}; {message}")

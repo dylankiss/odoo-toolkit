@@ -6,7 +6,6 @@ authors = [{ name = "Dylan Kiss", email = "dyki@odoo.com" }]
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
-    "gitpython>=3.2.0",
     "polib>=1.2.0",
     "python-on-whales>=0.81.0",
     "requests>=2.34.2",

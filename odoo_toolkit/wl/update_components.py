@@ -4,7 +4,6 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
-from git import InvalidGitRepositoryError, Repo
 from rich.table import Table
 from typer import Exit, Option, Typer, confirm
 
@@ -16,6 +15,7 @@ from odoo_toolkit.common import (
     print_command_title,
     print_error,
 )
+from odoo_toolkit.git_cli import Git, GitError
 from odoo_toolkit.wl.common import (
     WEBLATE_COMPONENT_ENDPOINT,
     WEBLATE_PROJECT_COMPONENTS_ENDPOINT,
@@ -132,20 +132,22 @@ def update_components(  # noqa: C901, PLR0912, PLR0915
             raise Exit
 
     if not (git_url and git_push_url and git_branch and git_push_branch):
+        git_repo = Git(Path())
         try:
-            git_repo = Repo(Path())
-        except InvalidGitRepositoryError as e:
-            print_error("The current folder is not a valid Git repository.")
-            raise Exit from e
-        else:
             if not git_url:
-                git_url = git_repo.remote().url
+                git_url = git_repo.remote_url("origin")
             if not git_push_url:
-                git_push_url = git_repo.remote("dev").url if "dev" in git_repo.remotes else git_url
+                git_push_url = git_repo.remote_url("dev") if "dev" in git_repo.remotes() else git_url
             if not git_branch:
-                git_branch = git_repo.active_branch.name
-            if not git_push_branch:
-                git_push_branch = f"{git_branch}-i18n-staging-c3podoo"
+                git_branch = git_repo.current_branch() or ""
+        except GitError as e:
+            print_error(f"Could not read the Git repository in the current folder: {e.message}")
+            raise Exit from e
+        if not git_branch:
+            print_error("The current Git repository has no branch checked out.")
+            raise Exit
+        if not git_push_branch:
+            git_push_branch = f"{git_branch}-i18n-staging-c3podoo"
 
     if not git_url.startswith("git@github.com:odoo/"):
         print_error(f"The current Git repository '{git_url}' is not an Odoo repository.")

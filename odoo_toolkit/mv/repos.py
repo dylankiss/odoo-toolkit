@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from rich.table import Table
 
 from odoo_toolkit.common import TransientProgress, print, print_error, print_success, print_warning
+from odoo_toolkit.git_cli import Git, GitError
 
 from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
 
@@ -67,14 +67,6 @@ def get_repo_dirs(version_dir: Path, *, include_shared: bool) -> list[tuple[Odoo
     return [(repo, version_dir / repo.value) for repo in repos if (version_dir / repo.value / ".git").exists()]
 
 
-def git_error_message(error: GitCommandError) -> str:
-    """Extract the most relevant line from a failed Git command's output."""
-    stderr = re.sub(r"^\s*stderr: '|'\s*$", "", str(error.stderr or "")).strip()
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    relevant = [line for line in lines if line.startswith(("fatal:", "error:"))]
-    return (relevant or lines or [f"`git {error.command[1] if len(error.command) > 1 else ''}` failed"])[0]
-
-
 def preauthenticate_ssh(repo_dirs: Iterable[Path]) -> None:
     """Make one lightweight remote call before running Git operations in parallel.
 
@@ -84,48 +76,43 @@ def preauthenticate_ssh(repo_dirs: Iterable[Path]) -> None:
     :param repo_dirs: The repositories that will be accessed. Only the first one is used.
     """
     for repo_dir in repo_dirs:
-        with contextlib.suppress(GitCommandError, InvalidGitRepositoryError, NoSuchPathError):
-            Repo(repo_dir).git.ls_remote("origin", "HEAD")
+        with contextlib.suppress(GitError):
+            Git(repo_dir)("ls-remote", "origin", "HEAD")
         return
 
 
-def remote_has_branch(repo: Repo, remote: str, branch: str) -> bool:
+def remote_has_branch(repo: Git, remote: str, branch: str) -> bool:
     """Check whether a branch exists on a remote, matching the exact branch name.
 
-    :raises GitCommandError: If the remote could not be reached.
+    :raises GitError: If the remote could not be reached.
     """
     try:
-        repo.git.ls_remote("--exit-code", "--heads", remote, f"refs/heads/{branch}")
-    except GitCommandError as e:
-        if e.status == LS_REMOTE_NO_MATCH:
+        repo("ls-remote", "--exit-code", "--heads", remote, f"refs/heads/{branch}")
+    except GitError as e:
+        if e.returncode == LS_REMOTE_NO_MATCH:
             return False
         raise
     return True
 
 
-def get_default_branch(repo: Repo, remote: str = "origin") -> str:
+def get_default_branch(repo: Git, remote: str = "origin") -> str:
     """Get the default branch of a remote, falling back to `master`."""
-    with contextlib.suppress(GitCommandError):
-        return repo.git.symbolic_ref("--short", f"refs/remotes/{remote}/HEAD").removeprefix(f"{remote}/")
-    with contextlib.suppress(GitCommandError):
-        match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", repo.git.ls_remote("--symref", remote, "HEAD"), re.MULTILINE)
+    with contextlib.suppress(GitError):
+        return repo("symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD").removeprefix(f"{remote}/")
+    with contextlib.suppress(GitError):
+        match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", repo("ls-remote", "--symref", remote, "HEAD"), re.MULTILINE)
         if match:
             return match.group(1)
     return "master"
 
 
-def get_current_branch(repo: Repo) -> str | None:
-    """Get the checked out branch, or None on a detached HEAD."""
-    return None if repo.head.is_detached else repo.active_branch.name
-
-
-def get_other_worktree_using_branch(repo: Repo, branch: str) -> Path | None:
+def get_other_worktree_using_branch(repo: Git, branch: str) -> Path | None:
     """Get the path of another worktree that has the given branch checked out, if any.
 
     Git refuses to check out a branch in two worktrees at the same time.
     """
-    own_path = Path(repo.working_tree_dir or "").resolve()
-    for block in repo.git.worktree("list", "--porcelain").split("\n\n"):
+    own_path = Path(repo("rev-parse", "--show-toplevel")).resolve()
+    for block in repo("worktree", "list", "--porcelain").split("\n\n"):
         lines = block.splitlines()
         if f"branch refs/heads/{branch}" not in lines:
             continue
@@ -135,38 +122,38 @@ def get_other_worktree_using_branch(repo: Repo, branch: str) -> Path | None:
     return None
 
 
-def stash_if_dirty(repo: Repo, label: str) -> str | None:
+def stash_if_dirty(repo: Git, label: str) -> str | None:
     """Stash all uncommitted changes, including untracked files, under a label.
 
     The stash list is shared by all worktrees of a repository, so the label tells where the changes came from.
 
     :return: The label if anything was stashed, None otherwise.
     """
-    if not repo.is_dirty(untracked_files=True):
+    if not repo.is_dirty():
         return None
-    repo.git.stash("push", "--include-untracked", "--message", label)
+    repo("stash", "push", "--include-untracked", "--message", label)
     return label
 
 
-def fetch_branch(repo: Repo, remote: str, branch: str) -> None:
+def fetch_branch(repo: Git, remote: str, branch: str) -> None:
     """Fetch a single branch into its remote-tracking ref."""
-    repo.git.fetch(remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}")
+    repo("fetch", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}")
 
 
-def checkout_branch(repo: Repo, remote: str, branch: str) -> bool:
+def checkout_branch(repo: Git, remote: str, branch: str) -> bool:
     """Check out a branch, creating it to track the remote branch if it doesn't exist locally.
 
     :return: True if the branch was newly created, False if it already existed.
     """
-    if branch not in repo.heads:
-        repo.git.checkout("-b", branch, "--track", f"{remote}/{branch}")
+    if not repo.has_branch(branch):
+        repo("checkout", "-b", branch, "--track", f"{remote}/{branch}")
         return True
-    if get_current_branch(repo) != branch:
-        repo.git.checkout(branch)
+    if repo.current_branch() != branch:
+        repo("checkout", branch)
     return False
 
 
-def checkout_and_fast_forward(repo: Repo, remote: str, branch: str) -> tuple[Outcome, str]:
+def checkout_and_fast_forward(repo: Git, remote: str, branch: str) -> tuple[Outcome, str]:
     """Check out a branch, creating it to track the remote branch if needed, and fast-forward it.
 
     Local commits are never discarded: if the local branch has diverged from the remote one, it is left as is.
@@ -175,11 +162,11 @@ def checkout_and_fast_forward(repo: Repo, remote: str, branch: str) -> tuple[Out
     """
     upstream = f"{remote}/{branch}"
     if checkout_branch(repo, remote, branch):
-        return Outcome.UPDATED, f"checked out [b]{upstream}[/b] ({repo.head.commit.hexsha[:8]})"
+        return Outcome.UPDATED, f"checked out [b]{upstream}[/b] ({repo.head()[:8]})"
     return fast_forward(repo, upstream)
 
 
-def checkout_and_hard_reset(repo: Repo, remote: str, branch: str) -> tuple[Outcome, str]:
+def checkout_and_hard_reset(repo: Git, remote: str, branch: str) -> tuple[Outcome, str]:
     """Check out a branch and make it identical to the remote branch, discarding any local commits.
 
     Discarded commits stay recoverable through the reflog, so the message mentions the previous commit.
@@ -188,10 +175,10 @@ def checkout_and_hard_reset(repo: Repo, remote: str, branch: str) -> tuple[Outco
     """
     upstream = f"{remote}/{branch}"
     checkout_branch(repo, remote, branch)
-    before = repo.head.commit.hexsha
-    discarded = int(repo.git.rev_list("--count", f"{upstream}..HEAD"))
-    repo.git.reset("--hard", upstream)
-    after = repo.head.commit.hexsha
+    before = repo.head()
+    discarded = int(repo("rev-list", "--count", f"{upstream}..HEAD"))
+    repo("reset", "--hard", upstream)
+    after = repo.head()
 
     if discarded:
         return Outcome.WARNING, (
@@ -231,21 +218,21 @@ def remove_python_leftovers(work_dir: Path) -> int:
     return removed
 
 
-def fast_forward(repo: Repo, upstream: str) -> tuple[Outcome, str]:
+def fast_forward(repo: Git, upstream: str) -> tuple[Outcome, str]:
     """Fast-forward the current branch to the given upstream, without ever creating a merge commit.
 
     :return: The outcome and a message describing what happened.
     """
-    branch = get_current_branch(repo)
-    before = repo.head.commit.hexsha
+    branch = repo.current_branch()
+    before = repo.head()
     try:
-        repo.git.merge("--ff-only", upstream)
-    except GitCommandError:
+        repo("merge", "--ff-only", upstream)
+    except GitError:
         return Outcome.WARNING, (
             f"[b]{branch}[/b] has diverged from [b]{upstream}[/b], left it as is. "
             "Rebase or reset it yourself if you want to drop your local commits."
         )
-    after = repo.head.commit.hexsha
+    after = repo.head()
     if before == after:
         return Outcome.UPDATED, f"[b]{branch}[/b] is up to date with [b]{upstream}[/b] ({after[:8]})"
     return Outcome.UPDATED, f"[b]{branch}[/b] fast-forwarded to [b]{upstream}[/b] ({before[:8]} → {after[:8]})"
@@ -285,10 +272,8 @@ def run_safely(name: str, operation: Callable[[], RepoResult]) -> RepoResult:
     """
     try:
         return operation()
-    except (InvalidGitRepositoryError, NoSuchPathError):
-        return RepoResult(name, Outcome.FAILED, "not a Git repository")
-    except GitCommandError as e:
-        return RepoResult(name, Outcome.FAILED, git_error_message(e))
+    except GitError as e:
+        return RepoResult(name, Outcome.FAILED, e.message)
     except Exception as e:  # noqa: BLE001
         return RepoResult(name, Outcome.FAILED, f"unexpected error: {e}")
 
