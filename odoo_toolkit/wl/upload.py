@@ -30,6 +30,7 @@ from .common import (
     WeblateApi,
     WeblateApiError,
     WeblateTranslationsUploadResponse,
+    format_upload_counts,
     get_weblate_project_component_slugs,
 )
 
@@ -110,7 +111,7 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         weblate_api = WeblateApi()
     except NameError as e:
         print_error(str(e))
-        raise Exit from e
+        raise Exit(1) from e
 
     languages_set = set(normalize_list_option(languages))
     components = normalize_list_option(components)
@@ -123,7 +124,7 @@ def upload(  # noqa: C901, PLR0912, PLR0915
             progress.update(progress_task, completed=1, total=1)
     except WeblateApiError as e:
         print_error("Weblate API Error: Failed to fetch components for project.", str(e))
-        raise Exit from e
+        raise Exit(1) from e
 
     accepted_count = 0
     skipped_count = 0
@@ -131,15 +132,16 @@ def upload(  # noqa: C901, PLR0912, PLR0915
     failed_uploads = 0
     missing_po_files: set[Path] = set()
 
-    params: dict[str, str] = {
+    # Weblate reads these from the form, next to the file. As query parameters, they were silently ignored.
+    upload_data: dict[str, str] = {
         "method": method.value,
         "conflicts": conflicts.value,
         "fuzzy": "" if fuzzy.value == UploadFuzzy.IGNORE else fuzzy.value,
     }
     if author:
-        params["author"] = author
+        upload_data["author_name"] = author
     if email:
-        params["email"] = email
+        upload_data["author_email"] = email
 
     with TransientProgress() as progress:
         progress_task = progress.add_task(
@@ -152,7 +154,7 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
             futures = {
                 executor.submit(
-                    _upload_translation, weblate_api, project, component, language, params, fuzzy,
+                    _upload_translation, weblate_api, project, component, language, upload_data, fuzzy,
                 ): (component, language)
                 for component, language in itertools.product(sorted(components), sorted(languages_set))
             }
@@ -197,18 +199,11 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         for missing_file in sorted(missing_po_files):
             print_warning(f" - {missing_file}")
         print()
+    result = format_upload_counts(accepted_count, skipped_count, not_found_count)
+    (print_success if accepted_count else print_warning)(f"{result[0].upper()}{result[1:]}.")
     if failed_uploads:
-        print_error(f"Failed to upload {failed_uploads} translations due to errors.")
-    if accepted_count:
-        print_success(
-            f"Updated {accepted_count} translations, skipped {skipped_count} translations, "
-            f"and didn't find {not_found_count} source strings.",
-        )
-    else:
-        print_warning(
-            f"No translations updated. Skipped {skipped_count} translations, "
-            f"and didn't find {not_found_count} source strings.",
-        )
+        print_error(f"Failed to upload {failed_uploads} file(s) due to errors.")
+        raise Exit(1)
 
 
 def _upload_translation(
@@ -216,7 +211,7 @@ def _upload_translation(
     project: str,
     component: str,
     language: str,
-    params: dict[str, str],
+    upload_data: dict[str, str],
     fuzzy: UploadFuzzy,
 ) -> tuple[str, str, str]:
     """Upload a single translation file. Returns (language_code, status, detail).
@@ -250,7 +245,7 @@ def _upload_translation(
             WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
                 project=project, component=component, language=language_code,
             ),
-            params=params,
+            data=upload_data,
             files={"file": (f"{project}-{component}-{language_code}.po", content)},
         )
     except (WeblateApiError, OSError) as e:

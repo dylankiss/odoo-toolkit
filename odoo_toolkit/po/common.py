@@ -152,7 +152,8 @@ def get_plural_forms(lang: str) -> str:
     """Get the plural forms rule for a given language code.
 
     :param lang: The language code to get the plural forms rule for.
-    :return: The plural forms rule for the given language code, or an empty string if not found.
+    :return: The plural forms rule for the given language code, falling back to its base language, and to the rule
+        of English (`nplurals=2; plural=(n != 1);`) if neither is known.
     """
     lang = get_cldr_lang(lang)
     if lang in CLDR_PLURAL_RULES:
@@ -174,9 +175,9 @@ def update_module_po(
 ) -> tuple[Status, list[str]]:
     """Perform an action on a module's .po files for the given languages, using the .pot file.
 
-    :param action: The action to perform on the .po files. A function that takes the language, the .pot file path and
-        the module's path as parameters, and that returns the success status and a message to render in the
-        `module_tree`.
+    :param action: The action to perform on the .po files. A function that takes the language, the .pot file path,
+        the module's path and `only_translated` as parameters, and that returns the success status and a message to
+        render in the `module_tree`.
     :param module: The module whose .po files we're working with.
     :param languages: The language codes of the .po files we're working with.
     :param only_translated: Whether to only keep translated terms in the updated `.po` files, removing all untranslated
@@ -185,13 +186,18 @@ def update_module_po(
     :param module_tree: The visual tree to render the action's messages, or error messages in.
     :return: A tuple with the first item being `Status.SUCCESS` if the `action` succeeded for all .po files,
         `Status.FAILURE` if the `action` failed for every .po file, and `Status.PARTIAL` if the `action` succeeded for
-        some .po files. The second item is a list of language codes for which the `action` failed.
+        some .po files, or if there are none. The second item is a list of language codes for which the `action`
+        failed.
     """
     success = failure = False
     pot_path = module_path / "i18n" / f"{module}.pot"
     if not pot_path.is_file():
         module_tree.add("No .pot file found!")
         return Status.FAILURE, []
+    if not languages:
+        # Nothing to do isn't a failure, like a module without translations yet.
+        module_tree.add("[d]No .po files[/d]")
+        return Status.SUCCESS, []
 
     failures: list[str] = []
     for lang in TransientProgress().track(languages, description=f"Updating [b]{module}[/b]"):

@@ -31,6 +31,7 @@ from .common import (
     WeblateTranslationsUploadResponse,
     clean_po_header,
     extract_po_files_from_zip,
+    format_upload_counts,
     get_weblate_project_component_slugs,
     po_has_translations,
 )
@@ -308,17 +309,8 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             print_warning(f"{len(pairs)} combination(s) not found in '{dest_project}' (skipped): {pairs_str}")
 
         counts = totals[dest_project]
-        if counts["accepted"]:
-            print_success(
-                f"[b]{dest_project}[/b]: updated {counts['accepted']} translations, "
-                f"skipped {counts['skipped']} translations, "
-                f"and didn't find {counts['not_found']} source strings.",
-            )
-        else:
-            print_warning(
-                f"[b]{dest_project}[/b]: no translations updated. Skipped {counts['skipped']} translations, "
-                f"and didn't find {counts['not_found']} source strings.",
-            )
+        result = format_upload_counts(counts["accepted"], counts["skipped"], counts["not_found"])
+        (print_success if counts["accepted"] else print_warning)(f"[b]{dest_project}[/b]: {result}.")
 
     if fetch_failures or upload_failures:
         raise Exit(1)

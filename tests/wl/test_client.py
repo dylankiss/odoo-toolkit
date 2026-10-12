@@ -5,6 +5,7 @@ import time
 import zipfile
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
@@ -15,6 +16,7 @@ from odoo_toolkit.common import TransientProgress
 from odoo_toolkit.main import app
 from odoo_toolkit.wl import common as wl_common
 from odoo_toolkit.wl import copy as wl_copy
+from odoo_toolkit.wl import upload as wl_upload
 from odoo_toolkit.wl.common import (
     REQUEST_TIMEOUT,
     WeblateApi,
@@ -275,3 +277,35 @@ def test_cli_copy_invalid_arguments_exit_with_an_error() -> None:
     result = CliRunner().invoke(app, ["wl", "copy", "-p", "odoo-19", "-l", "fr,nl", "-L", "de"])
     assert result.exit_code == 1
     assert "exactly one source language" in result.output
+
+
+def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(wl_common, "WEBLATE_API_TOKEN", "secret")
+    def components(*_: object) -> set[str]:
+        return {"account"}
+
+    monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", components)
+    (tmp_path / "odoo-19-account-fr.po").write_bytes(b'msgid "a"\nmsgstr "b"\n')
+    sent: list[dict[str, Any]] = []
+
+    def post(_: WeblateApi, *__: object, **kwargs: Any) -> dict[str, int]:  # noqa: ANN401
+        sent.append(kwargs)
+        return {"accepted": 1, "skipped": 0, "not_found": 0, "total": 1}
+
+    monkeypatch.setattr(WeblateApi, "post", post)
+
+    result = CliRunner().invoke(
+        app, ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert sent[0]["data"] == {
+        "method": "suggest",
+        "conflicts": "ignore",
+        "fuzzy": "process",
+        "author_name": "Ann",
+        "author_email": "ann@example.com",
+    }
+    assert "params" not in sent[0]
+    assert "Updated 1 and skipped 0 translation(s)." in result.output

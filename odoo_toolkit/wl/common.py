@@ -869,6 +869,14 @@ class UploadFuzzy(StrEnum):
     APPROVE = "approve"
 
 
+def format_upload_counts(accepted: int, skipped: int, not_found: int) -> str:
+    """Describe the result of translation uploads, like `updated 10 and skipped 2 translation(s)`."""
+    text = f"updated {accepted} and skipped {skipped} translation(s)"
+    if not_found:
+        text += f", and {not_found} source string(s) weren't found"
+    return text
+
+
 def get_weblate_project_component_slugs(api: WeblateApi, project: str) -> set[str]:
     """Fetch and return a set of component slugs for a given project.
 

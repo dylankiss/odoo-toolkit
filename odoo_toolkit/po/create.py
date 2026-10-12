@@ -48,7 +48,7 @@ def create(
         ),
     ],
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being updated."),
+        list[str], Option("--exclude", "-x", help="Exclude these modules from being created."),
     ] = EMPTY_LIST,
     path_filters: Annotated[
         list[Path],
@@ -112,7 +112,7 @@ def create(
 
     if not module_to_path:
         print_error("The provided modules are not available! Nothing to create ...")
-        raise Exit
+        raise Exit(1)
 
     modules = sorted(module_to_path.keys())
     print(f"Modules to create translation files for: [b]{'[/b], [b]'.join(modules)}[/b]\n")
@@ -130,7 +130,7 @@ def create(
         for module in modules:
             progress.update(progress_task, description=f"Creating .po files for [b]{module}[/b]")
             module_tree = Tree(f"[b]{module}[/b]")
-            create_status = update_module_po(
+            create_status, _ = update_module_po(
                 action=_create_po_for_lang,
                 module=module,
                 languages=languages,
@@ -144,8 +144,10 @@ def create(
     match status:
         case Status.FAILURE:
             print_error("No translation files were created!\n")
+            raise Exit(1)
         case Status.PARTIAL:
             print_warning("Some translation files were created correctly, while others weren't!\n")
+            raise Exit(1)
         case Status.SUCCESS:
             print_success("All translation files were created correctly!\n")
         case _:

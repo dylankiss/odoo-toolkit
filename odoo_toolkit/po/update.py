@@ -1,12 +1,14 @@
 import os
+import shlex
 import shutil
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
-from polib import pofile
+from polib import POEntry, pofile
 from rich.console import RenderableType
+from rich.markup import escape
 from rich.tree import Tree
 from typer import Argument, Exit, Option, Typer
 
@@ -115,7 +117,7 @@ def update(
 
     if not module_to_path:
         print_error("The provided modules are not available! Nothing to update ...")
-        raise Exit
+        raise Exit(1)
 
     modules = sorted(module_to_path.keys())
     print(f"Modules to update translation files for: [b]{'[/b], [b]'.join(modules)}[/b]\n")
@@ -158,8 +160,16 @@ def update(
     failed_langs_per_module_str = "\n".join(
         f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failed_langs_per_module.items()
     )
-    addons_paths_str = "".join(f"-a {p} " for p in extra_addons_paths)
-    langs_str = " ".join(f"-l {lang}" for lang in sorted(all_failed_langs))
+    retry_cmd = get_retry_command(
+        modules=sorted(failed_langs_per_module),
+        languages=sorted(all_failed_langs),
+        only_translated=only_translated,
+        exclude=exclude,
+        path_filters=path_filters,
+        com_path=com_path,
+        ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
+    )
     match status:
         case Status.SUCCESS:
             print_success("All translation files were updated correctly!\n")
@@ -168,10 +178,48 @@ def update(
                 "Some translation files were updated correctly, while others weren't!\n\n"
                 f"{failed_langs_per_module_str}\n\n"
                 "You can run the command again for the failed modules using:\n"
-                f"[b]otk po update {addons_paths_str}{langs_str} {' '.join(failed_langs_per_module.keys())}[/b]\n",
+                f"[b]{escape(shlex.join(retry_cmd))}[/b]\n",
             )
+            raise Exit(1)
         case _:
             print_error("No translation files were updated!\n")
+            raise Exit(1)
+
+
+def get_retry_command(
+    *,
+    modules: list[str],
+    languages: list[str],
+    only_translated: bool,
+    exclude: list[str],
+    path_filters: list[Path],
+    com_path: Path,
+    ent_path: Path,
+    extra_addons_paths: list[Path],
+) -> list[str]:
+    """Get the command to update the failed modules and languages again, with every option that was given."""
+    cmd = ["otk", "po", "update", *modules]
+    cmd += [arg for lang in languages for arg in ("-l", lang)]
+    if only_translated:
+        cmd.append("-t")
+    cmd += [arg for e in exclude for arg in ("-x", e)]
+    cmd += [arg for p in path_filters for arg in ("-f", str(p))]
+    if com_path != Path("odoo"):
+        cmd += ["-c", str(com_path)]
+    if ent_path != Path("enterprise"):
+        cmd += ["-e", str(ent_path)]
+    cmd += [arg for p in extra_addons_paths for arg in ("-a", str(p))]
+    return cmd
+
+
+def is_translated(entry: POEntry) -> bool:
+    """Return whether an entry counts as translated for `msgattrib --translated`, so both ways give the same result.
+
+    Fuzzy entries count as translated, and plural entries as soon as their first form is.
+    """
+    if entry.msgid_plural:
+        return bool(entry.msgstr_plural.get(0))
+    return bool(entry.msgstr)
 
 
 def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path, only_translated: bool) -> tuple[bool, RenderableType]:
@@ -223,7 +271,7 @@ def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path, only_trans
             # Remove entries that are obsolete.
             po[:] = [entry for entry in po if not entry.obsolete]
             if only_translated:
-                po[:] = [entry for entry in po if entry.translated()]
+                po[:] = [entry for entry in po if is_translated(entry)]
             po.save()
         except (OSError, ValueError) as e:
             return False, get_error_log_panel(str(e), f"Updating {po_path.name} failed!")
