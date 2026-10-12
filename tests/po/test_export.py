@@ -56,6 +56,7 @@ def test_server_stops_when_exporting_fails(monkeypatch: pytest.MonkeyPatch) -> N
             server_name="custom",
             server_formatted="[CUSTOM]",
             odoo_cmd=[sys.executable, "-c", server],
+            stop_cmd=None,
             dropdb_cmd=None,
             env={},
             url="http://localhost:1",

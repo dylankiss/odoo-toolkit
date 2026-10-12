@@ -15,7 +15,7 @@ from http.client import HTTPConnection, HTTPSConnection
 from operator import itemgetter
 from pathlib import Path
 from socket import socket
-from subprocess import PIPE, CalledProcessError, Popen
+from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
 from typing import Annotated, Any
 
 from polib import pofile
@@ -37,6 +37,19 @@ from odoo_toolkit.common import (
     print_indent,
     print_warning,
 )
+from odoo_toolkit.dev.common import ensure_image, start_services
+from odoo_toolkit.dev.images import get_native_arch
+from odoo_toolkit.dev.runtime import (
+    DB_HOST,
+    ODOO_PORT,
+    RunOptions,
+    build_run_command,
+    check_mountable,
+    get_container_user,
+    get_git_identity,
+)
+from odoo_toolkit.mv.config import find_multiverse_dir, find_version_dir
+from odoo_toolkit.versions import OdooVersion, get_versions
 
 HTTPS_PORT = 443
 WITH_DEMO_VERSION = 18.3
@@ -56,6 +69,15 @@ class ServerType(StrEnum):
     ENT = "Enterprise"
     L10N = "Localizations"
     CUSTOM = "Custom"
+
+
+@dataclass
+class _Container:
+    """Where to run the Odoo servers in Docker: the image of a multiverse version directory."""
+
+    version_dir: Path
+    version: OdooVersion
+    multiverse_dir: Path
 
 
 @dataclass
@@ -113,6 +135,23 @@ def export(  # noqa: C901, PLR0912, PLR0915
     quick_install: Annotated[
         bool,
         Option("--quick-install", help="Install only the modules to export.", rich_help_panel="Odoo Server Options"),
+    ] = False,
+    local: Annotated[
+        bool,
+        Option(
+            "--local",
+            help="Run the Odoo servers with Python on this machine, instead of in the Docker image of the Odoo "
+            "Multiverse version directory you're in.",
+            rich_help_panel="Odoo Server Options",
+        ),
+    ] = False,
+    build: Annotated[
+        bool,
+        Option(
+            "--build",
+            help="Build the Docker image on your machine instead of pulling it.",
+            rich_help_panel="Odoo Server Options",
+        ),
     ] = False,
     single_server: Annotated[
         bool,
@@ -186,7 +225,11 @@ def export(  # noqa: C901, PLR0912, PLR0915
     ] = "export_pot_db_{port}",
     db_host: Annotated[
         str,
-        Option(help="Specify the PostgreSQL server's hostname.", rich_help_panel="Database Options"),
+        Option(
+            help="Specify the PostgreSQL server's hostname. The database options don't apply to servers in Docker, "
+            "which use the PostgreSQL of `otk dev`.",
+            rich_help_panel="Database Options",
+        ),
     ] = "localhost",
     db_port: Annotated[
         int,
@@ -208,12 +251,15 @@ def export(  # noqa: C901, PLR0912, PLR0915
     and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent
     modules that might contribute terms to the modules to be exported.\n
     \n
+    Inside an Odoo Multiverse version directory (like `19.0`), the servers run in that version's Docker image, like
+    `otk dev run`, with the PostgreSQL of `otk dev`. Use `--local` to run them with Python on this machine instead.\n
+    \n
     You can also export terms from your own running server using the `--own-server` option and optionally passing the
     correct arguments to reach your Odoo server.\n
     \n
-    > Without any options specified, the command is supposed to run from within the parent directory where your `odoo`
-    and `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost`
-    using port `5432`, accessible without a password using your current user.\n
+    > Outside a multiverse, the command is supposed to run from within the parent directory where your `odoo` and
+    `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost` using
+    port `5432`, accessible without a password using your current user.\n
     \n
     > Of course, all of this can be tweaked with the available options.
     """
@@ -222,6 +268,15 @@ def export(  # noqa: C901, PLR0912, PLR0915
     if full_install and quick_install:
         print_error("Use either [b]--full-install[/b] or [b]--quick-install[/b], not both.\n")
         raise Exit(1)
+
+    container = _find_container(local=local or not start_server)
+    if container:
+        # Use the repositories of the version directory, wherever you are in it.
+        if com_path == Path("odoo"):
+            com_path = container.version_dir / "odoo"
+        if ent_path == Path("enterprise"):
+            ent_path = container.version_dir / "enterprise"
+        _check_mounted(container, [com_path, ent_path, *extra_addons_paths])
 
     exclude = resolve_excludes(normalize_list_option(exclude))
 
@@ -295,6 +350,10 @@ def export(  # noqa: C901, PLR0912, PLR0915
         ent_modules_path = ent_path.expanduser().resolve()
         extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
         odoo_version = get_odoo_version(odoo_repo_path)
+        arch = get_native_arch()
+        if container:
+            ensure_image(container.version, build=build, arch=arch)
+            start_services()
 
         if single_server:
         # Combine all modules to export and install into the CUSTOM server type.
@@ -333,31 +392,56 @@ def export(  # noqa: C901, PLR0912, PLR0915
                 "--addons-path",     addons_path,
                 "--database",        cur_database,
                 "--init",            ",".join(modules_to_install),
-                "--http-port",       str(cur_port),
-                "--db_host",         db_host,
-                "--db_port",         str(db_port),
                 "--limit-time-cpu",  "99999999",
                 "--limit-time-real", "99999999",
             ]
-            if db_username:
-                odoo_cmd.extend(["--db_user", db_username])
             if odoo_version and odoo_version >= WITH_DEMO_VERSION:
                 odoo_cmd.extend(["--with-demo"])
 
-            dropdb_cmd = None
-            if not keep_db:
-                dropdb_cmd = ["dropdb", cur_database, "--host", db_host, "--port", str(db_port)]
+            stop_cmd = None
+            if container:
+                # Odoo listens on its usual port in the container, published on the free port we found.
+                run_cmd = build_run_command(
+                    RunOptions(
+                        version_dir=container.version_dir,
+                        version=container.version,
+                        port=cur_port,
+                        command=[str(arg) for arg in odoo_cmd] + [
+                            f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}", "--db_user=odoo",
+                        ],
+                        arch=arch,
+                    ),
+                    multiverse_dir=container.multiverse_dir,
+                    git_identity=get_git_identity(),
+                    user=get_container_user(),
+                    tty=False,
+                )
+                odoo_cmd = list[str | Path](run_cmd)
+                # Stopping `docker run` doesn't stop the container.
+                stop_cmd = ["docker", "rm", "--force", _get_container_name(run_cmd)]
+                # Odoo's connections may not be closed yet, right after stopping it.
+                dropdb_cmd = None if keep_db else [
+                    "docker", "exec", DB_HOST, "dropdb", "--username=odoo", "--force", cur_database,
+                ]
+            else:
+                odoo_cmd += ["--http-port", str(cur_port), "--db_host", db_host, "--db_port", str(db_port)]
                 if db_username:
-                    dropdb_cmd.extend(["--username", db_username])
-            if db_password:
-                # Odoo and dropdb both read it from here, so it doesn't show up in the commands.
-                cmd_env |= {"PGPASSWORD": db_password}
+                    odoo_cmd.extend(["--db_user", db_username])
+                dropdb_cmd = None
+                if not keep_db:
+                    dropdb_cmd = ["dropdb", cur_database, "--host", db_host, "--port", str(db_port)]
+                    if db_username:
+                        dropdb_cmd.extend(["--username", db_username])
+                if db_password:
+                    # Odoo and dropdb both read it from here, so it doesn't show up in the commands.
+                    cmd_env |= {"PGPASSWORD": db_password}
 
             server_type_name = f"[{server_type.name}]"
             params_per_server_type.append({
                 "server_name": server_type.value,
                 "server_formatted": f"[b][cyan]{server_type_name:10}[/cyan][/b]",
                 "odoo_cmd": odoo_cmd,
+                "stop_cmd": stop_cmd,
                 "dropdb_cmd": dropdb_cmd,
                 "env": cmd_env,
                 "url": f"{url}:{cur_port}",
@@ -407,6 +491,7 @@ def run_server_and_export_terms(
     server_name: str,
     server_formatted: str,
     odoo_cmd: Sequence[str | Path],
+    stop_cmd: Sequence[str] | None,
     dropdb_cmd: Sequence[str | Path] | None,
     env: Mapping[str, str],
     url: str,
@@ -421,6 +506,7 @@ def run_server_and_export_terms(
     :param server_name: The server type to run.
     :param server_formatted: The server type to run, formatted in a short printable way.
     :param odoo_cmd: The command to start the Odoo server.
+    :param stop_cmd: The command to stop the Odoo server, if stopping `odoo_cmd` doesn't.
     :param dropdb_cmd: The command to drop the database.
     :param env: The environment variables to run the commands with.
     :param url: The Odoo server URL.
@@ -444,7 +530,7 @@ def run_server_and_export_terms(
         error_msg=None,
     )
 
-    with Popen(odoo_cmd, env=env, stderr=PIPE, text=True) as proc:
+    with Popen(odoo_cmd, env=env, stdin=DEVNULL, stderr=PIPE, text=True) as proc:
         try:
             data.server_error = not _wait_and_export_terms(
                 proc=proc,
@@ -459,9 +545,14 @@ def run_server_and_export_terms(
             )
         finally:
             # Leaving the `with` block waits for the server to stop, so make sure it does.
+            # `docker run` can stop without its container, like when we stop reading its log, so always stop that.
+            running = proc.poll() is None
+            if stop_cmd:
+                running = subprocess.run(stop_cmd, capture_output=True, check=False).returncode == 0 or running
             if proc.poll() is None:
                 proc.kill()
                 proc.wait()
+            if running:
                 print(f"{server_formatted} Odoo Server has stopped :white_check_mark:")
 
     if data.database_created and data.server_error:
@@ -479,11 +570,49 @@ def run_server_and_export_terms(
             except CalledProcessError as e:
                 print_error(
                     f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.",
-                    e.stderr.strip() if e.stderr else None,
+                    e.stderr.decode().strip() if e.stderr else None,
                 )
                 _print_command_for_copy(dropdb_cmd)
 
     return not data.server_error
+
+
+def _find_container(*, local: bool) -> _Container | None:
+    """Find the multiverse version directory you're in, to run the Odoo servers in its Docker image.
+
+    :param local: Whether to run the servers on this machine instead.
+    :raises Exit: If the multiverse can't be mounted in a container.
+    :return: Where to run the servers, or None to run them on this machine.
+    """
+    if local or not (version_dir := find_version_dir(Path.cwd())):
+        return None
+    if not (version := get_versions().get(version_dir.name)):
+        print_warning(f"Odoo [b]{version_dir.name}[/b] has no Docker image, so the servers run on this machine.\n")
+        return None
+    multiverse_dir = find_multiverse_dir(version_dir) or version_dir.parent
+    if problem := check_mountable(multiverse_dir):
+        print_error(f"{problem}\n")
+        raise Exit(1)
+    return _Container(version_dir=version_dir, version=version, multiverse_dir=multiverse_dir)
+
+
+def _check_mounted(container: _Container, paths: Iterable[Path]) -> None:
+    """Make sure the repositories are in the multiverse, since only that is mounted in the container.
+
+    :raises Exit: If one isn't.
+    """
+    for path in paths:
+        if not path.expanduser().resolve().is_relative_to(container.multiverse_dir):
+            print_error(
+                f"[u]{path}[/u] isn't in the multiverse, so the Odoo servers in Docker can't use it. Use [b]--local[/b] "
+                "to run them on this machine instead.\n",
+            )
+            raise Exit(1)
+
+
+def _get_container_name(run_cmd: Sequence[str]) -> str:
+    """Get the name of the container a `docker run` command starts."""
+    return run_cmd[run_cmd.index("--name") + 1]
 
 
 def resolve_excludes(exclude: list[str]) -> list[str]:
