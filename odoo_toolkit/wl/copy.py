@@ -1,4 +1,3 @@
-import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fnmatch import fnmatch
@@ -11,6 +10,7 @@ from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
     normalize_list_option,
+    print,
     print_command_title,
     print_error,
     print_header,
@@ -23,7 +23,6 @@ from .common import (
     NOT_FOUND,
     WEBLATE_MAX_WORKERS,
     WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT,
-    WEBLATE_REQUESTS_PER_SECOND,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     UploadConflicts,
     UploadMethod,
@@ -132,15 +131,15 @@ def copy(  # noqa: C901, PLR0912, PLR0915
 
     if len(src_languages_set) != 1 and dest_language:
         print_error("You need to specify exactly one source language when specifying a destination language.")
-        raise Exit
+        raise Exit(1)
 
     if dest_component:
         if any(any(char in c for char in GLOB_CHARACTERS) for c in src_components_set):
             print_error("You cannot use wildcards in the source components when specifying a destination component.")
-            raise Exit
+            raise Exit(1)
         if len(src_components_set) != 1:
             print_error("You need to specify exactly one source component when specifying a destination component.")
-            raise Exit
+            raise Exit(1)
 
     if (
         (not dest_projects or src_project in dest_projects)
@@ -148,7 +147,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         and (not dest_component or dest_component in src_components_set)
     ):
         print_error("You cannot copy translations to the same language and component in the same project.")
-        raise Exit
+        raise Exit(1)
 
     upload_data = {
         "conflicts": conflicts.value,
@@ -161,10 +160,10 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         upload_data["author_email"] = author_email
 
     try:
-        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
+        weblate_api = WeblateApi()
     except NameError as e:
         print_error(str(e))
-        raise Exit from e
+        raise Exit(1) from e
 
     if not dest_projects:
         dest_projects = [src_project]
@@ -180,8 +179,8 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             dest_component=dest_component,
         )
     except WeblateApiError as e:
-        print_error("Weblate API Error: Failed to fetch components for project.", str(e))
-        raise Exit from e
+        print_error(f"Fetching the components failed: {e.summary}", str(e))
+        raise Exit(1) from e
 
     if not any(components_per_dest.values()):
         print_warning("No components to copy. None of the source components exist in the destination project(s).")
@@ -207,7 +206,9 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         dest_project: {"accepted": 0, "skipped": 0, "not_found": 0} for dest_project in dest_projects
     }
     not_found_pairs: dict[str, list[tuple[str, str]]] = {dest_project: [] for dest_project in dest_projects}
-    fetch_failures: list[tuple[str, str]] = []
+    # The failures per (component, language), with their reason.
+    fetch_failures: dict[tuple[str, str], str] = {}
+    upload_failures: dict[tuple[str, str, str], str] = {}
     untranslated_skipped = 0
     copied_anything = False
 
@@ -219,7 +220,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             fetch_task = progress.add_task(
                 f"Fetching {lang_src} source files...", total=len(needed_src_components),
             )
-            source_files, failed = _fetch_language_sources(
+            source_files, failed = fetch_language_sources(
                 weblate_api,
                 src_project,
                 lang_code,
@@ -228,7 +229,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                 progress=progress,
                 task_id=fetch_task,
             )
-        fetch_failures.extend((component, lang_code) for component in failed)
+        fetch_failures |= {(component, lang_code): reason for component, reason in failed.items()}
 
         # Uploading a file without a single translation only burns a request.
         untranslated = {component for component, po_file in source_files.items() if not po_has_translations(po_file)}
@@ -253,7 +254,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                     f"Copying {lang_src} to {dest_project}", total=len(uploads),
                 )
                 with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
-                    futures = [
+                    futures = {
                         executor.submit(
                             _upload_translations,
                             weblate_api,
@@ -262,22 +263,19 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                             comp_dest,
                             lang_dest,
                             upload_data=upload_data,
-                        )
+                        ): comp_dest
                         for po_file, comp_dest in uploads
-                    ]
+                    }
                     for future in as_completed(futures):
                         progress.advance(progress_task)
+                        comp_dest = futures[future]
                         try:
                             response = future.result()
                         except WeblateApiError as e:
                             if e.status_code == NOT_FOUND:
-                                url: str = e.response.request.url or ""
-                                match = re.search(r"/api/translations/([^/]+)/([^/]+)/([^/]+)/file/", url)
-                                not_found_pairs[dest_project].append(
-                                    (match.group(2), match.group(3)) if match else ("?", url),
-                                )
+                                not_found_pairs[dest_project].append((comp_dest, get_cldr_lang(lang_dest)))
                             else:
-                                print_error("Copying translations failed.", str(e))
+                                upload_failures[dest_project, comp_dest, get_cldr_lang(lang_dest)] = e.summary
                             continue
                         totals[dest_project]["accepted"] += response["accepted"]
                         totals[dest_project]["skipped"] += response["skipped"]
@@ -286,8 +284,13 @@ def copy(  # noqa: C901, PLR0912, PLR0915
     # Report the results.
 
     if fetch_failures:
-        pairs_str = ", ".join(f"{c}/{lang}" for c, lang in sorted(fetch_failures))
-        print_error(f"Failed to fetch {len(fetch_failures)} source file(s) from '{src_project}': {pairs_str}")
+        print_error(f"Failed to fetch {len(fetch_failures)} source file(s) from [b]{src_project}[/b]:")
+        _print_failures({f"{component}/{lang}": reason for (component, lang), reason in fetch_failures.items()})
+    if upload_failures:
+        print_error(f"Failed to upload {len(upload_failures)} file(s):")
+        _print_failures({
+            f"{project}: {component}/{lang}": reason for (project, component, lang), reason in upload_failures.items()
+        })
 
     if untranslated_skipped:
         print_warning(f"Skipped {untranslated_skipped} source file(s) without any translation.")
@@ -297,7 +300,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             print_warning("Nothing to copy. Every source file that was fetched is untranslated.")
             return
         print_error("No source files could be fetched.")
-        raise Exit
+        raise Exit(1)
 
     for dest_project in dest_projects:
         if pairs := not_found_pairs[dest_project]:
@@ -316,6 +319,18 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                 f"[b]{dest_project}[/b]: no translations updated. Skipped {counts['skipped']} translations, "
                 f"and didn't find {counts['not_found']} source strings.",
             )
+
+    if fetch_failures or upload_failures:
+        raise Exit(1)
+
+
+def _print_failures(failures: dict[str, str]) -> None:
+    """Print failures, grouped by reason, since many usually fail for the same reason."""
+    by_reason: dict[str, list[str]] = {}
+    for item, reason in sorted(failures.items()):
+        by_reason.setdefault(reason, []).append(item)
+    for reason, items in by_reason.items():
+        print(f"  {reason}: {', '.join(items)}")
 
 
 def _map_components(
@@ -365,7 +380,7 @@ def _map_components(
     return components_per_dest
 
 
-def _fetch_language_sources(
+def fetch_language_sources(
     api: WeblateApi,
     project: str,
     language_code: str,
@@ -374,7 +389,7 @@ def _fetch_language_sources(
     query: str | None,
     progress: TransientProgress,
     task_id: TaskID,
-) -> tuple[dict[str, bytes], list[str]]:
+) -> tuple[dict[str, bytes], dict[str, str]]:
     """Fetch the source PO files of one language, keyed by component slug.
 
     Without a query, all components are pulled in a single project archive request instead of one request per
@@ -387,7 +402,7 @@ def _fetch_language_sources(
     :param query: The Weblate search string to filter the strings by, if any.
     :param progress: The progress bar to advance.
     :param task_id: The progress bar task to advance.
-    :return: A mapping of component slug to its cleaned PO file, and the components that could not be fetched.
+    :return: A mapping of component slug to its cleaned PO file, and the reason per component that couldn't be fetched.
     """
     if not query and len(components) >= BULK_ZIP_MIN_COMPONENTS:
         try:
@@ -396,16 +411,20 @@ def _fetch_language_sources(
                 params={"format": "zip"},
             )
             po_files = extract_po_files_from_zip(zip_bytes, language_code, components)
-        except (WeblateApiError, zipfile.BadZipFile):
-            return {}, sorted(components)
-        progress.advance(task_id, len(components))
-        return (
-            {component: clean_po_header(po_file) for component, po_file in po_files.items()},
-            sorted(components - set(po_files)),
-        )
+        except (WeblateApiError, zipfile.BadZipFile) as e:
+            reason = e.summary if isinstance(e, WeblateApiError) else f"invalid ZIP file ({e})"
+            print_warning(
+                f"Downloading all {language_code} files at once failed ({reason}), so downloading them one by one.",
+            )
+        else:
+            progress.advance(task_id, len(components))
+            return (
+                {component: clean_po_header(po_file) for component, po_file in po_files.items()},
+                dict.fromkeys(sorted(components - set(po_files)), "not in the project's files"),
+            )
 
     source_files: dict[str, bytes] = {}
-    failures: list[str] = []
+    failures: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
         futures = {
             executor.submit(_fetch_source, api, project, component, language_code, query): component
@@ -416,8 +435,8 @@ def _fetch_language_sources(
             progress.advance(task_id)
             try:
                 source_files[component] = clean_po_header(future.result())
-            except WeblateApiError:
-                failures.append(component)
+            except WeblateApiError as e:
+                failures[component] = e.summary
     return source_files, failures
 
 

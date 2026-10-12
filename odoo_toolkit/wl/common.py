@@ -1,15 +1,11 @@
-import contextlib
 import io
 import json
-import math
-import random
 import re
 import threading
 import time
 import zipfile
 from collections import defaultdict
 from collections.abc import Callable, Collection, Generator, Mapping
-from email.utils import parsedate_to_datetime
 from enum import StrEnum
 from fnmatch import fnmatch
 from os import environ
@@ -18,8 +14,11 @@ from typing import Any, Literal, TypedDict, TypeVar, cast
 from urllib.parse import urljoin
 
 from requests import ConnectionError as RequestsConnectionError
-from requests import ConnectTimeout, HTTPError, JSONDecodeError, Response, Session
+from requests import HTTPError, JSONDecodeError, Response, Session
 from requests import Timeout as RequestsTimeout
+from requests.adapters import HTTPAdapter
+from urllib3 import BaseHTTPResponse
+from urllib3.util.retry import Retry
 
 from odoo_toolkit.common import USER_AGENT, print_warning
 
@@ -46,79 +45,176 @@ WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT = "/api/projects/{project}/languages/{lan
 
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
-# The Weblate server accepts 2 requests per second. Exceeding it only buys us HTTP 429s and their back-off penalty.
+# translate.odoo.com sits behind nginx, which allows bursts of up to 1000 requests, and 2 requests per second after
+# that. It refuses more with HTTP 429, without saying how long to wait.
 WEBLATE_REQUESTS_PER_SECOND = 2
-# The throttle above serializes the start of every request, so extra workers can never breach the rate limit. They only
-# keep requests in flight while others wait on the server, which is what actually saturates the allowed rate.
+WEBLATE_REQUEST_BURST = 1000
+# Weblate itself allows a number of requests per hour (5000 at the time of writing), and reports what's left of it in
+# the X-RateLimit-* headers. All requests wait for the window to reset once fewer than this many remain, which covers
+# the requests that are still in flight.
+WEBLATE_RATE_LIMIT_RESERVE = 20
+# The rate limiter controls the start of every request, so extra workers can never breach the rate limits. They only keep
+# requests in flight while others wait on the server, which is what actually saturates the allowed rate.
 WEBLATE_MAX_WORKERS = 10
 
-MAX_RETRIES = 3
-RETRY_STATUS_CODES = frozenset({500, 502, 503, 504})
-IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+# Seconds to wait for a connection, and for the next bytes of a response. Generous, since autotranslating or
+# exporting a large project can take minutes.
+REQUEST_TIMEOUT = (15, 600)
 TOO_MANY_REQUESTS = 429
 NOT_FOUND = 404
+# Only waits at least this long are reported.
+REPORTED_WAIT = 5
+# Seconds all requests wait at least after a rate limited one, so nginx's limit can recover.
+RATE_LIMITED_PAUSE = 1
 
 T = TypeVar("T")
 
-_rate_limit_lock = threading.Lock()
-_rate_limit_until: list[float] = [0.0]
 
+class WeblateRateLimiter:
+    """Limit the requests to Weblate like nginx does, and make all of them wait when Weblate's rate limit runs out.
 
-def _set_rate_limit(retry_after: int) -> None:
-    deadline = time.time() + retry_after
-    with _rate_limit_lock:
-        _rate_limit_until[0] = max(_rate_limit_until[0], deadline)
+    Like nginx, it allows a burst of requests, refilled at a steady rate. We can't know how much of nginx's burst other
+    runs used up, so we start with a full burst, and fall back to the steady rate as soon as nginx refuses a request.
 
-
-def _wait_if_rate_limited() -> None:
-    with _rate_limit_lock:
-        until = _rate_limit_until[0]
-    remaining = until - time.time()
-    if remaining > 0:
-        print_warning(f"Weblate rate limit hit, waiting about {remaining:.0f} second(s) before retrying.")
-        time.sleep(remaining + random.uniform(0, 5))  # noqa: S311
-
-
-def _parse_retry_after(retry_after: str) -> int | None:
-    """Parse a Retry-After header, given either as a number of seconds or as an HTTP date."""
-    with contextlib.suppress(ValueError):
-        return max(0, int(retry_after))
-    with contextlib.suppress(TypeError, ValueError):
-        return max(0, math.ceil(parsedate_to_datetime(retry_after).timestamp() - time.time()))
-    return None
-
-
-def _with_retry(make_request: Callable[[], Response], *, idempotent: bool = True) -> Response:
-    """Execute make_request(), retrying on HTTP 429, on transient server errors, and on connection failures.
-
-    Non-idempotent requests are only retried when the server certainly didn't process them (HTTP 429 or a failure to
-    connect), so a retry can never perform the same action twice.
+    It's shared by all requests and their retries, across threads and `WeblateApi` objects.
     """
-    retryable_errors = (RequestsConnectionError, RequestsTimeout) if idempotent else (ConnectTimeout,)
-    attempt = 0
-    while True:
-        _wait_if_rate_limited()
+
+    def __init__(self, requests_per_second: float, burst: int, reserve: int) -> None:
+        """Initialize the rate limiter.
+
+        :param requests_per_second: The steady rate of requests.
+        :param burst: How many requests may start at once.
+        :param reserve: Wait for Weblate's rate limit window to reset once fewer requests than this remain in it.
+        """
+        self.requests_per_second = requests_per_second
+        self.burst = burst
+        self.reserve = reserve
+        self._tokens = float(burst)
+        self._updated_at = time.monotonic()
+        self._paused_until = 0.0
+        self._reported_until = 0.0
+        self._lock = threading.Lock()
+
+    def _refill(self, now: float) -> None:
+        if now > self._updated_at:
+            self._tokens = min(self.burst, self._tokens + (now - self._updated_at) * self.requests_per_second)
+            self._updated_at = now
+
+    def acquire(self) -> None:
+        """Wait until the next request may start."""
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._refill(now)
+                if now < self._paused_until:
+                    wait_time = self._paused_until - now
+                elif self._tokens >= 1:
+                    self._tokens -= 1
+                    return
+                else:
+                    wait_time = (1 - self._tokens) / self.requests_per_second
+            # Wait without blocking others, then check again, since all requests may have been paused meanwhile.
+            time.sleep(wait_time)
+
+    def drain(self) -> None:
+        """Fall back to the steady rate, since nginx's burst is used up."""
+        with self._lock:
+            self._refill(time.monotonic())
+            self._tokens = 0
+            # Don't refill while all requests are paused, so nginx's limit can recover.
+            self._updated_at = max(self._updated_at, self._paused_until)
+
+    def pause(self, seconds: float, reason: str) -> None:
+        """Make all requests wait.
+
+        :param seconds: How long to wait.
+        :param reason: Why, to report long waits.
+        """
+        with self._lock:
+            until = time.monotonic() + seconds
+            self._paused_until = max(self._paused_until, until)
+            # Parallel requests often hit the same limit, so only report a wait that ends noticeably later.
+            report = seconds >= REPORTED_WAIT and until > self._reported_until + 1
+            if report:
+                self._reported_until = until
+        if report:
+            print_warning(f"{reason}, waiting {_format_duration(seconds)} before continuing.")
+
+    def update(self, headers: Mapping[str, str]) -> None:
+        """Pause all requests if Weblate's rate limit is (almost) used up, according to a response's headers.
+
+        Requests that are exempt from the rate limit don't get these headers.
+        """
         try:
-            response = make_request()
-        except retryable_errors:
-            attempt += 1
-            if attempt > MAX_RETRIES:
-                raise
-            time.sleep(2**attempt)
-            continue
-        if response.status_code == TOO_MANY_REQUESTS:
-            seconds_until_reset = _parse_retry_after(response.headers.get("Retry-After", ""))
-            if seconds_until_reset is None:
-                raise WeblateApiError(response)
-            _set_rate_limit(seconds_until_reset)
-            continue
-        if idempotent and response.status_code in RETRY_STATUS_CODES:
-            attempt += 1
-            if attempt > MAX_RETRIES:
-                return response
-            time.sleep(2**attempt)
-            continue
-        return response
+            remaining = int(headers["X-RateLimit-Remaining"])
+            reset = float(headers["X-RateLimit-Reset"])
+        except (KeyError, ValueError):
+            return
+        if remaining < self.reserve and reset > 0:
+            limit = headers.get("X-RateLimit-Limit", "?")
+            self.pause(reset, f"Only {remaining} of Weblate's {limit} requests are left in its rate limit window")
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 120:  # noqa: PLR2004
+        return f"{seconds:.0f} second(s)"
+    return f"{seconds / 60:.0f} minute(s)"
+
+
+RATE_LIMITER = WeblateRateLimiter(WEBLATE_REQUESTS_PER_SECOND, WEBLATE_REQUEST_BURST, WEBLATE_RATE_LIMIT_RESERVE)
+
+
+class WeblateRetry(Retry):
+    """Retry failed Weblate requests: rate limits, server errors and connection problems.
+
+    Requests that change something (like uploading a file) are only retried when Weblate certainly didn't process them:
+    when nginx or Weblate refused them because of a rate limit, or when the connection couldn't be made. Retrying them
+    after a server error or a timeout could perform them twice.
+
+    Retries go through the shared rate limiter as well.
+    """
+
+    def is_retry(self, method: str, status_code: int, has_retry_after: bool = False) -> bool:
+        """Retry rate limited requests of any method, since nginx or Weblate refused them before processing them."""
+        if status_code == TOO_MANY_REQUESTS:
+            return True
+        return super().is_retry(method, status_code, has_retry_after)
+
+    def sleep(self, response: BaseHTTPResponse | None = None) -> None:
+        """Wait before retrying, making all requests wait if we hit a rate limit."""
+        if response is not None:
+            RATE_LIMITER.update(response.headers)
+            if response.status == TOO_MANY_REQUESTS:
+                retry_after = self.get_retry_after(response)
+                if retry_after is None:
+                    # nginx doesn't say how long to wait, but a short pause lets its limit recover.
+                    RATE_LIMITER.pause(max(self.get_backoff_time(), RATE_LIMITED_PAUSE), "nginx's rate limit was hit")
+                    RATE_LIMITER.drain()
+                else:
+                    RATE_LIMITER.pause(retry_after, "Weblate's rate limit was hit")
+            else:
+                time.sleep(self.get_backoff_time())
+        else:
+            time.sleep(self.get_backoff_time())
+        RATE_LIMITER.acquire()
+
+
+RETRY = WeblateRetry(
+    total=None,
+    # Connecting failed, so nothing was sent: safe to retry for any request.
+    connect=3,
+    # Reading the response failed: only retried for requests that don't change anything.
+    read=3,
+    # Rate limits and server errors (server errors only for requests that don't change anything).
+    status=10,
+    other=0,
+    status_forcelist=[TOO_MANY_REQUESTS, 500, 502, 503, 504],
+    backoff_factor=1,
+    backoff_jitter=1,
+    backoff_max=30,
+    # Return the last response instead of raising, so it becomes a WeblateApiError with Weblate's message.
+    raise_on_status=False,
+)
 
 
 class WeblatePagedResponse(TypedDict):
@@ -361,7 +457,7 @@ class WeblateApiError(Exception):
         :param response: The response object from the Weblate API call.
         """
         self.response = response
-        self.status_code = response.status_code
+        self.status_code: int | None = response.status_code
         self.error_type = None
         self.errors: list[dict[str, Any]] = []
 
@@ -374,17 +470,31 @@ class WeblateApiError(Exception):
 
         super().__init__(self.__str__())
 
+    @property
+    def summary(self) -> str:
+        """Describe the error in one line, like `HTTP 404: Not found.`."""
+        detail = next((str(err["detail"]) for err in self.errors if err.get("detail")), "")
+        first_line = detail.strip().splitlines()[0] if detail.strip() else ""
+        return f"HTTP {self.status_code}: {first_line[:200]}" if first_line else f"HTTP {self.status_code}"
+
     def __str__(self) -> str:
         """Provide a clean string representation, listing all errors."""
-        headers = {**self.response.request.headers}
+        request = self.response.request
+        headers = {**request.headers}
         # Header values can be bytes as well, so mask the token whatever its type.
         if "Authorization" in headers:
             headers["Authorization"] = "Bearer **********"
+        # Uploads send whole files, which would drown the error.
+        body = request.body
+        if isinstance(body, bytes | str) and (
+            len(body) > 500 or str(headers.get("Content-Type", "")).startswith("multipart/")  # noqa: PLR2004
+        ):
+            body = f"<{len(body)} bytes>"
         error_list = [
             f"HTTP {self.status_code} ({self.error_type}): The request failed with {len(self.errors)} error(s).",
-            f"  Request URL: {self.response.request.url}",
+            f"  Request URL: {request.url}",
             f"  Request Headers: {headers}",
-            f"  Request Body: {self.response.request.body}",
+            f"  Request Body: {body}",
             f"  Status Code: {self.status_code} ({self.error_type})",
         ]
         for i, err in enumerate(self.errors):
@@ -395,10 +505,36 @@ class WeblateApiError(Exception):
         return "\n".join(error_list)
 
 
+class WeblateConnectionError(WeblateApiError):
+    """Weblate couldn't be reached, or didn't answer in time."""
+
+    def __init__(self, error: RequestsConnectionError | RequestsTimeout) -> None:
+        """Initialize the error.
+
+        :param error: The connection error.
+        """
+        self.error = error
+        self.status_code = None
+        self.error_type = "connection"
+        self.errors = [{"code": None, "detail": str(error)}]
+        self.url = error.request.url if error.request else None
+        Exception.__init__(self, self.__str__())
+
+    @property
+    def summary(self) -> str:
+        """Describe the error in one line."""
+        kind = "timed out" if isinstance(self.error, RequestsTimeout) else "couldn't connect"
+        return f"Weblate {kind}"
+
+    def __str__(self) -> str:
+        """Describe the error and the request that failed."""
+        return f"{self.summary}: {self.error}\n  Request URL: {self.url}"
+
+
 class WeblateApi:
     """A wrapper for making calls to the Weblate API."""
 
-    def __init__(self, requests_per_second: int | None = None) -> None:
+    def __init__(self) -> None:
         """Initialize a WeblateApi object.
 
         :raises NameError: If the WEBLATE_API_TOKEN in the environment is falsy.
@@ -406,9 +542,6 @@ class WeblateApi:
         if not WEBLATE_API_TOKEN:
             raise NameError(WEBLATE_ERR_1)
         self.base_url = WEBLATE_URL
-        self._request_interval = 1 / requests_per_second if requests_per_second else 0
-        self._next_request_at = 0.0
-        self._request_throttle_lock = threading.Lock()
         self.session = Session()
         self.session.headers.update({
             "Authorization": f"Bearer {WEBLATE_API_TOKEN}",
@@ -420,17 +553,9 @@ class WeblateApi:
             "Accept": "application/json",
             "User-Agent": USER_AGENT,
         })
-
-    def _throttle_request_rate(self) -> None:
-        if not self._request_interval:
-            return
-        with self._request_throttle_lock:
-            now = time.monotonic()
-            wait_time = self._next_request_at - now
-            if wait_time > 0:
-                time.sleep(wait_time)
-                now = time.monotonic()
-            self._next_request_at = now + self._request_interval
+        for session in (self.session, self.json_session):
+            session.mount("https://", HTTPAdapter(max_retries=RETRY))
+            session.mount("http://", HTTPAdapter(max_retries=RETRY))
 
     def _request(
         self,
@@ -452,11 +577,10 @@ class WeblateApi:
         :return: The response in JSON format.
         """
         url = urljoin(self.base_url, endpoint)
-        response = _with_retry(
-            lambda: self._rate_limited_request(
-                lambda: self.json_session.request(method, url, data=data, files=files, json=json, params=params),
+        response = self._send(
+            lambda: self.json_session.request(
+                method, url, data=data, files=files, json=json, params=params, timeout=REQUEST_TIMEOUT,
             ),
-            idempotent=method.upper() in IDEMPOTENT_METHODS,
         )
         try:
             response.raise_for_status()
@@ -473,7 +597,7 @@ class WeblateApi:
         :return: The raw response content as bytes.
         """
         url = urljoin(self.base_url, endpoint)
-        response = _with_retry(lambda: self._rate_limited_request(lambda: self.session.get(url, params=params)))
+        response = self._send(lambda: self.session.get(url, params=params, timeout=REQUEST_TIMEOUT))
         try:
             response.raise_for_status()
         except (HTTPError, JSONDecodeError) as e:
@@ -494,22 +618,24 @@ class WeblateApi:
         :param params: Query parameters for the first request. Subsequent pages use the
             server-provided ``next`` URL which already embeds pagination params.
         :raises WeblateApiError: If the request returns an error.
-        :yield: Every element in the `results` section of the response(s).
+        :yield: Every element in the `results` section of the response(s), or in the response itself for endpoints
+            that aren't paginated, like a project's languages.
         """
         current_url = urljoin(self.base_url, endpoint)
         current_params = params
         while current_url:
-            response = _with_retry(
-                lambda url=current_url, p=current_params: self._rate_limited_request(
-                    lambda: self.json_session.get(url, params=p),
-                ),
+            response = self._send(
+                lambda url=current_url, p=current_params: self.json_session.get(url, params=p, timeout=REQUEST_TIMEOUT),
             )
-            data: dict[str, Any] = {}
+            data: dict[str, Any] | list[T] = {}
             try:
                 response.raise_for_status()
                 data = response.json() if response.content else {}
             except (HTTPError, JSONDecodeError) as e:
                 raise WeblateApiError(response) from e
+            if isinstance(data, list):
+                yield from data
+                return
             yield from cast("list[T]", data.get("results", []))
             current_url = cast("str | None", data.get("next"))
             current_params = None  # next URL already includes all query params
@@ -551,9 +677,18 @@ class WeblateApi:
         """
         return self._request(return_type, "POST", endpoint, data=data, files=files, json=json, params=params)
 
-    def _rate_limited_request(self, request: Callable[[], Response]) -> Response:
-        self._throttle_request_rate()
-        return request()
+    def _send(self, request: Callable[[], Response]) -> Response:
+        """Send a request at the allowed rate. The sessions retry it if needed.
+
+        :raises WeblateConnectionError: If Weblate couldn't be reached, or didn't answer in time.
+        """
+        RATE_LIMITER.acquire()
+        try:
+            response = request()
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            raise WeblateConnectionError(e) from e
+        RATE_LIMITER.update(response.headers)
+        return response
 
     def patch(
         self,

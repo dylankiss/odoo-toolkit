@@ -25,7 +25,6 @@ from .common import (
     WEBLATE_GROUP_ROLES_ENDPOINT,
     WEBLATE_GROUPS_ENDPOINT,
     WEBLATE_PROJECTS_ENDPOINT,
-    WEBLATE_REQUESTS_PER_SECOND,
     WEBLATE_ROLES_ENDPOINT,
     WeblateApi,
     WeblateApiError,
@@ -101,7 +100,7 @@ def update_teams(
     roles = normalize_list_option(roles)
 
     try:
-        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
+        weblate_api = WeblateApi()
     except NameError as e:
         print_error(str(e))
         raise Exit from e

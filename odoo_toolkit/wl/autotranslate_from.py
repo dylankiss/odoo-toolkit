@@ -23,7 +23,6 @@ from .common import (
     WEBLATE_AUTOTRANSLATE_ENDPOINT,
     WEBLATE_MAX_WORKERS,
     WEBLATE_PROJECT_ENDPOINT,
-    WEBLATE_REQUESTS_PER_SECOND,
     WeblateApi,
     WeblateApiError,
     WeblateAutotranslateResponse,
@@ -134,7 +133,7 @@ def autotranslate_from(
     excluded_components = normalize_list_option(excluded_components)
 
     try:
-        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
+        weblate_api = WeblateApi()
     except NameError as e:
         print_error(str(e))
         raise Exit from e

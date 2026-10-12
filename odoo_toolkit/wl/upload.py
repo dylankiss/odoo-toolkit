@@ -23,7 +23,6 @@ from odoo_toolkit.po.common import get_cldr_lang, get_language_name
 
 from .common import (
     WEBLATE_MAX_WORKERS,
-    WEBLATE_REQUESTS_PER_SECOND,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     UploadConflicts,
     UploadFuzzy,
@@ -108,7 +107,7 @@ def upload(  # noqa: C901, PLR0912, PLR0915
     print_command_title(":outbox_tray: Odoo Weblate PO Upload")
 
     try:
-        weblate_api = WeblateApi(requests_per_second=WEBLATE_REQUESTS_PER_SECOND)
+        weblate_api = WeblateApi()
     except NameError as e:
         print_error(str(e))
         raise Exit from e
