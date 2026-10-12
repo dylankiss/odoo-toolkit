@@ -6,16 +6,14 @@ from typer import Exit, Option, Typer
 from odoo_toolkit.common import print, print_command_title, print_error
 from odoo_toolkit.git_cli import Git
 
-from .common import SINGLE_BRANCH_REPOS
+from .config import find_version_dir, get_repo_dirs
 from .repos import (
     Outcome,
     RepoResult,
     checkout_and_hard_reset,
     fetch_branch,
-    find_version_dir,
     get_default_branch,
     get_other_worktree_using_branch,
-    get_repo_dirs,
     preauthenticate_ssh,
     print_results,
     remove_python_leftovers,
@@ -28,19 +26,19 @@ app = Typer()
 
 @app.command()
 def reset(
-    include_shared: Annotated[
+    include_linked: Annotated[
         bool,
         Option(
-            "--shared",
             "--all",
-            help="Also reset the single-branch repositories (like `upgrade`) to their default branch. They are shared "
-            "by all versions, so this affects every version directory.",
+            help="Reset all repositories in the version directory, including the linked ones (like `upgrade` or "
+            "`odoofin`), which are reset to their default branch. Other versions use them too, so this affects them "
+            "as well.",
         ),
     ] = False,
 ) -> None:
     """Reset :arrows_counterclockwise: the repositories inside an Odoo Multiverse version directory.
 
-    Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every multi-branch
+    Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every versioned
     repository is checked out on the version's branch and reset to the latest state on `origin`, so you start with a
     clean slate.\n
     \n
@@ -55,16 +53,16 @@ def reset(
         print_error("Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo-mv/19.0[/u]).\n")
         raise Exit(1)
 
-    repo_dirs = get_repo_dirs(version_dir, include_shared=include_shared)
+    repo_dirs = get_repo_dirs(version_dir, include_linked=include_linked)
     print(f"Resetting the repositories in [u]{version_dir}[/u]\n")
 
-    preauthenticate_ssh(repo_dir for _, repo_dir in repo_dirs)
-    shared_repo_dirs = {repo_dir for repo, repo_dir in repo_dirs if repo in SINGLE_BRANCH_REPOS}
+    preauthenticate_ssh(repo_dirs)
     results = run_on_repos(
         repo_dirs,
         lambda repo_dir: reset_repo(
             repo_dir,
-            branch=None if repo_dir in shared_repo_dirs else version_dir.name,
+            # Linked repositories are reset to their default branch, worktrees to the version's branch.
+            branch=None if repo_dir.is_symlink() else version_dir.name,
             version=version_dir.name,
         ),
         "Resetting repositories",

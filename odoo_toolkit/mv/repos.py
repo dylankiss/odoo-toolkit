@@ -13,8 +13,6 @@ from rich.table import Table
 from odoo_toolkit.common import TransientProgress, print, print_error, print_success, print_warning
 from odoo_toolkit.git_cli import Git, GitError
 
-from .common import MULTI_BRANCH_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
-
 # `git ls-remote --exit-code` exits with this code when no matching ref was found.
 LS_REMOTE_NO_MATCH = 2
 
@@ -39,32 +37,6 @@ class RepoResult:
     stash: str | None = None
     # Whether the requested branch exists for this repository, when switching branches.
     branch_found: bool = False
-
-
-def find_version_dir(start: Path) -> Path | None:
-    """Find the multiverse version directory (like `19.0`) containing the given path.
-
-    A version directory is recognized by having at least one multi-branch repository worktree in it.
-
-    :param start: The path to start searching from, usually the current working directory.
-    :return: The version directory, or None if the path is not inside one.
-    """
-    start = start.resolve()
-    for directory in (start, *start.parents):
-        if any((directory / repo.value / ".git").exists() for repo in MULTI_BRANCH_REPOS):
-            return directory
-    return None
-
-
-def get_repo_dirs(version_dir: Path, *, include_shared: bool) -> list[tuple[OdooRepo, Path]]:
-    """Get the repositories inside a version directory.
-
-    :param version_dir: The multiverse version directory.
-    :param include_shared: Whether to include the single-branch repositories, which are shared by all versions.
-    :return: The repositories with their directories.
-    """
-    repos = [*MULTI_BRANCH_REPOS, *(SINGLE_BRANCH_REPOS if include_shared else [])]
-    return [(repo, version_dir / repo.value) for repo in repos if (version_dir / repo.value / ".git").exists()]
 
 
 def preauthenticate_ssh(repo_dirs: Iterable[Path]) -> None:
@@ -239,7 +211,7 @@ def fast_forward(repo: Git, upstream: str) -> tuple[Outcome, str]:
 
 
 def run_on_repos(
-    repo_dirs: list[tuple[OdooRepo, Path]],
+    repo_dirs: list[Path],
     operation: Callable[[Path], RepoResult],
     description: str,
 ) -> list[RepoResult]:
@@ -255,12 +227,12 @@ def run_on_repos(
         task = progress.add_task(description, total=len(repo_dirs))
         futures = {
             executor.submit(run_safely, repo_dir.name, lambda repo_dir=repo_dir: operation(repo_dir)): repo_dir
-            for _, repo_dir in repo_dirs
+            for repo_dir in repo_dirs
         }
         for future in as_completed(futures):
             results[futures[future]] = future.result()
             progress.advance(task)
-    return [results[repo_dir] for _, repo_dir in repo_dirs]
+    return [results[repo_dir] for repo_dir in repo_dirs]
 
 
 def run_safely(name: str, operation: Callable[[], RepoResult]) -> RepoResult:

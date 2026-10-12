@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -24,11 +25,25 @@ from odoo_toolkit.common import (
 from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone
 from odoo_toolkit.versions import get_versions
 
-from .common import MULTI_BRANCH_REPOS, ODOO_DEV_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
+from .config import (
+    CONFIG_FILE,
+    DEFAULT_REPOS,
+    ODOO_COM,
+    WORKTREE_SOURCE_DIR,
+    ConfigError,
+    RepoKind,
+    RepoSpec,
+    get_configured_repos,
+    get_linked_repos,
+    get_runs_on,
+    load_config,
+    resolve_repo,
+)
 from .remotes import configure_fetching, fetch_on_demand, get_branch_suffix
 from .repos import (
     Outcome,
     RepoResult,
+    checkout_branch,
     fetch_branch,
     print_result_table,
     run_safely,
@@ -39,17 +54,7 @@ if TYPE_CHECKING:
 
 app = Typer()
 
-DEFAULT_REPOS = [
-    OdooRepo.ODOO,
-    OdooRepo.ENTERPRISE,
-    OdooRepo.DESIGN_THEMES,
-    OdooRepo.UPGRADE,
-    OdooRepo.UPGRADE_UTIL,
-]
-# The URL to clone a repository from, given its GitHub owner and name.
-GIT_URL = "git@github.com:{owner}/{repo}.git"
 MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
-WORKTREE_SOURCE_DIR = ".worktree-source"
 # The requirement files to install in each version's virtual environment, relative to the version directory.
 VERSION_REQUIREMENTS = [
     Path("odoo/requirements.txt"),
@@ -77,9 +82,15 @@ def setup(
         ),
     ] = EMPTY_LIST,
     repositories: Annotated[
-        list[OdooRepo],
-        Option("--repositories", "-r", help="The Odoo repositories to set up."),
-    ] = DEFAULT_REPOS,
+        list[str],
+        Option(
+            "--repositories",
+            "-r",
+            help="The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. "
+            f"Defaults to the ones already set up, or {', '.join(DEFAULT_REPOS)} for a new multiverse, plus the "
+            f"ones in `{CONFIG_FILE}`.",
+        ),
+    ] = EMPTY_LIST,
     multiverse_dir: Annotated[
         Path,
         Option("--multiverse-dir", "-d", help="The directory to set up the multiverse in."),
@@ -116,19 +127,24 @@ def setup(
 
     Every version gets its own directory (like `19.0`), which is a complete workspace you can open in your editor. It
     contains:\n
-    - a [`git worktree`](https://git-scm.com/docs/git-worktree) of every multi-branch repository (like `odoo` and
+    - a [`git worktree`](https://git-scm.com/docs/git-worktree) of every versioned repository (like `odoo` and
     `enterprise`), sharing the Git history with the other versions,\n
-    - a link to every single-branch repository (like `upgrade`), which all versions share,\n
+    - a link to every shared repository (like `upgrade`), which all versions use,\n
+    - a link to the pinned repositories that run on this version (like `odoofin`),\n
     - a Python virtual environment with the same Python version as Runbot and the version's dependencies,\n
     - the JavaScript tooling, and the Visual Studio Code configuration.\n
     \n
     > Make sure you have set up your **GitHub SSH key**, and installed [`uv`](https://docs.astral.sh/uv/) and `npm`.\n
     \n
     To keep the repositories small and fast, every remote only fetches the branches your local branches track (the
-    versions you set up and the branches you switched to), `master`, and your own `dev` branches (ending with
-    `-<branch suffix>`). Other branches are fetched on demand by `otk mv switch`.\n
+    versions you set up and the branches you switched to), the default branch, and your own `dev` branches (ending
+    with `-<branch suffix>`). Other branches are fetched on demand by `otk mv switch`.\n
+    \n
+    Repositories that aren't known Odoo repositories are detected: versioned if they have branches for several Odoo
+    versions, shared otherwise. Describe pinned repositories and exceptions in a `multiverse.toml` file in the multiverse directory.\n
     \n
     You can run the command as many times as you want. It only adds what's missing, unless you pass `--reset-config`.
+    Shared, pinned and standalone repositories follow their default branch on GitHub.
     """
     print_command_title(":ringed_planet: Odoo Multiverse Setup")
 
@@ -143,12 +159,19 @@ def setup(
             f"Not supported by Runbot anymore: [b]{'[/b], [b]'.join(unsupported)}[/b]. "
             "Their Python environments use uv's default Python version.\n",
         )
-    multi_branch_repos = [repo for repo in MULTI_BRANCH_REPOS if repo in repositories]
-    single_branch_repos = [repo for repo in SINGLE_BRANCH_REPOS if repo in repositories]
-
     multiverse_dir = multiverse_dir.expanduser().resolve()
     multiverse_dir.mkdir(parents=True, exist_ok=True)
     print(f"Multiverse directory: [u]{multiverse_dir}[/u]\n")
+    try:
+        known_repos = load_config(multiverse_dir)
+    except ConfigError as e:
+        print_error(f"{e}\n")
+        raise Exit(1) from e
+    repos = [
+        resolve_repo(name, known_repos)
+        for name in normalize_list_option(repositories) or _get_default_repos(multiverse_dir, known_repos)
+    ]
+    versioned_repos = [repo for repo in repos if repo.kind == RepoKind.VERSIONED]
     _copy_root_config(multiverse_dir, reset_config=reset_config)
 
     branch_suffix = branch_suffix or get_branch_suffix()
@@ -156,34 +179,50 @@ def setup(
         print_warning("No Git email configured, so the [b]dev[/b] remotes won't fetch any of your branches.\n")
 
     print_header(":honey_pot: Clone Repositories")
-    clone_results = _clone_repos(multiverse_dir, multi_branch_repos, single_branch_repos, branch_suffix=branch_suffix)
-    cloned = {result.name for result in clone_results if result.outcome != Outcome.FAILED}
+    clone_results = _clone_repos(multiverse_dir, repos, branch_suffix=branch_suffix)
+    cloned = [repo for repo in repos if repo.name in {r.name for r in clone_results if r.outcome != Outcome.FAILED}]
     if maintenance:
-        clone_results += _start_maintenance(multiverse_dir, [r for r in multi_branch_repos if r.value in cloned])
-    print_result_table(clone_results)
+        clone_results += _start_maintenance([_get_git_dir(multiverse_dir, repo) for repo in cloned])
+    links, link_results = _plan_links(multiverse_dir, cloned, branches)
+    print_result_table(clone_results + link_results)
 
     print_header(":deciduous_tree: Add Worktrees")
-    worktree_results = _add_worktrees(multiverse_dir, branches, [r for r in multi_branch_repos if r.value in cloned])
+    worktree_results = _add_worktrees(multiverse_dir, branches, [r for r in versioned_repos if r in cloned])
     print_result_table(worktree_results)
 
     print_header(":gear: Configure Versions")
-    version_results = _configure_versions(
-        multiverse_dir,
-        branches,
-        shared_repos=[r for r in single_branch_repos if r.value in cloned],
-        reset_config=reset_config,
-        vscode=vscode,
-    )
+    version_results = _configure_versions(multiverse_dir, branches, links=links, reset_config=reset_config, vscode=vscode)
     for branch, results in version_results.items():
         print(f"[b]{branch}[/b]")
         print_result_table(results)
 
-    all_results = [*clone_results, *worktree_results, *(r for rs in version_results.values() for r in rs)]
+    all_results = [
+        *clone_results, *link_results, *worktree_results, *(r for rs in version_results.values() for r in rs),
+    ]
     failed = [result for result in all_results if result.outcome == Outcome.FAILED]
     if failed:
         print_error(f"{len(failed)} step(s) failed. Fix the problems above and run the command again.\n")
         raise Exit(1)
     print_success("Your Odoo Multiverse is ready! Open a version directory in your editor to start working.\n")
+
+
+def _get_default_repos(multiverse_dir: Path, known_repos: dict[str, RepoSpec]) -> list[str]:
+    """Get the repositories to set up when none are given.
+
+    A new multiverse gets the default repositories. An existing one keeps the repositories it has. Both get the ones
+    in `multiverse.toml`.
+    """
+    existing = {path.parent.name for path in (multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare")}
+    existing |= {name for name in known_repos if (multiverse_dir / name / ".git").is_dir()}
+    base = sorted(existing) if existing else DEFAULT_REPOS
+    return list(dict.fromkeys([*base, *get_configured_repos(multiverse_dir)]))
+
+
+def _get_git_dir(multiverse_dir: Path, repo: RepoSpec) -> Path:
+    """Get the directory of a repository's Git data: its bare repository, or its clone."""
+    if repo.kind == RepoKind.VERSIONED:
+        return multiverse_dir / WORKTREE_SOURCE_DIR / repo.name / ".bare"
+    return multiverse_dir / repo.name
 
 
 def _copy_root_config(multiverse_dir: Path, *, reset_config: bool) -> None:
@@ -196,48 +235,36 @@ def _copy_root_config(multiverse_dir: Path, *, reset_config: bool) -> None:
 # Cloning
 
 
-def _clone_repos(
-    multiverse_dir: Path,
-    multi_branch_repos: list[OdooRepo],
-    single_branch_repos: list[OdooRepo],
-    *,
-    branch_suffix: str | None,
-) -> list[RepoResult]:
-    """Clone the multi-branch repositories as bare repositories, and the single-branch ones as regular ones."""
+def _clone_repos(multiverse_dir: Path, repos: list[RepoSpec], *, branch_suffix: str | None) -> list[RepoResult]:
+    """Clone the versioned repositories as bare repositories, and the other ones as regular ones."""
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
 
-        def clone_one(repo: OdooRepo) -> RepoResult:
-            task = progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None)
+        def clone_one(repo: RepoSpec) -> RepoResult:
+            task = progress.add_task(f"Cloning [b]{repo.name}[/b]", total=None)
 
             def update_progress(stage: str, current: int, total: int) -> None:
                 progress.update(
-                    task, description=f"Cloning [b]{repo.value}[/b]: {stage.lower()}", completed=current, total=total,
+                    task, description=f"Cloning [b]{repo.name}[/b]: {stage.lower()}", completed=current, total=total,
                 )
 
-            if repo in multi_branch_repos:
+            if repo.kind == RepoKind.VERSIONED:
                 return clone_bare_repo(
-                    repo,
-                    multiverse_dir / WORKTREE_SOURCE_DIR / repo.value,
-                    update_progress,
-                    branch_suffix=branch_suffix,
+                    repo, multiverse_dir / WORKTREE_SOURCE_DIR / repo.name, update_progress, branch_suffix=branch_suffix,
                 )
-            return clone_repo(repo, multiverse_dir / repo.value, update_progress)
+            return clone_repo(repo, multiverse_dir / repo.name, update_progress, branch_suffix=branch_suffix)
 
-        futures = [
-            executor.submit(run_safely, repo.value, lambda repo=repo: clone_one(repo))
-            for repo in [*multi_branch_repos, *single_branch_repos]
-        ]
+        futures = [executor.submit(run_safely, repo.name, lambda repo=repo: clone_one(repo)) for repo in repos]
         return [future.result() for future in futures]
 
 
 def clone_bare_repo(
-    repo: OdooRepo,
+    repo: RepoSpec,
     repo_dir: Path,
     progress: CloneProgress | None = None,
     *,
     branch_suffix: str | None = None,
 ) -> RepoResult:
-    """Clone a repository as a bare repository to add worktrees from, and configure its remotes.
+    """Clone a versioned repository as a bare repository to add worktrees from, and configure its remotes.
 
     The clone is partial: file contents are only downloaded when a worktree needs them, which saves gigabytes. Only the
     default branch is cloned; the version branches are fetched when adding their worktrees.
@@ -251,22 +278,11 @@ def clone_bare_repo(
     bare_dir = repo_dir / ".bare"
     cloned = not bare_dir.exists()
     if cloned:
-        bare_repo = clone(
-            GIT_URL.format(owner="odoo", repo=repo.value),
-            bare_dir,
-            "--bare",
-            "--single-branch",
-            "--filter=blob:none",
-            progress=progress,
-        )
+        bare_repo = clone(repo.url, bare_dir, "--bare", "--single-branch", "--filter=blob:none", progress=progress)
     else:
         bare_repo = Git(bare_dir)
 
-    if repo in ODOO_DEV_REPOS:
-        if "dev" not in bare_repo.remotes():
-            bare_repo("remote", "add", "dev", GIT_URL.format(owner="odoo-dev", repo=repo.value))
-        # Pushing goes to the "dev" remote, never to "origin".
-        bare_repo("remote", "set-url", "--push", "origin", "NO_PUSH_TRY_DEV_REPO")
+    _configure_remotes(bare_repo, repo)
     fetching_changed = configure_fetching(bare_repo, branch_suffix=branch_suffix)
     # Allow running Git commands from the repository directory itself.
     if not (repo_dir / ".git").exists():
@@ -275,64 +291,187 @@ def clone_bare_repo(
     bare_repo("worktree", "prune")
 
     if cloned:
-        return RepoResult(repo.value, Outcome.UPDATED, "cloned")
+        return RepoResult(repo.name, Outcome.UPDATED, "cloned")
     if fetching_changed:
         return RepoResult(
-            repo.value,
+            repo.name,
             Outcome.UPDATED,
             "now only fetches the branches you use and your own dev branches "
             "(run [b]otk mv cleanup[/b] to remove the others)",
         )
-    return RepoResult(repo.value, Outcome.SKIPPED, "already cloned")
+    return RepoResult(repo.name, Outcome.SKIPPED, "already cloned")
 
 
-def _start_maintenance(multiverse_dir: Path, repos: list[OdooRepo]) -> list[RepoResult]:
-    """Register the bare repositories for Git's background maintenance.
+def clone_repo(
+    repo: RepoSpec,
+    repo_dir: Path,
+    progress: CloneProgress | None = None,
+    *,
+    branch_suffix: str | None = None,
+) -> RepoResult:
+    """Clone a shared, pinned or standalone repository, and keep it on its default branch on GitHub.
+
+    :param repo: The repository to clone.
+    :param repo_dir: The directory to clone into.
+    :param progress: Called with the progress of the clone.
+    :param branch_suffix: The suffix of your own branches, which the `dev` remote fetches.
+    :return: The result of the clone.
+    """
+    if not (repo_dir / ".git").exists():
+        if repo_dir.exists() and any(repo_dir.iterdir()):
+            return RepoResult(repo.name, Outcome.FAILED, f"[u]{repo_dir}[/u] exists but is not a Git repository")
+        git_repo = clone(repo.url, repo_dir, progress=progress)
+        _configure_remotes(git_repo, repo)
+        configure_fetching(git_repo, branch_suffix=branch_suffix)
+        return RepoResult(repo.name, Outcome.UPDATED, f"cloned on [b]{git_repo.current_branch()}[/b]")
+
+    git_repo = Git(repo_dir)
+    _configure_remotes(git_repo, repo)
+    configure_fetching(git_repo, branch_suffix=branch_suffix)
+    return follow_default_branch(git_repo, repo.name)
+
+
+def _configure_remotes(repo: Git, spec: RepoSpec) -> None:
+    """Add the `odoo-dev` fork as the `dev` remote, if the repository has one, and only push there."""
+    if not spec.dev_remote:
+        return
+    if "dev" not in repo.remotes():
+        repo("remote", "add", "dev", spec.dev_url())
+    repo("remote", "set-url", "--push", "origin", "NO_PUSH_TRY_DEV_REPO")
+
+
+def follow_default_branch(repo: Git, name: str) -> RepoResult:
+    """Switch a shared, pinned or standalone repository to its default branch on GitHub, if that changed.
+
+    It only switches when you're still on the previous default branch without uncommitted changes, so your own work is
+    never touched.
+
+    :param repo: The clone.
+    :param name: The repository name, to report the result under.
+    :return: The result.
+    """
+    previous = _get_known_default_branch(repo)
+    current = get_remote_default_branch(repo)
+    branch = repo.current_branch()
+    if current and current != previous:
+        fetch_branch(repo, "origin", current)
+        fetch_on_demand(repo, "origin", current)
+        repo("remote", "set-head", "origin", current)
+    if not current or branch == current or previous is None:
+        return RepoResult(name, Outcome.SKIPPED, f"already cloned, on [b]{branch}[/b]")
+    if previous == current:
+        return RepoResult(name, Outcome.SKIPPED, f"already cloned, on [b]{branch}[/b]")
+    if branch != previous:
+        return RepoResult(
+            name, Outcome.WARNING, f"the default branch is now [b]{current}[/b], but you're on [b]{branch}[/b]",
+        )
+    if repo.is_dirty():
+        return RepoResult(
+            name,
+            Outcome.WARNING,
+            f"the default branch is now [b]{current}[/b], but [b]{branch}[/b] has uncommitted changes, so it stays",
+        )
+    checkout_branch(repo, "origin", current)
+    return RepoResult(name, Outcome.UPDATED, f"switched to the new default branch [b]{current}[/b]")
+
+
+def _get_known_default_branch(repo: Git) -> str | None:
+    """Get the default branch the clone knows, from when it was cloned or last followed."""
+    try:
+        return repo("symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/")
+    except GitError:
+        return None
+
+
+def get_remote_default_branch(repo: Git) -> str | None:
+    """Get the current default branch on GitHub."""
+    try:
+        output = repo("ls-remote", "--symref", "origin", "HEAD")
+    except GitError:
+        return None
+    match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", output, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _start_maintenance(git_dirs: list[Path]) -> list[RepoResult]:
+    """Register the repositories for Git's background maintenance.
 
     Git then regularly prefetches new commits, updates its indexes and repacks the repository in the background, which
     keeps fetching and history commands fast.
     """
     results: list[RepoResult] = []
-    for repo in repos:
-        bare_dir = multiverse_dir / WORKTREE_SOURCE_DIR / repo.value / ".bare"
-        if not bare_dir.is_dir():
+    for git_dir in git_dirs:
+        if not git_dir.is_dir():
             continue
         try:
-            Git(bare_dir)("maintenance", "start")
+            Git(git_dir)("maintenance", "start")
         except GitError as e:
-            results.append(RepoResult(f"{repo.value} maintenance", Outcome.WARNING, e.message))
+            name = git_dir.parent.name if git_dir.name == ".bare" else git_dir.name
+            results.append(RepoResult(f"{name} maintenance", Outcome.WARNING, e.message))
     return results
 
 
-def clone_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | None = None) -> RepoResult:
-    """Clone a single-branch repository, which all versions share."""
-    if (repo_dir / ".git").exists():
-        return RepoResult(repo.value, Outcome.SKIPPED, "already cloned")
-    if repo_dir.exists() and any(repo_dir.iterdir()):
-        return RepoResult(repo.value, Outcome.FAILED, f"[u]{repo_dir}[/u] exists but is not a Git repository")
-    clone(GIT_URL.format(owner="odoo", repo=repo.value), repo_dir, progress=progress)
-    return RepoResult(repo.value, Outcome.UPDATED, "cloned")
+def _plan_links(
+    multiverse_dir: Path,
+    repos: list[RepoSpec],
+    branches: list[str],
+) -> tuple[dict[str, list[str]], list[RepoResult]]:
+    """Decide which shared and pinned repositories to link into which version directories.
+
+    Shared repositories go into every version. Pinned repositories go into the version they run on, and the ones they
+    are configured to be in as well. Standalone repositories aren't linked anywhere.
+
+    :return: The repository names to link per version, and the problems found.
+    """
+    links: dict[str, list[str]] = {branch: [] for branch in branches}
+    problems: list[RepoResult] = []
+    for repo in repos:
+        if repo.kind == RepoKind.SHARED:
+            for names in links.values():
+                names.append(repo.name)
+        elif repo.kind == RepoKind.PINNED:
+            runs_on = get_runs_on(repo, multiverse_dir / repo.name, Git(multiverse_dir / repo.name).current_branch())
+            if not runs_on:
+                reason = (
+                    "can't reach odoo.com to find out which Odoo version it runs on"
+                    if repo.runs_on == ODOO_COM
+                    else f"can't tell which Odoo version it runs on: set [b]runs_on[/b] in [b]{CONFIG_FILE}[/b]"
+                )
+                problems.append(RepoResult(repo.name, Outcome.WARNING, reason))
+                continue
+            if runs_on not in links:
+                problems.append(
+                    RepoResult(
+                        repo.name,
+                        Outcome.WARNING,
+                        f"runs on [b]{runs_on}[/b], which isn't set up: add [b]-b {runs_on}[/b] to use it",
+                    ),
+                )
+            for version in (runs_on, *repo.also_in):
+                if version in links:
+                    links[version].append(repo.name)
+    return links, problems
 
 
 # Worktrees
 
 
-def _add_worktrees(multiverse_dir: Path, branches: list[str], repos: list[OdooRepo]) -> list[RepoResult]:
-    """Add a worktree for every version of every multi-branch repository.
+def _add_worktrees(multiverse_dir: Path, branches: list[str], repos: list[RepoSpec]) -> list[RepoResult]:
+    """Add a worktree for every version of every versioned repository.
 
     The repositories are handled in parallel, but the versions of one repository one after the other, since Git locks
     a repository while adding a worktree to it.
     """
 
-    def add_for_repo(repo: OdooRepo, task: TaskID) -> list[RepoResult]:
+    def add_for_repo(repo: RepoSpec, task: TaskID) -> list[RepoResult]:
         results: list[RepoResult] = []
         for branch in branches:
             results.append(
                 run_safely(
-                    f"{branch}/{repo.value}",
+                    f"{branch}/{repo.name}",
                     lambda branch=branch: add_worktree(
-                        multiverse_dir / WORKTREE_SOURCE_DIR / repo.value / ".bare",
-                        multiverse_dir / branch / repo.value,
+                        multiverse_dir / WORKTREE_SOURCE_DIR / repo.name / ".bare",
+                        multiverse_dir / branch / repo.name,
                         branch,
                     ),
                 ),
@@ -343,7 +482,7 @@ def _add_worktrees(multiverse_dir: Path, branches: list[str], repos: list[OdooRe
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
         futures = [
             executor.submit(
-                add_for_repo, repo, progress.add_task(f"Adding [b]{repo.value}[/b] worktrees", total=len(branches)),
+                add_for_repo, repo, progress.add_task(f"Adding [b]{repo.name}[/b] worktrees", total=len(branches)),
             )
             for repo in repos
         ]
@@ -397,11 +536,19 @@ def _configure_versions(
     multiverse_dir: Path,
     branches: list[str],
     *,
-    shared_repos: list[OdooRepo],
+    links: dict[str, list[str]],
     reset_config: bool,
     vscode: bool,
 ) -> dict[str, list[RepoResult]]:
-    """Configure every version directory in parallel."""
+    """Configure every version directory in parallel.
+
+    :param multiverse_dir: The multiverse directory.
+    :param branches: The versions to configure.
+    :param links: The shared and pinned repositories to link into each version directory.
+    :param reset_config: Whether to recreate the Python environments and overwrite the configuration files.
+    :param vscode: Whether to write the Visual Studio Code configuration.
+    :return: The results per version.
+    """
     versions = get_versions()
 
     def configure(branch: str, task: TaskID) -> list[RepoResult]:
@@ -409,13 +556,15 @@ def _configure_versions(
         if not version_dir.is_dir():
             return [RepoResult("version", Outcome.SKIPPED, "no repositories for this version")]
         steps: list[tuple[str, Callable[[], RepoResult]]] = [
-            ("shared repositories", lambda: link_shared_repos(version_dir, shared_repos)),
+            ("links", lambda: link_repos(version_dir, links.get(branch, []))),
             (
                 "python",
                 lambda: setup_python_env(
                     version_dir,
                     python=versions[branch].python if branch in versions else None,
                     requirements=[version_dir / path for path in VERSION_REQUIREMENTS]
+                    # The requirements of the linked pinned repositories, like `odoofin`.
+                    + [version_dir / name / "requirements.txt" for name in links.get(branch, [])]
                     + [multiverse_dir / "requirements.txt"],
                     reset=reset_config,
                 ),
@@ -443,37 +592,52 @@ def _configure_versions(
         return {branch: future.result() for branch, future in futures.items()}
 
 
-def link_shared_repos(version_dir: Path, shared_repos: list[OdooRepo]) -> RepoResult:
-    """Link the single-branch repositories, which all versions share, into a version directory.
+def link_repos(version_dir: Path, names: list[str]) -> RepoResult:
+    """Link shared and pinned repositories into a version directory.
 
-    The links are relative, so the multiverse directory can be moved.
+    The links are relative, so the multiverse directory can be moved. Existing links are kept, including the ones
+    added with `otk mv link`.
+
+    :param version_dir: The version directory.
+    :param names: The repositories to link, which are cloned in the multiverse directory.
+    :return: The result of linking.
     """
     linked: list[str] = []
     blocked: list[str] = []
-    for repo in shared_repos:
-        link = version_dir / repo.value
-        target = Path("..") / repo.value
-        if link.is_symlink():
-            if link.readlink() != target:
-                link.unlink()
-                link.symlink_to(target, target_is_directory=True)
-            linked.append(repo.value)
-        elif link.exists():
-            blocked.append(repo.value)
+    for name in dict.fromkeys(names):
+        if link_repo(version_dir, name):
+            linked.append(name)
         else:
-            link.symlink_to(target, target_is_directory=True)
-            linked.append(repo.value)
+            blocked.append(name)
 
     if blocked:
         return RepoResult(
-            "shared repositories",
+            "links",
             Outcome.WARNING,
-            f"[b]{'[/b], [b]'.join(blocked)}[/b] already exist as regular folders, so they aren't linked to the "
-            "shared repositories. Remove them to link them.",
+            f"[b]{'[/b], [b]'.join(blocked)}[/b] already exist as regular folders, so they aren't linked. "
+            "Remove them to link them.",
         )
     if not linked:
-        return RepoResult("shared repositories", Outcome.SKIPPED, "none selected")
-    return RepoResult("shared repositories", Outcome.UPDATED, f"linked [b]{'[/b], [b]'.join(linked)}[/b]")
+        return RepoResult("links", Outcome.SKIPPED, "none")
+    return RepoResult("links", Outcome.UPDATED, f"linked [b]{'[/b], [b]'.join(linked)}[/b]")
+
+
+def link_repo(version_dir: Path, name: str) -> bool:
+    """Link a repository cloned in the multiverse directory into a version directory, using a relative link.
+
+    :return: Whether the repository is linked, which is not the case if a regular folder has its name.
+    """
+    link = version_dir / name
+    target = Path("..") / name
+    if link.is_symlink():
+        if link.readlink() != target:
+            link.unlink()
+            link.symlink_to(target, target_is_directory=True)
+        return True
+    if link.exists():
+        return False
+    link.symlink_to(target, target_is_directory=True)
+    return True
 
 
 def setup_python_env(version_dir: Path, *, python: str | None, requirements: list[Path], reset: bool) -> RepoResult:
@@ -607,8 +771,8 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
 def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     """Write the Visual Studio Code configuration of a version directory.
 
-    The configuration covers every shared repository linked into the version directory, including the ones linked by
-    an earlier setup with other repositories selected.
+    The configuration covers every repository linked into the version directory, including the ones linked by an
+    earlier setup with other repositories selected, or with `otk mv link`.
 
     :param version_dir: The version directory.
     :param reset: Whether to overwrite existing configuration files.
@@ -617,7 +781,7 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     vscode_dir = version_dir / ".vscode"
     vscode_dir.mkdir(exist_ok=True)
     source_dir = MULTIVERSE_CONFIG_DIR / ".vscode"
-    linked_repos = [repo.value for repo in SINGLE_BRANCH_REPOS if (version_dir / repo.value).is_symlink()]
+    linked_repos = get_linked_repos(version_dir)
 
     settings = _read_json(source_dir / "settings.json")
     settings["python.defaultInterpreterPath"] = "${workspaceFolder}/.venv/bin/python"
@@ -641,8 +805,28 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     written = [path.name for path, content in files.items() if _write_json(path, content, overwrite=reset)]
 
     if not written:
+        update_scanned_repos(version_dir)
         return RepoResult("vscode", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)")
     return RepoResult("vscode", Outcome.UPDATED, f"wrote [b]{'[/b], [b]'.join(written)}[/b]")
+
+
+def update_scanned_repos(version_dir: Path) -> None:
+    """Make Visual Studio Code's Source Control show the repositories currently linked into a version directory.
+
+    Only that setting is changed, so the rest of your settings stay as they are.
+    """
+    settings_file = version_dir / ".vscode" / "settings.json"
+    if not settings_file.is_file():
+        return
+    try:
+        settings = _read_json(settings_file)
+    except json.JSONDecodeError:
+        # Visual Studio Code allows comments in its settings, which Python can't read. Leave the file alone.
+        return
+    linked_repos = get_linked_repos(version_dir)
+    if settings.get("git.scanRepositories") != linked_repos:
+        settings["git.scanRepositories"] = linked_repos
+        _write_json(settings_file, settings, overwrite=True)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

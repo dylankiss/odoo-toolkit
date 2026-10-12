@@ -5,9 +5,9 @@ from typer.testing import CliRunner
 
 from odoo_toolkit.git_cli import Git
 from odoo_toolkit.main import app
+from odoo_toolkit.mv.config import find_version_dir
 from odoo_toolkit.mv.repos import (
     Outcome,
-    find_version_dir,
     get_default_branch,
     get_other_worktree_using_branch,
     remote_has_branch,

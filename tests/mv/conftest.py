@@ -21,8 +21,9 @@ def commit(work_dir: Path, filename: str, content: str = "content") -> str:
 @pytest.fixture
 def remotes(tmp_path: Path) -> dict[str, Path]:
     """Create an `origin` remote with `master` and `19.0`, and a `dev` remote with feature branches."""
-    origin = tmp_path / "remotes" / "origin.git"
-    dev = tmp_path / "remotes" / "dev.git"
+    # Laid out like GitHub, by owner, so remotes can be matched by owner.
+    origin = tmp_path / "remotes" / "odoo" / "odoo.git"
+    dev = tmp_path / "remotes" / "odoo-dev" / "odoo.git"
     git(tmp_path, "init", "-q", "--bare", str(origin))
     git(tmp_path, "init", "-q", "--bare", str(dev))
 

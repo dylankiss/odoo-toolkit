@@ -7,8 +7,8 @@ from typer import Exit, Option, Typer, confirm
 from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_success
 from odoo_toolkit.git_cli import Git, GitError
 
+from .config import WORKTREE_SOURCE_DIR, ConfigError, find_multiverse_dir, load_config
 from .remotes import CleanupPlan, apply_cleanup, configure_fetching, get_branch_suffix, plan_cleanup
-from .setup import WORKTREE_SOURCE_DIR
 
 app = Typer()
 
@@ -45,16 +45,22 @@ def cleanup(
     """
     print_command_title(":broom: Clean Up Multiverse Repositories")
 
-    root = _find_multiverse_dir(multiverse_dir or Path.cwd())
+    root = find_multiverse_dir(multiverse_dir or Path.cwd())
     if not root:
         print_error("Run this command inside an Odoo Multiverse, or pass its directory with [b]-d[/b].\n")
         raise Exit(1)
     branch_suffix = branch_suffix or get_branch_suffix()
 
+    try:
+        known_repos = load_config(root)
+    except ConfigError as e:
+        print_error(f"{e}\n")
+        raise Exit(1) from e
+    # The bare repositories, and the clones of the other known repositories. Your own repositories in the
+    # multiverse directory are left alone.
     repos = {
-        bare_dir.parent.name: Git(bare_dir)
-        for bare_dir in sorted((root / WORKTREE_SOURCE_DIR).glob("*/.bare"))
-    }
+        bare_dir.parent.name: Git(bare_dir) for bare_dir in sorted((root / WORKTREE_SOURCE_DIR).glob("*/.bare"))
+    } | {name: Git(root / name) for name in sorted(known_repos) if (root / name / ".git").is_dir()}
     plans: dict[str, CleanupPlan] = {}
     with TransientProgress() as progress:
         task = progress.add_task("Finding branches to remove", total=len(repos))
@@ -96,12 +102,6 @@ def cleanup(
             f"freed {_format_bytes(max(freed, 0))}",
         )
     print()
-
-
-def _find_multiverse_dir(start: Path) -> Path | None:
-    """Find the multiverse directory, recognized by its `.worktree-source` directory, containing the given path."""
-    start = start.expanduser().resolve()
-    return next((d for d in (start, *start.parents) if (d / WORKTREE_SOURCE_DIR).is_dir()), None)
 
 
 def _get_size(path: Path) -> int:

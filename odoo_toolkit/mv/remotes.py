@@ -1,7 +1,8 @@
 """Decide which branches the bare repositories fetch, and clean up the ones they don't need.
 
 Every remote fetches the branches your local branches track: the versions you set up, and the branches you switched
-to. On top of that, `origin` fetches `master`, and `dev` fetches your own branches (ending with your branch suffix).
+to. On top of that, `origin` fetches its default branch, and `dev` fetches your own branches (ending with your branch
+suffix).
 Other branches, like the staging branches or other people's branches, are only fetched on demand.
 """
 
@@ -82,8 +83,8 @@ def get_tracked_branches(repo: Git) -> dict[str, set[str]]:
 def configure_fetching(repo: Git, *, branch_suffix: str | None) -> bool:
     """Configure which branches the remotes of a bare repository fetch, and Git's speed-ups for large repositories.
 
-    Every remote fetches the branches the local branches track. On top of that, `origin` fetches `master`, and `dev`
-    fetches your own branches.
+    Every remote fetches the branches the local branches track. On top of that, `origin` fetches its default branch,
+    and `dev` fetches your own branches.
 
     :param repo: The bare repository.
     :param branch_suffix: The suffix of your own branches on the `dev` remote, or None to fetch none of them.
@@ -93,7 +94,7 @@ def configure_fetching(repo: Git, *, branch_suffix: str | None) -> bool:
     tracked = get_tracked_branches(repo)
     for remote in repo.remotes():
         if remote == "origin":
-            wanted = [branch_refspec(remote, "master")]
+            wanted = [branch_refspec(remote, get_origin_default_branch(repo))]
         elif remote == "dev":
             wanted = [branch_refspec(remote, f"*-{branch_suffix}")] if branch_suffix else []
         else:
@@ -108,6 +109,17 @@ def configure_fetching(repo: Git, *, branch_suffix: str | None) -> bool:
     for key, value in (("fetch.prune", "true"), ("core.fsmonitor", "true"), ("core.untrackedCache", "true")):
         repo("config", key, value)
     return changed
+
+
+def get_origin_default_branch(repo: Git) -> str:
+    """Get the default branch of `origin` as the repository knows it, without asking GitHub."""
+    with contextlib.suppress(GitError):
+        return repo("symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/")
+    # A bare clone has no remote-tracking branches, but its own HEAD is the default branch.
+    if repo("rev-parse", "--is-bare-repository") == "true":
+        with contextlib.suppress(GitError):
+            return repo("symbolic-ref", "--short", "HEAD")
+    return "master"
 
 
 def set_fetch_refspecs(repo: Git, remote: str, refspecs: list[str]) -> None:

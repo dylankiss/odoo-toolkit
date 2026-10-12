@@ -5,9 +5,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from odoo_toolkit.git_cli import Git
 from odoo_toolkit.main import app
+from odoo_toolkit.mv import config as mv_config
 from odoo_toolkit.mv import setup as mv_setup
-from odoo_toolkit.mv.common import OdooRepo
+from odoo_toolkit.mv.config import KNOWN_REPOS
 from odoo_toolkit.mv.repos import Outcome, RepoResult
 
 
@@ -36,13 +38,23 @@ def stub_slow_steps(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture
 def remotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Create local `odoo/odoo`, `odoo-dev/odoo` and `odoo/upgrade` remotes, and clone from them."""
+    """Create local GitHub-like remotes, and clone from them.
+
+    - `odoo/odoo` has version branches, and staging and forward-port branches that must not be fetched.
+    - `odoo/upgrade` is a shared repository.
+    - `odoo/odoofin` is a pinned repository with version branches, running on its default branch `18.0`.
+    - `odoo/i18n-apps` is a pinned repository on `master`, with modules for Odoo 20.0.
+    - `odoo/mobile` is a standalone repository.
+    """
     remotes_dir = tmp_path / "remotes"
     seed = tmp_path / "seed"
     remote_branches: list[tuple[str, str, list[str]]] = [
-        ("odoo", "odoo", ["master", "19.0", "tmp.19.0", "staging.19.0", "saas-19.2-fix-abc-fw"]),
+        ("odoo", "odoo", ["master", "19.0", "20.0", "tmp.19.0", "staging.19.0", "saas-19.2-fix-abc-fw"]),
         ("odoo-dev", "odoo", []),
         ("odoo", "upgrade", ["master"]),
+        ("odoo", "odoofin", ["master", "18.0", "19.0"]),
+        ("odoo", "i18n-apps", ["master"]),
+        ("odoo", "mobile", ["master"]),
     ]
     for owner, repo, branches in remote_branches:
         remote = remotes_dir / owner / f"{repo}.git"
@@ -51,18 +63,22 @@ def remotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         if branches:
             git(tmp_path, "init", "-q", str(seed / repo))
             (seed / repo / "requirements.txt").write_text("requests\n")
+            if repo == "i18n-apps":
+                (seed / repo / "i18n_sync").mkdir()
+                (seed / repo / "i18n_sync" / "__manifest__.py").write_text("{'name': 'Sync', 'version': '20.0.1.0'}")
             git(seed / repo, "add", ".")
             git(seed / repo, "commit", "-q", "-m", "init")
             for branch in branches:
                 git(seed / repo, "push", "-q", str(remote), f"master:{branch}")
-    monkeypatch.setattr(mv_setup, "GIT_URL", f"file://{remotes_dir}/{{owner}}/{{repo}}.git")
+    git(remotes_dir / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/18.0")
+    monkeypatch.setattr(mv_config, "GIT_URL", f"file://{remotes_dir}/{{owner}}/{{repo}}.git")
     return remotes_dir
 
 
 def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> None:
     repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
 
-    result = mv_setup.clone_bare_repo(OdooRepo.ODOO, repo_dir)
+    result = mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
 
     assert result.outcome == Outcome.UPDATED
     bare = repo_dir / ".bare"
@@ -78,13 +94,13 @@ def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> No
     assert git(bare, "config", "remote.origin.partialclonefilter") == "blob:none"
     assert (repo_dir / ".git").read_text() == "gitdir: ./.bare\n"
     # Running it again doesn't clone again.
-    assert mv_setup.clone_bare_repo(OdooRepo.ODOO, repo_dir).outcome == Outcome.SKIPPED
+    assert mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir).outcome == Outcome.SKIPPED
 
 
 @pytest.mark.usefixtures("remotes")
 def test_add_worktree_tracks_origin(tmp_path: Path) -> None:
     repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
-    mv_setup.clone_bare_repo(OdooRepo.ODOO, repo_dir)
+    mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
     worktree = tmp_path / "mv" / "19.0" / "odoo"
 
     result = mv_setup.add_worktree(repo_dir / ".bare", worktree, "19.0")
@@ -104,14 +120,14 @@ def test_add_worktree_tracks_origin(tmp_path: Path) -> None:
     assert "no [b]saas-19.2[/b] branch" in missing.message
 
 
-def test_link_shared_repos_uses_relative_links(tmp_path: Path) -> None:
+def test_link_repos_uses_relative_links(tmp_path: Path) -> None:
     version_dir = tmp_path / "mv" / "19.0"
     version_dir.mkdir(parents=True)
     (tmp_path / "mv" / "upgrade").mkdir()
     # A regular folder is never replaced by a link.
     (version_dir / "upgrade-util").mkdir()
 
-    result = mv_setup.link_shared_repos(version_dir, [OdooRepo.UPGRADE, OdooRepo.UPGRADE_UTIL])
+    result = mv_setup.link_repos(version_dir, ["upgrade", "upgrade-util"])
 
     assert result.outcome == Outcome.WARNING
     assert "[b]upgrade-util[/b] already exist" in result.message
@@ -123,7 +139,8 @@ def test_link_shared_repos_uses_relative_links(tmp_path: Path) -> None:
 def test_write_vscode_config(tmp_path: Path) -> None:
     version_dir = tmp_path / "19.0"
     version_dir.mkdir()
-    (version_dir / "upgrade").symlink_to(tmp_path)
+    (tmp_path / "upgrade" / ".git").mkdir(parents=True)
+    (version_dir / "upgrade").symlink_to(Path("..") / "upgrade")
 
     result = mv_setup.write_vscode_config(version_dir, reset=False)
 
@@ -199,3 +216,67 @@ def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert sorted(calls) == ["19.0", "master"]
     # Running it again changes nothing and still succeeds.
     assert CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]).exit_code == 0
+
+
+@pytest.mark.usefixtures("remotes")
+def test_cli_setup_links_pinned_repos_into_the_version_they_run_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_slow_steps(monkeypatch)
+    root = tmp_path / "mv"
+    root.mkdir()
+    (root / "multiverse.toml").write_text('[repos.i18n-apps]\nkind = "pinned"\n')
+
+    result = CliRunner().invoke(
+        app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0", "-r", "odoo,upgrade,odoofin,i18n-apps,mobile"],
+    )
+
+    assert result.exit_code == 0, result.output
+    # i18n-apps runs on 20.0, detected from its manifests.
+    assert (root / "20.0" / "i18n-apps").readlink() == Path("../i18n-apps")
+    assert not (root / "19.0" / "i18n-apps").exists()
+    # odoofin runs on its default branch, 18.0, which isn't set up.
+    assert git(root / "odoofin", "branch", "--show-current") == "18.0"
+    assert "runs on 18.0, which isn't set up" in result.output
+    assert not (root / "19.0" / "odoofin").exists()
+    # Standalone repositories aren't linked anywhere.
+    assert (root / "mobile" / ".git").is_dir()
+    assert not (root / "19.0" / "mobile").exists()
+    assert not (root / "20.0" / "mobile").exists()
+    # Shared repositories are in every version.
+    assert (root / "19.0" / "upgrade").is_symlink()
+    assert (root / "20.0" / "upgrade").is_symlink()
+    # Running it again without `-r` keeps everything that is set up.
+    result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0"])
+    assert result.exit_code == 0, result.output
+    assert (root / "20.0" / "i18n-apps").is_symlink()
+
+
+def test_follow_default_branch(tmp_path: Path, remotes: Path) -> None:
+    clone_dir = tmp_path / "mv" / "odoofin"
+    result = mv_setup.clone_repo(KNOWN_REPOS["odoofin"], clone_dir)
+    assert result.message == "cloned on [b]18.0[/b]"
+    repo = Git(clone_dir)
+    # `origin` fetches its default branch, not `master`.
+    assert repo("config", "--get-all", "remote.origin.fetch") == "+refs/heads/18.0:refs/remotes/origin/18.0"
+    assert mv_setup.follow_default_branch(repo, "odoofin").outcome == Outcome.SKIPPED
+
+    git(remotes / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")
+    result = mv_setup.follow_default_branch(repo, "odoofin")
+
+    assert result.outcome == Outcome.UPDATED
+    assert repo.current_branch() == "19.0"
+    assert repo.upstream() == ("origin", "19.0")
+
+
+def test_follow_default_branch_leaves_your_work_alone(tmp_path: Path, remotes: Path) -> None:
+    clone_dir = tmp_path / "mv" / "odoofin"
+    mv_setup.clone_repo(KNOWN_REPOS["odoofin"], clone_dir)
+    repo = Git(clone_dir)
+    (clone_dir / "requirements.txt").write_text("changed")
+    git(remotes / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")
+
+    result = mv_setup.follow_default_branch(repo, "odoofin")
+
+    assert result.outcome == Outcome.WARNING
+    assert "uncommitted changes" in result.message
+    assert repo.current_branch() == "18.0"
+
