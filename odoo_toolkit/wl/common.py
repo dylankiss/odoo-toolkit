@@ -377,8 +377,9 @@ class WeblateApiError(Exception):
     def __str__(self) -> str:
         """Provide a clean string representation, listing all errors."""
         headers = {**self.response.request.headers}
-        if "Authorization" in headers and headers["Authorization"].startswith("Token "):
-            headers["Authorization"] = "Token **********"
+        # Header values can be bytes as well, so mask the token whatever its type.
+        if "Authorization" in headers:
+            headers["Authorization"] = "Bearer **********"
         error_list = [
             f"HTTP {self.status_code} ({self.error_type}): The request failed with {len(self.errors)} error(s).",
             f"  Request URL: {self.response.request.url}",
@@ -410,12 +411,12 @@ class WeblateApi:
         self._request_throttle_lock = threading.Lock()
         self.session = Session()
         self.session.headers.update({
-            "Authorization": f"Token {WEBLATE_API_TOKEN}",
+            "Authorization": f"Bearer {WEBLATE_API_TOKEN}",
             "User-Agent": USER_AGENT,
         })
         self.json_session = Session()
         self.json_session.headers.update({
-            "Authorization": f"Token {WEBLATE_API_TOKEN}",
+            "Authorization": f"Bearer {WEBLATE_API_TOKEN}",
             "Accept": "application/json",
             "User-Agent": USER_AGENT,
         })
