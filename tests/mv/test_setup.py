@@ -11,8 +11,8 @@ from odoo_toolkit.mv.common import OdooRepo
 from odoo_toolkit.mv.repos import Outcome, RepoResult
 
 
-def git(cwd: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+def git(cwd: Path, *args: str, check: bool = True) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True).stdout.strip()
 
 
 def stub_slow_steps(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -34,23 +34,13 @@ def stub_slow_steps(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return calls
 
 
-@pytest.fixture(autouse=True)
-def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Isolate Git from the user's configuration."""
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    (tmp_path / "gitconfig").write_text(
-        "[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = master\n",
-    )
-
-
 @pytest.fixture
 def remotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create local `odoo/odoo`, `odoo-dev/odoo` and `odoo/upgrade` remotes, and clone from them."""
     remotes_dir = tmp_path / "remotes"
     seed = tmp_path / "seed"
     remote_branches: list[tuple[str, str, list[str]]] = [
-        ("odoo", "odoo", ["master", "19.0"]),
+        ("odoo", "odoo", ["master", "19.0", "tmp.19.0", "staging.19.0", "saas-19.2-fix-abc-fw"]),
         ("odoo-dev", "odoo", []),
         ("odoo", "upgrade", ["master"]),
     ]
@@ -76,7 +66,13 @@ def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> No
 
     assert result.outcome == Outcome.UPDATED
     bare = repo_dir / ".bare"
-    assert git(bare, "config", "remote.origin.fetch") == "+refs/heads/*:refs/remotes/origin/*"
+    assert git(bare, "config", "--get-all", "remote.origin.fetch").splitlines() == [
+        "+refs/heads/master:refs/remotes/origin/master",
+    ]
+    # No `dev` branch is fetched without a branch suffix.
+    assert not git(bare, "config", "--get-all", "remote.dev.fetch", check=False)
+    # Only the default branch is cloned as a local branch.
+    assert git(bare, "for-each-ref", "--format=%(refname)", "refs/heads") == "refs/heads/master"
     assert git(bare, "remote", "get-url", "dev") == f"file://{remotes}/odoo-dev/odoo.git"
     assert git(bare, "remote", "get-url", "--push", "origin") == "NO_PUSH_TRY_DEV_REPO"
     assert git(bare, "config", "remote.origin.partialclonefilter") == "blob:none"
@@ -97,6 +93,11 @@ def test_add_worktree_tracks_origin(tmp_path: Path) -> None:
     assert git(worktree, "rev-parse", "--abbrev-ref", "HEAD") == "19.0"
     assert git(worktree, "rev-parse", "--abbrev-ref", "@{upstream}") == "origin/19.0"
     assert mv_setup.add_worktree(repo_dir / ".bare", worktree, "19.0").outcome == Outcome.SKIPPED
+
+    # Fetching only updates the branches in use, not the staging, temporary or forward-port branches.
+    git(repo_dir / ".bare", "fetch", "-q", "origin")
+    fetched = git(repo_dir / ".bare", "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes/origin").split()
+    assert sorted(set(fetched) - {"HEAD"}) == ["19.0", "master"]
 
     missing = mv_setup.add_worktree(repo_dir / ".bare", tmp_path / "mv" / "saas-19.2" / "odoo", "saas-19.2")
     assert missing.outcome == Outcome.SKIPPED

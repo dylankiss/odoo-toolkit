@@ -25,6 +25,7 @@ from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone
 from odoo_toolkit.versions import get_versions
 
 from .common import MULTI_BRANCH_REPOS, ODOO_DEV_REPOS, SINGLE_BRANCH_REPOS, OdooRepo
+from .remotes import configure_fetching, fetch_on_demand, get_branch_suffix
 from .repos import (
     Outcome,
     RepoResult,
@@ -94,6 +95,22 @@ def setup(
         bool,
         Option("--vscode/--no-vscode", help="Write the Visual Studio Code configuration in each version directory."),
     ] = True,
+    branch_suffix: Annotated[
+        str | None,
+        Option(
+            "--branch-suffix",
+            help="The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults "
+            "to the part of your Git email before the `@`.",
+        ),
+    ] = None,
+    maintenance: Annotated[
+        bool,
+        Option(
+            "--maintenance/--no-maintenance",
+            help="Register the repositories for Git's background maintenance (`git maintenance start`), which keeps "
+            "them fast and prefetches new commits.",
+        ),
+    ] = True,
 ) -> None:
     """Set up an :ringed_planet: Odoo Multiverse environment, having different versions checked out at the same time.
 
@@ -106,6 +123,10 @@ def setup(
     - the JavaScript tooling, and the Visual Studio Code configuration.\n
     \n
     > Make sure you have set up your **GitHub SSH key**, and installed [`uv`](https://docs.astral.sh/uv/) and `npm`.\n
+    \n
+    To keep the repositories small and fast, every remote only fetches the branches your local branches track (the
+    versions you set up and the branches you switched to), `master`, and your own `dev` branches (ending with
+    `-<branch suffix>`). Other branches are fetched on demand by `otk mv switch`.\n
     \n
     You can run the command as many times as you want. It only adds what's missing, unless you pass `--reset-config`.
     """
@@ -130,10 +151,16 @@ def setup(
     print(f"Multiverse directory: [u]{multiverse_dir}[/u]\n")
     _copy_root_config(multiverse_dir, reset_config=reset_config)
 
+    branch_suffix = branch_suffix or get_branch_suffix()
+    if not branch_suffix:
+        print_warning("No Git email configured, so the [b]dev[/b] remotes won't fetch any of your branches.\n")
+
     print_header(":honey_pot: Clone Repositories")
-    clone_results = _clone_repos(multiverse_dir, multi_branch_repos, single_branch_repos)
-    print_result_table(clone_results)
+    clone_results = _clone_repos(multiverse_dir, multi_branch_repos, single_branch_repos, branch_suffix=branch_suffix)
     cloned = {result.name for result in clone_results if result.outcome != Outcome.FAILED}
+    if maintenance:
+        clone_results += _start_maintenance(multiverse_dir, [r for r in multi_branch_repos if r.value in cloned])
+    print_result_table(clone_results)
 
     print_header(":deciduous_tree: Add Worktrees")
     worktree_results = _add_worktrees(multiverse_dir, branches, [r for r in multi_branch_repos if r.value in cloned])
@@ -173,11 +200,13 @@ def _clone_repos(
     multiverse_dir: Path,
     multi_branch_repos: list[OdooRepo],
     single_branch_repos: list[OdooRepo],
+    *,
+    branch_suffix: str | None,
 ) -> list[RepoResult]:
     """Clone the multi-branch repositories as bare repositories, and the single-branch ones as regular ones."""
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
 
-        def clone(repo: OdooRepo) -> RepoResult:
+        def clone_one(repo: OdooRepo) -> RepoResult:
             task = progress.add_task(f"Cloning [b]{repo.value}[/b]", total=None)
 
             def update_progress(stage: str, current: int, total: int) -> None:
@@ -186,44 +215,93 @@ def _clone_repos(
                 )
 
             if repo in multi_branch_repos:
-                return clone_bare_repo(repo, multiverse_dir / WORKTREE_SOURCE_DIR / repo.value, update_progress)
+                return clone_bare_repo(
+                    repo,
+                    multiverse_dir / WORKTREE_SOURCE_DIR / repo.value,
+                    update_progress,
+                    branch_suffix=branch_suffix,
+                )
             return clone_repo(repo, multiverse_dir / repo.value, update_progress)
 
         futures = [
-            executor.submit(run_safely, repo.value, lambda repo=repo: clone(repo))
+            executor.submit(run_safely, repo.value, lambda repo=repo: clone_one(repo))
             for repo in [*multi_branch_repos, *single_branch_repos]
         ]
         return [future.result() for future in futures]
 
 
-def clone_bare_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | None = None) -> RepoResult:
+def clone_bare_repo(
+    repo: OdooRepo,
+    repo_dir: Path,
+    progress: CloneProgress | None = None,
+    *,
+    branch_suffix: str | None = None,
+) -> RepoResult:
     """Clone a repository as a bare repository to add worktrees from, and configure its remotes.
 
-    The clone is partial: file contents are only downloaded when a worktree needs them, which saves gigabytes.
+    The clone is partial: file contents are only downloaded when a worktree needs them, which saves gigabytes. Only the
+    default branch is cloned; the version branches are fetched when adding their worktrees.
+
+    :param repo: The repository to clone.
+    :param repo_dir: The directory to clone into, which gets the bare repository in its `.bare` subdirectory.
+    :param progress: Called with the progress of the clone.
+    :param branch_suffix: The suffix of your own branches, which the `dev` remote fetches.
+    :return: The result of the clone.
     """
     bare_dir = repo_dir / ".bare"
-    if bare_dir.exists():
-        bare_repo = Git(bare_dir)
-        message = "already cloned"
-    else:
+    cloned = not bare_dir.exists()
+    if cloned:
         bare_repo = clone(
-            GIT_URL.format(owner="odoo", repo=repo.value), bare_dir, "--bare", "--filter=blob:none", progress=progress,
+            GIT_URL.format(owner="odoo", repo=repo.value),
+            bare_dir,
+            "--bare",
+            "--single-branch",
+            "--filter=blob:none",
+            progress=progress,
         )
-        message = "cloned"
+    else:
+        bare_repo = Git(bare_dir)
 
-    # Fetch every remote branch into a remote-tracking branch, which a bare clone doesn't do by default.
-    bare_repo("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
     if repo in ODOO_DEV_REPOS:
         if "dev" not in bare_repo.remotes():
             bare_repo("remote", "add", "dev", GIT_URL.format(owner="odoo-dev", repo=repo.value))
         # Pushing goes to the "dev" remote, never to "origin".
         bare_repo("remote", "set-url", "--push", "origin", "NO_PUSH_TRY_DEV_REPO")
+    fetching_changed = configure_fetching(bare_repo, branch_suffix=branch_suffix)
     # Allow running Git commands from the repository directory itself.
     if not (repo_dir / ".git").exists():
         (repo_dir / ".git").write_text("gitdir: ./.bare\n", encoding="utf-8")
     # Forget worktrees whose directories were deleted.
     bare_repo("worktree", "prune")
-    return RepoResult(repo.value, Outcome.UPDATED if message == "cloned" else Outcome.SKIPPED, message)
+
+    if cloned:
+        return RepoResult(repo.value, Outcome.UPDATED, "cloned")
+    if fetching_changed:
+        return RepoResult(
+            repo.value,
+            Outcome.UPDATED,
+            "now only fetches the branches you use and your own dev branches "
+            "(run [b]otk mv cleanup[/b] to remove the others)",
+        )
+    return RepoResult(repo.value, Outcome.SKIPPED, "already cloned")
+
+
+def _start_maintenance(multiverse_dir: Path, repos: list[OdooRepo]) -> list[RepoResult]:
+    """Register the bare repositories for Git's background maintenance.
+
+    Git then regularly prefetches new commits, updates its indexes and repacks the repository in the background, which
+    keeps fetching and history commands fast.
+    """
+    results: list[RepoResult] = []
+    for repo in repos:
+        bare_dir = multiverse_dir / WORKTREE_SOURCE_DIR / repo.value / ".bare"
+        if not bare_dir.is_dir():
+            continue
+        try:
+            Git(bare_dir)("maintenance", "start")
+        except GitError as e:
+            results.append(RepoResult(f"{repo.value} maintenance", Outcome.WARNING, e.message))
+    return results
 
 
 def clone_repo(repo: OdooRepo, repo_dir: Path, progress: CloneProgress | None = None) -> RepoResult:
@@ -296,6 +374,7 @@ def add_worktree(bare_dir: Path, worktree_dir: Path, branch: str) -> RepoResult:
             return RepoResult(name, Outcome.SKIPPED, f"no [b]{branch}[/b] branch in this repository")
         raise
 
+    fetch_on_demand(bare_repo, "origin", branch)
     upstream = f"origin/{branch}"
     if bare_repo.has_branch(branch):
         # The bare clone created a local branch, which may be behind the remote one.

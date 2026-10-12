@@ -1,4 +1,3 @@
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,60 +14,7 @@ from odoo_toolkit.mv.repos import (
 )
 from odoo_toolkit.mv.reset import reset_repo
 from odoo_toolkit.mv.switch import switch_repo
-
-
-def git(cwd: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
-
-
-def commit(work_dir: Path, filename: str, content: str = "content") -> str:
-    (work_dir / filename).write_text(content)
-    git(work_dir, "add", filename)
-    git(work_dir, "commit", "-q", "-m", f"add {filename}")
-    return git(work_dir, "rev-parse", "HEAD")
-
-
-@pytest.fixture(autouse=True)
-def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Isolate Git from the user's configuration."""
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    (tmp_path / "gitconfig").write_text(
-        "[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = master\n",
-    )
-
-
-@pytest.fixture
-def remotes(tmp_path: Path) -> dict[str, Path]:
-    """Create an `origin` remote with `master` and `19.0`, and a `dev` remote with feature branches."""
-    origin = tmp_path / "remotes" / "origin.git"
-    dev = tmp_path / "remotes" / "dev.git"
-    git(tmp_path, "init", "-q", "--bare", str(origin))
-    git(tmp_path, "init", "-q", "--bare", str(dev))
-
-    seed = tmp_path / "seed"
-    git(tmp_path, "clone", "-q", str(origin), str(seed))
-    commit(seed, "base.txt")
-    git(seed, "push", "-q", "origin", "master")
-    git(seed, "push", "-q", "origin", "master:19.0")
-    git(seed, "push", "-q", str(dev), "master:19.0-fix-abc", "master:fix/master")
-    return {"origin": origin, "dev": dev, "seed": seed}
-
-
-@pytest.fixture
-def multiverse(tmp_path: Path, remotes: dict[str, Path]) -> Path:
-    """Create a multiverse like `otk mv setup` does: a bare repository with worktrees for `master` and `19.0`."""
-    root = tmp_path / "odoo-mv"
-    bare = root / ".worktree-source" / "odoo" / ".bare"
-    git(tmp_path, "clone", "-q", "--bare", str(remotes["origin"]), str(bare))
-    git(bare, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
-    git(bare, "remote", "add", "dev", str(remotes["dev"]))
-    git(bare, "fetch", "-q", "origin")
-    for version in ("master", "19.0"):
-        (root / version).mkdir(parents=True)
-        git(bare, "worktree", "add", "-q", str(root / version / "odoo"), version)
-        git(root / version / "odoo", "branch", "--set-upstream-to", f"origin/{version}", version)
-    return root
+from tests.mv.conftest import commit, git
 
 
 def test_find_version_dir_from_nested_path(multiverse: Path) -> None:

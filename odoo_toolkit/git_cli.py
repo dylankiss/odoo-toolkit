@@ -46,14 +46,17 @@ class Git:
         """
         self.path = path
 
-    def __call__(self, *args: str) -> str:
+    def __call__(self, *args: str, stdin: str | None = None) -> str:
         """Run a Git command.
 
         :param args: The arguments to pass to `git`, like `"checkout", "master"`.
+        :param stdin: The input to pass to the command, if any.
         :raises GitError: If the command failed, including when the path is not a Git repository.
         :return: The output of the command, without leading and trailing whitespace.
         """
-        result = subprocess.run(["git", "-C", str(self.path), *args], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            ["git", "-C", str(self.path), *args], input=stdin, capture_output=True, text=True, check=False,
+        )
         if result.returncode:
             raise GitError(list(args), result.returncode, result.stderr)
         return result.stdout.strip()

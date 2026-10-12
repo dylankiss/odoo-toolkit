@@ -7,6 +7,7 @@ from odoo_toolkit.common import print, print_command_title, print_error
 from odoo_toolkit.git_cli import Git
 
 from .common import OdooRemote
+from .remotes import fetch_on_demand
 from .repos import (
     Outcome,
     RepoResult,
@@ -109,6 +110,8 @@ def switch_repo(repo_dir: Path, *, branch: str, remote: str | None, version: str
 
     # Make sure the branch can be checked out before touching any uncommitted changes.
     fetch_branch(repo, found_remote, branch)
+    # Keep fetching the branch from now on, so Git can tell how far ahead or behind it is.
+    fetch_on_demand(repo, found_remote, branch)
     stash = None
     if repo.current_branch() != branch:
         if other_worktree := get_other_worktree_using_branch(repo, branch):

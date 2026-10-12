@@ -78,6 +78,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk mv setup`](#otk-mv-setup)   | Set up an Odoo Multiverse environment, having different versions checked out at the same time. |
 | [`otk mv reset`](#otk-mv-reset)   | Reset the repositories inside an Odoo Multiverse version directory.                            |
 | [`otk mv switch`](#otk-mv-switch) | Switch branches inside an Odoo Multiverse version directory.                                   |
+| [`otk mv cleanup`](#otk-mv-cleanup) | Remove the branches the Odoo Multiverse repositories don't need, and reclaim their disk space. |
 
 
 ## Odoo Translation Files (`otk po`)
@@ -681,6 +682,10 @@ The command will basically do the following:
 
 1. Clone the repositories that have multiple active branches (among `odoo`, `enterprise`, `design-themes`, `documentation`, `industry` and `o-spreadsheet`) as [bare repositories](https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-code--barecode) to a `.worktree-source/<repository>` folder. The clones are partial (`--filter=blob:none`): file contents are only downloaded when a version needs them. We add the remote `origin` (`git@github.com:odoo/<repository>.git`) for all repositories and the remote `dev` (`git@github.com:odoo-dev/<repository>.git`) for all except the `documentation` and `o-spreadsheet` repositories. Pushing to `origin` is disabled.
 
+   To keep the repositories small and fast, every remote only fetches the branches your local branches track: the versions you set up, and the branches you switched to with [`otk mv switch`](#otk-mv-switch). On top of that, `origin` fetches `master`, and `dev` fetches your own branches: the ones ending with `-<branch suffix>`, which defaults to the part of your Git email before the `@`. Other branches, like the `staging.*` and `tmp.*` branches or other people's branches, are only fetched on demand. Existing repositories are configured the same way; run [`otk mv cleanup`](#otk-mv-cleanup) to remove the branches they don't need anymore.
+
+   The repositories are also registered for Git's [background maintenance](https://git-scm.com/docs/git-maintenance) (unless you pass `--no-maintenance`), which prefetches new commits and keeps Git fast.
+
 2. Clone the single-branch repositories (among `upgrade`, `upgrade-util`, `odoofin`, `iap-apps`, `mobile`, and `internal`) to the root of your multiverse directory.
 
 3. Create a directory per version, and add a worktree of every multi-branch repository in it, tracking the version's branch on `origin`.
@@ -741,6 +746,8 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 * `-d, --multiverse-dir PATH`: The directory to set up the multiverse in.  [default: `<current working directory>`]
 * `--reset-config`: Recreate the Python virtual environments and overwrite the configuration files of every version.
 * `--vscode / --no-vscode`: Write the Visual Studio Code configuration in each version directory.  [default: `--vscode`]
+* `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults to the part of your Git email before the `@`.
+* `--maintenance / --no-maintenance`: Register the repositories for Git's background maintenance (`git maintenance start`), which keeps them fast and prefetches new commits.  [default: `--maintenance`]
 * `--help`: Show this message and exit.
 
 ### Repositories
@@ -786,7 +793,7 @@ $ otk mv reset [OPTIONS]
 
 Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every repository that has the given branch on one of its remotes is switched to it and fast-forwarded. The other repositories stay on their current branch, which is fast-forwarded to its upstream.
 
-A common use-case is to switch to a specific task's branches.
+A common use-case is to switch to a specific task's branches. Branches the remotes don't fetch by default, like your colleagues' `dev` branches, are fetched on demand, and keep being fetched from then on.
 
 Uncommitted changes are stashed with a label telling where they came from, so you can restore them later. Local commits are never discarded: if a branch has diverged from its remote, it is left as is and reported.
 
@@ -808,4 +815,28 @@ $ otk mv switch odoo-dev:master-fix-abc
 
 * `-r, --remote [dev|origin]`: Use this local remote for finding the given branch.
 * `--shared`: Also switch the single-branch repositories (like `upgrade`). They are shared by all versions, so this affects every version directory.
+* `--help`: Show this message and exit.
+
+
+## `otk mv cleanup`
+
+**Remove the branches the Odoo Multiverse repositories don't need, and reclaim their disk space.**
+
+This removes:
+- local branches that aren't checked out in any version, and whose commits all exist on GitHub,
+- the copies of branches the remotes don't fetch anymore, like other people's `dev` branches.
+
+Nothing that only exists on your machine is removed: branches with local commits are kept, and everything removed can be fetched again from GitHub. The command shows what it will remove and asks for confirmation. Afterwards, Git's garbage collection reclaims the disk space, which can take a few minutes for large repositories.
+
+### Usage
+
+```console
+$ otk mv cleanup [OPTIONS]
+```
+
+### Options
+
+* `-d, --multiverse-dir PATH`: The multiverse directory. Defaults to the one containing the current directory.
+* `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults to the part of your Git email before the `@`.
+* `-y, --yes`: Don't ask for confirmation.
 * `--help`: Show this message and exit.
