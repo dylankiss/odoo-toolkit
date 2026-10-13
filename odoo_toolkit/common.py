@@ -7,15 +7,13 @@ from fnmatch import fnmatch
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
-from typer import Typer, get_app_dir
 
-APP_DIR = Path(get_app_dir("odoo-toolkit"))
 EMPTY_LIST: list[Any] = []
 
 
@@ -31,11 +29,7 @@ VERSION = _get_version()
 # to report problems.
 USER_AGENT = f"odoo-toolkit/{VERSION} (+https://github.com/dylankiss/odoo-toolkit)"
 HTTP_HEADERS = {"User-Agent": USER_AGENT}
-T = TypeVar("T")
 
-
-# The main app to register all the commands on
-app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
 # The console object to print all messages on stderr by default
 console = Console(stderr=True, highlight=False)
 # Override the native print method to use the custom console
@@ -48,21 +42,6 @@ class Status(Enum):
     SUCCESS = auto()
     PARTIAL = auto()
     FAILURE = auto()
-
-
-class StickyProgress(Progress):
-    """Render auto-updating sticky progress bars using opinionated styling."""
-
-    def __init__(self) -> None:
-        """Initialize the :class:`rich.progress.Progress` instance with a specific styling."""
-        super().__init__(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            console=console,
-        )
 
 
 class TransientProgress(Progress):
@@ -95,14 +74,6 @@ def print_header(header: str) -> None:
     :param header: The header text to render
     """
     print(Panel.fit(header, style="bold cyan", border_style="bold cyan"), "")
-
-
-def print_subheader(header: str) -> None:
-    """Print a styled header to the console using a fitted box.
-
-    :param header: The header text to render
-    """
-    print(Panel.fit(header), "")
 
 
 def print_error(error_msg: str, stacktrace: str | None = None) -> None:
@@ -178,8 +149,7 @@ def get_valid_modules_to_path_mapping(
     :param com_path: The Odoo Community repository.
     :param ent_path: The Odoo Enterprise repository.
     :param extra_addons_paths: Optional extra directories containing Odoo modules, defaults to `[]`.
-    :param include_path: A function to include modules when using `all`, `community`, or `enterprise`,
-        defaults to always `True`.
+    :param include_path: A function telling whether a module directory may be used, defaults to always `True`.
     :return: A mapping from all valid modules to their directories.
     """
     base_module_path = com_path.expanduser().resolve() / "odoo" / "addons"
@@ -191,7 +161,9 @@ def get_valid_modules_to_path_mapping(
     ent_modules = {f.parent.name: ent_modules_path / f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")}
     extra_modules = {f.parent.name: p / f.parent.name for p in extra_modules_paths for f in p.glob("*/__manifest__.py")}
 
-    all_modules = {"base": base_module_path / "base"} | com_modules | ent_modules | extra_modules
+    # `base` lives inside the Odoo package itself.
+    base = {"base": base_module_path / "base"} if (base_module_path / "base" / "__manifest__.py").is_file() else {}
+    all_modules = base | com_modules | ent_modules | extra_modules
 
     # Determine all modules to consider.
     modules_to_consider: dict[str, Path] = {}

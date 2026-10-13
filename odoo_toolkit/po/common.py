@@ -1,11 +1,75 @@
 import csv
+import re
 from collections.abc import Callable
+from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 from rich.console import RenderableType
 from rich.tree import Tree
 
-from odoo_toolkit.common import Status, TransientProgress
+from odoo_toolkit.common import TransientProgress, get_valid_modules_to_path_mapping, normalize_list_option, print
+from odoo_toolkit.mv.config import get_default_repo_path
+
+# The modules `-x default` excludes: localizations, themes, hardware and tests.
+DEFAULT_EXCLUDE = ["*l10n_*", "*theme_*", "*hw_*", "*test*", "pos_blackbox_be"]
+
+
+@dataclass
+class ModuleSelection:
+    """The modules a command works on, and how they were selected."""
+
+    # The selected modules, mapped to their directories.
+    module_to_path: dict[str, Path]
+    com_path: Path
+    ent_path: Path
+    # Whether a module, or a module directory, may be used, according to `--exclude` and `--path-filter`.
+    include_module: Callable[[str], bool]
+    include_path: Callable[[Path], bool]
+
+
+def select_modules(
+    modules: list[str],
+    *,
+    exclude: list[str],
+    path_filters: list[Path],
+    com_path: Path,
+    ent_path: Path,
+    extra_addons_paths: list[Path],
+) -> ModuleSelection:
+    """Select the modules a command works on, from its arguments and options.
+
+    :param modules: The modules (or glob patterns), or `all`, `community`, `enterprise`, `community-l10n`, or
+        `enterprise-l10n`.
+    :param exclude: The modules (or glob patterns) to leave out, where `default` stands for `DEFAULT_EXCLUDE`.
+    :param path_filters: Only use modules within these directories, if any.
+    :param com_path: The Odoo Community repository. Its default, `odoo`, means the one of the multiverse version
+        directory you're in, if any.
+    :param ent_path: The Odoo Enterprise repository, like `com_path`.
+    :param extra_addons_paths: Extra directories containing modules.
+    :return: The selected modules.
+    """
+    exclude = normalize_list_option(exclude)
+    if "default" in exclude:
+        exclude = [e for e in exclude if e != "default"] + DEFAULT_EXCLUDE
+    filters = [path.expanduser().resolve() for path in path_filters]
+
+    def include_module(module: str) -> bool:
+        return not any(fnmatch(module, pattern) for pattern in exclude)
+
+    def include_path(path: Path) -> bool:
+        return include_module(path.name) and (not filters or any(path.is_relative_to(f) for f in filters))
+
+    com_path = get_default_repo_path(com_path, "odoo")
+    ent_path = get_default_repo_path(ent_path, "enterprise")
+    module_to_path = get_valid_modules_to_path_mapping(
+        modules=normalize_list_option(modules),
+        com_path=com_path,
+        ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
+        include_path=include_path,
+    )
+    return ModuleSelection(module_to_path, com_path, ent_path, include_module, include_path)
 
 ODOO_LANGUAGES = {
     "am",        # Amharic
@@ -169,54 +233,84 @@ def get_plural_forms(lang: str) -> str:
     return CLDR_PLURAL_RULES.get(base_lang, "nplurals=2; plural=(n != 1);")
 
 
+def get_nplurals(lang: str) -> int:
+    """Get the number of plural forms of a language, from its plural forms rule."""
+    match = re.search(r"nplurals\s*=\s*(\d+)", get_plural_forms(lang))
+    return int(match.group(1)) if match else 2
+
+
 def update_module_po(
     *,
-    action: Callable[[str, Path, Path, bool], tuple[bool, RenderableType]],
+    action: Callable[[str, Path, Path], tuple[bool, RenderableType]],
     module: str,
     languages: list[str],
-    only_translated: bool = False,
     module_path: Path,
     module_tree: Tree,
-) -> tuple[Status, list[str]]:
+    description: str,
+) -> list[str] | None:
     """Perform an action on a module's .po files for the given languages, using the .pot file.
 
-    :param action: The action to perform on the .po files. A function that takes the language, the .pot file path,
-        the module's path and `only_translated` as parameters, and that returns the success status and a message to
-        render in the `module_tree`.
+    :param action: The action to perform on a .po file. A function that takes the language, the .pot file path and the
+        module's path, and returns whether it succeeded and a message to render in the `module_tree`.
     :param module: The module whose .po files we're working with.
     :param languages: The language codes of the .po files we're working with.
-    :param only_translated: Whether to only keep translated terms in the updated `.po` files, removing all untranslated
-        terms.
     :param module_path: The path to the module's directory.
     :param module_tree: The visual tree to render the action's messages, or error messages in.
-    :return: A tuple with the first item being `Status.SUCCESS` if the `action` succeeded for all .po files,
-        `Status.FAILURE` if the `action` failed for every .po file, and `Status.PARTIAL` if the `action` succeeded for
-        some .po files, or if there are none. The second item is a list of language codes for which the `action`
-        failed.
+    :param description: What the action does, like `Updating`, for the progress bar.
+    :return: The languages the action failed for, or None if there was nothing to do, like for a module without a .pot
+        file or without the .po files.
     """
-    success = failure = False
     pot_path = module_path / "i18n" / f"{module}.pot"
     if not pot_path.is_file():
-        module_tree.add("No .pot file found!")
-        return Status.FAILURE, []
+        module_tree.add("[d]No .pot file[/d]")
+        return None
     if not languages:
-        # Nothing to do isn't a failure, like a module without translations yet.
         module_tree.add("[d]No .po files[/d]")
-        return Status.SUCCESS, []
+        return None
 
     failures: list[str] = []
-    for lang in TransientProgress().track(languages, description=f"Updating [b]{module}[/b]"):
-        result, renderable = action(lang, pot_path, module_path, only_translated)
+    for lang in TransientProgress().track(languages, description=f"{description} [b]{module}[/b]"):
+        succeeded, renderable = action(lang, pot_path, module_path)
         module_tree.add(renderable)
-        success = success or result
-        failure = failure or not result
-        if result is False:
+        if not succeeded:
             failures.append(lang)
+    return failures
 
-    return (
-        (Status.PARTIAL, failures)
-        if success and failure
-        else (Status.SUCCESS, failures)
-        if success
-        else (Status.FAILURE, failures)
-    )
+
+def process_modules(
+    module_to_path: dict[str, Path],
+    *,
+    languages_of: Callable[[Path], list[str]],
+    action: Callable[[str, Path, Path], tuple[bool, RenderableType]],
+    description: str,
+) -> tuple[int, dict[str, list[str]]]:
+    """Perform an action on the .po files of every module, showing the results per module.
+
+    :param module_to_path: The modules, mapped to their directories.
+    :param languages_of: Get the languages to work on, given a module's directory.
+    :param action: The action to perform on a .po file, see `update_module_po`.
+    :param description: What the action does, like `Updating`, for the progress bar.
+    :return: The number of modules there was something to do for, and the failed languages per module.
+    """
+    processed = 0
+    failures: dict[str, list[str]] = {}
+    with TransientProgress() as progress:
+        task = progress.add_task(f"{description} .po files", total=len(module_to_path))
+        for module, module_path in sorted(module_to_path.items()):
+            progress.update(task, description=f"{description} .po files for [b]{module}[/b]")
+            module_tree = Tree(f"[b]{module}[/b]")
+            failed = update_module_po(
+                action=action,
+                module=module,
+                languages=languages_of(module_path),
+                module_path=module_path,
+                module_tree=module_tree,
+                description=description,
+            )
+            print(module_tree, "")
+            if failed is not None:
+                processed += 1
+            if failed:
+                failures[module] = failed
+            progress.advance(task)
+    return processed, failures

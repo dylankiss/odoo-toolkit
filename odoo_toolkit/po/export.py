@@ -3,20 +3,21 @@ import os
 import re
 import shlex
 import subprocess
+import time
 import xmlrpc.client
 from base64 import b64decode
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from fnmatch import fnmatch
+from functools import cache
 from http.client import HTTPConnection, HTTPSConnection
 from operator import itemgetter
 from pathlib import Path
 from socket import socket
-from subprocess import DEVNULL, PIPE, CalledProcessError, Popen
-from typing import Annotated, Any
+from subprocess import DEVNULL, PIPE, Popen
+from typing import Annotated
 
 from polib import pofile
 from rich.progress import Progress, TaskID
@@ -27,9 +28,7 @@ from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
     get_odoo_version,
-    get_valid_modules_to_path_mapping,
     is_l10n_module,
-    normalize_list_option,
     print,
     print_command_title,
     print_error,
@@ -38,23 +37,26 @@ from odoo_toolkit.common import (
     print_warning,
 )
 from odoo_toolkit.dev.common import ensure_image, start_services
-from odoo_toolkit.dev.images import get_native_arch
+from odoo_toolkit.dev.images import Arch, get_native_arch
 from odoo_toolkit.dev.runtime import (
     DB_HOST,
     ODOO_PORT,
+    VOLUMES,
     RunOptions,
     build_run_command,
     check_mountable,
     get_container_name,
     get_git_identity,
+    get_image_tag,
     get_ssh_agent,
 )
-from odoo_toolkit.mv.config import find_multiverse_dir, find_version_dir
+from odoo_toolkit.mv.config import find_version_dir
 from odoo_toolkit.versions import OdooVersion, get_versions
+
+from .common import select_modules
 
 HTTPS_PORT = 443
 WITH_DEMO_VERSION = 18.3
-DEFAULT_EXCLUDE = ["*l10n_*", "*theme_*", "*hw_*", "*test*", "pos_blackbox_be"]
 DEFAULT_RETRY_COMMAND_MAX_WIDTH = 100
 # Seconds to wait for each answer of the Odoo server, so a stuck server doesn't make us wait forever. Generous, since
 # exporting a big module like `base` takes a while.
@@ -82,10 +84,28 @@ class _Container:
 
 
 @dataclass
+class _Server:
+    """An Odoo server to start, and export the terms of some modules from."""
+
+    name: str
+    # The name, formatted in a short printable way.
+    formatted: str
+    url: str
+    database: str
+    module_to_path: dict[str, Path]
+    odoo_cmd: list[str]
+    env: dict[str, str] = field(default_factory=dict[str, str])
+    # The command to stop the server, if stopping `odoo_cmd` doesn't.
+    stop_cmd: list[str] | None = None
+    # The commands to remove the database and its files afterwards, if any.
+    drop_cmds: list[list[str]] = field(default_factory=list[list[str]])
+
+
+@dataclass
 class _LogLineData:
     server_formatted: str
-    progress: Progress | None
-    progress_task: TaskID | None
+    progress: Progress
+    progress_task: TaskID
     log_buffer: str
     database: str
     database_created: bool
@@ -98,12 +118,18 @@ def export(  # noqa: C901, PLR0912, PLR0915
     modules: Annotated[
         list[str],
         Argument(
-            help="Export `.pot` files for these Odoo modules (supports glob patterns), or either `all`, `community`,"
+            help="Export `.pot` files for these Odoo modules (supports glob patterns), or either `all`, `community`, "
             "`enterprise`, `community-l10n`, or `enterprise-l10n`.",
         ),
     ],
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being installed and exported, or `default`."),
+        list[str],
+        Option(
+            "--exclude",
+            "-x",
+            help="Exclude these modules from being installed and exported, or `default` for localizations, themes, "
+            "hardware and tests.",
+        ),
     ] = EMPTY_LIST,
     path_filters: Annotated[
         list[Path],
@@ -151,14 +177,6 @@ def export(  # noqa: C901, PLR0912, PLR0915
         Option(
             "--build",
             help="Build the Docker image on your machine instead of pulling it.",
-            rich_help_panel="Odoo Server Options",
-        ),
-    ] = False,
-    single_server: Annotated[
-        bool,
-        Option(
-            "--single-server",
-            help="Start a single Odoo server to install all modules instead of separate servers per repo/type.",
             rich_help_panel="Odoo Server Options",
         ),
     ] = False,
@@ -248,9 +266,8 @@ def export(  # noqa: C901, PLR0912, PLR0915
     """Export Odoo translation files (`.pot`) to each module's `i18n` folder.
 
     This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A
-    separate server will be started for Community, Community (Localizations), Enterprise, Enterprise (Localizations),
-    and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent
-    modules that might contribute terms to the modules to be exported.\n
+    separate server is started for Community, Enterprise, localizations, and custom modules, with only the modules to
+    export installed, and all (indirect) dependent modules that might contribute terms to them.\n
     \n
     Inside an Odoo Multiverse version directory (like `19.0`), the servers run in that version's Docker image, like
     `otk dev run`, with the PostgreSQL of `otk dev`. Use `--local` to run them with Python on this machine instead.\n
@@ -271,33 +288,17 @@ def export(  # noqa: C901, PLR0912, PLR0915
         raise Exit(1)
 
     container = _find_container(local=local or not start_server)
-    if container:
-        # Use the repositories of the version directory, wherever you are in it.
-        if com_path == Path("odoo"):
-            com_path = container.version_dir / "odoo"
-        if ent_path == Path("enterprise"):
-            ent_path = container.version_dir / "enterprise"
-        _check_mounted(container, [com_path, ent_path, *extra_addons_paths])
-
-    exclude = resolve_excludes(normalize_list_option(exclude))
-
-    def include_module(module: str) -> bool:
-        return not (exclude and any(fnmatch(module, e) for e in exclude))
-
-    def include_path(p: Path) -> bool:
-        if not include_module(p.name):
-            return False
-        if path_filters:
-            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
-        return True
-
-    module_to_path = get_valid_modules_to_path_mapping(
-        modules=normalize_list_option(modules),
+    selection = select_modules(
+        modules,
+        exclude=exclude,
+        path_filters=path_filters,
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        include_path=include_path,
     )
+    if container:
+        _check_mounted(container, [selection.com_path, selection.ent_path, *extra_addons_paths])
+    module_to_path = selection.module_to_path
     if not module_to_path:
         print_error("The provided modules are not available! Nothing to export ...\n")
         raise Exit(1)
@@ -318,158 +319,31 @@ def export(  # noqa: C901, PLR0912, PLR0915
 
     modules_per_server_type = get_modules_per_server_type(
         module_to_path=module_to_path,
-        com_path=com_path,
-        ent_path=ent_path,
+        com_path=selection.com_path,
+        ent_path=selection.ent_path,
         extra_addons_paths=extra_addons_paths,
         full_install=full_install,
         quick_install=quick_install,
-        include_path=include_path,
-        include_module=include_module,
+        include_path=selection.include_path,
+        include_module=selection.include_module,
     )
 
-    print("[b]All modules to export[b]")
+    print("[b]All modules to export[/b]")
     print_indent(", ".join(sorted(module_to_path)))
     print()
 
     # Determine the URL to connect to our Odoo server.
     host = "localhost" if start_server else host
-    port = _free_port(host, port) if start_server else port
     url = "{protocol}{host}".format(
         protocol="" if "://" in host else "https://" if port == HTTPS_PORT else "http://",
         host=host,
     )
 
-    # Generate a unique database name in case multiple exports would be happening simultaneously.
-    if "{port}" in database and not start_server:
-        database = database.format(port=port)
-
-    if start_server:
-        # Start a temporary Odoo server to export the terms.
-        odoo_repo_path = com_path.expanduser().resolve()
-        odoo_bin_path = odoo_repo_path / "odoo-bin"
-        com_modules_path = odoo_repo_path / "addons"
-        ent_modules_path = ent_path.expanduser().resolve()
-        extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
-        odoo_version = get_odoo_version(odoo_repo_path)
-        arch = get_native_arch()
-        if container:
-            ensure_image(container.version, build=build, arch=arch)
-            start_services()
-
-        if single_server:
-        # Combine all modules to export and install into the CUSTOM server type.
-            all_modules_to_export: set[str] = set()
-            all_modules_to_install: set[str] = set()
-            for (modules_to_export, modules_to_install) in modules_per_server_type.values():
-                all_modules_to_export.update(modules_to_export)
-                all_modules_to_install.update(modules_to_install)
-            modules_per_server_type = {
-                ServerType.CUSTOM: (all_modules_to_export, all_modules_to_install),
-            }
-
-        # Gather all parameters per server type to run the processes in parallel later.
-        params_per_server_type: list[dict[str, Any]] = []
-        seq = -1
-        for server_type, (modules_to_export, modules_to_install) in modules_per_server_type.items():
-            if not modules_to_export:
-                continue
-            seq += 1
-
-            if server_type == ServerType.CUSTOM:
-                addons_path = [*extra_modules_paths, ent_modules_path, com_modules_path]
-            elif server_type in (ServerType.ENT, ServerType.L10N):
-                addons_path = [ent_modules_path, com_modules_path]
-            else:
-                addons_path = [com_modules_path]
-            addons_path = ",".join(str(p) for p in addons_path)
-
-            cmd_env = os.environ | {"PYTHONUNBUFFERED": "1"}
-            cur_port = _free_port(host, port + seq)
-            cur_server_name = server_type.name.lower()
-            cur_suffix = f"{cur_port}_{cur_server_name}"
-            cur_database = database.format(port=cur_suffix) if "{port}" in database else f"{database}_{cur_suffix}"
-            odoo_cmd: list[str | Path] = [
-                "python3",           odoo_bin_path,
-                "--addons-path",     addons_path,
-                "--database",        cur_database,
-                "--init",            ",".join(modules_to_install),
-                "--limit-time-cpu",  "99999999",
-                "--limit-time-real", "99999999",
-            ]
-            if odoo_version and odoo_version >= WITH_DEMO_VERSION:
-                odoo_cmd.extend(["--with-demo"])
-
-            stop_cmd = None
-            if container:
-                # Odoo listens on its usual port in the container, published on the free port we found.
-                options = RunOptions(
-                    version_dir=container.version_dir,
-                    version=container.version,
-                    port=cur_port,
-                    command=[str(arg) for arg in odoo_cmd] + [
-                        f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}", "--db_user=odoo",
-                    ],
-                    arch=arch,
-                    role="export",
-                )
-                odoo_cmd = list[str | Path](
-                    build_run_command(
-                        options,
-                        multiverse_dir=container.multiverse_dir,
-                        git_identity=get_git_identity(),
-                        tty=False,
-                        ssh_agent=get_ssh_agent(),
-                    ),
-                )
-                # Stopping `docker run` doesn't stop the container.
-                stop_cmd = ["docker", "rm", "--force", get_container_name(options)]
-                # Odoo's connections may not be closed yet, right after stopping it.
-                dropdb_cmd = None if keep_db else [
-                    "docker", "exec", DB_HOST, "dropdb", "--username=odoo", "--force", cur_database,
-                ]
-            else:
-                odoo_cmd += ["--http-port", str(cur_port), "--db_host", db_host, "--db_port", str(db_port)]
-                if db_username:
-                    odoo_cmd.extend(["--db_user", db_username])
-                dropdb_cmd = None
-                if not keep_db:
-                    dropdb_cmd = ["dropdb", cur_database, "--host", db_host, "--port", str(db_port)]
-                    if db_username:
-                        dropdb_cmd.extend(["--username", db_username])
-                if db_password:
-                    # Odoo and dropdb both read it from here, so it doesn't show up in the commands.
-                    cmd_env |= {"PGPASSWORD": db_password}
-
-            server_type_name = f"[{server_type.name}]"
-            params_per_server_type.append({
-                "server_name": server_type.value,
-                "server_formatted": f"[b][cyan]{server_type_name:10}[/cyan][/b]",
-                "odoo_cmd": odoo_cmd,
-                "stop_cmd": stop_cmd,
-                "dropdb_cmd": dropdb_cmd,
-                "env": cmd_env,
-                "url": f"{url}:{cur_port}",
-                "database": cur_database,
-                "username": username,
-                "password": password,
-                "module_to_path": {k: v for k, v in module_to_path.items() if k in modules_to_export},
-            })
-
-        # Run the servers in parallel to speed things up.
-        with ThreadPoolExecutor() as executor, TransientProgress() as progress:
-            futures = [
-                executor.submit(run_server_and_export_terms, **params, progress=progress)
-                for params in params_per_server_type
-            ]
-            # Wait until every process has finished, and raise what failed unexpectedly.
-            wait(futures)
-            succeeded = [future.result() for future in futures]
-
-    else:
+    if not start_server:
         # Export from a running server.
+        database = database.format(port=port)
         with TransientProgress() as progress:
-            server_type_name = f"[{ServerType.CUSTOM.name}]"
-            server_formatted = f"[b][cyan]{server_type_name:10}[/cyan][/b]"
+            server_formatted = _format_server_name(ServerType.CUSTOM)
             try:
                 succeeded = [
                     _export_module_terms(
@@ -486,99 +360,208 @@ def export(  # noqa: C901, PLR0912, PLR0915
             except (OSError, xmlrpc.client.Error) as e:
                 print_error(f"{server_formatted} Exporting the terms failed.", str(e))
                 succeeded = [False]
+    else:
+        # Start temporary Odoo servers to export the terms.
+        odoo_repo_path = selection.com_path.expanduser().resolve()
+        ent_modules_path = selection.ent_path.expanduser().resolve()
+        extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
+        arch = get_native_arch()
+        if container:
+            ensure_image(container.version, build=build, arch=arch)
+            start_services()
+
+        servers: list[_Server] = []
+        server_types = {t: modules for t, modules in modules_per_server_type.items() if modules[0]}
+        ports = free_ports(host, port, len(server_types))
+        for (server_type, (modules_to_export, modules_to_install)), server_port in zip(
+            server_types.items(), ports, strict=True,
+        ):
+            suffix = f"{server_port}_{server_type.name.lower()}"
+            server_database = database.format(port=suffix) if "{port}" in database else f"{database}_{suffix}"
+            odoo_cmd: list[str] = [
+                "python3", str(odoo_repo_path / "odoo-bin"),
+                "--addons-path", _get_addons_path(
+                    server_type, odoo_repo_path / "addons", ent_modules_path, extra_modules_paths,
+                ),
+                "--database", server_database,
+                "--init", ",".join(sorted(modules_to_install)),
+                "--limit-time-cpu", "99999999",
+                "--limit-time-real", "99999999",
+            ]
+            odoo_version = get_odoo_version(odoo_repo_path)
+            if odoo_version and odoo_version >= WITH_DEMO_VERSION:
+                odoo_cmd.append("--with-demo")
+            server = _Server(
+                name=server_type.value,
+                formatted=_format_server_name(server_type),
+                url=f"{url}:{server_port}",
+                database=server_database,
+                module_to_path={k: v for k, v in module_to_path.items() if k in modules_to_export},
+                odoo_cmd=odoo_cmd,
+            )
+            if container:
+                _run_in_container(server, container, port=server_port, arch=arch, keep_db=keep_db)
+            else:
+                _run_locally(
+                    server,
+                    port=server_port,
+                    keep_db=keep_db,
+                    db=(db_host, db_port, db_username, db_password),
+                )
+            servers.append(server)
+
+        # Run the servers in parallel to speed things up.
+        with ThreadPoolExecutor() as executor, TransientProgress() as progress:
+            futures = [
+                executor.submit(
+                    run_server_and_export_terms, server, username=username, password=password, progress=progress,
+                )
+                for server in servers
+            ]
+            # Wait until every process has finished, and raise what failed unexpectedly.
+            wait(futures)
+            succeeded = [future.result() for future in futures]
 
     if not all(succeeded):
         raise Exit(1)
 
 
-def run_server_and_export_terms(
-    server_name: str,
-    server_formatted: str,
-    odoo_cmd: Sequence[str | Path],
-    stop_cmd: Sequence[str] | None,
-    dropdb_cmd: Sequence[str | Path] | None,
-    env: Mapping[str, str],
-    url: str,
-    database: str,
-    username: str,
-    password: str,
-    module_to_path: Mapping[str, Path],
-    progress: Progress,
-) -> bool:
-    """Start an Odoo server and export .pot files for the given modules.
+def run_server_and_export_terms(server: _Server, *, username: str, password: str, progress: Progress) -> bool:
+    """Start an Odoo server and export .pot files for its modules.
 
-    :param server_name: The server type to run.
-    :param server_formatted: The server type to run, formatted in a short printable way.
-    :param odoo_cmd: The command to start the Odoo server.
-    :param stop_cmd: The command to stop the Odoo server, if stopping `odoo_cmd` doesn't.
-    :param dropdb_cmd: The command to drop the database.
-    :param env: The environment variables to run the commands with.
-    :param url: The Odoo server URL.
-    :param database: The database name.
+    :param server: The server to start.
     :param username: The Odoo username.
     :param password: The Odoo password.
-    :param module_to_path: The modules to export mapped to their directories.
     :param progress: The shared progress instance to add a task to.
     :return: `True` if all terms were exported, `False` if not.
     """
-    progress_task = progress.add_task(f"{server_formatted} :package: Installing modules", total=None)
-
     data = _LogLineData(
-        server_formatted=server_formatted,
+        server_formatted=server.formatted,
         progress=progress,
-        progress_task=progress_task,
+        progress_task=progress.add_task(f"{server.formatted} :package: Installing modules", total=None),
         log_buffer="",
-        database=database,
+        database=server.database,
         database_created=False,
         server_error=False,
         error_msg=None,
     )
 
-    with Popen(odoo_cmd, env=env, stdin=DEVNULL, stderr=PIPE, text=True) as proc:
+    with Popen(server.odoo_cmd, env=server.env or None, stdin=DEVNULL, stderr=PIPE, text=True) as proc:
         try:
             data.server_error = not _wait_and_export_terms(
-                proc=proc,
-                data=data,
-                server_name=server_name,
-                odoo_cmd=odoo_cmd,
-                url=url,
-                username=username,
-                password=password,
-                module_to_path=module_to_path,
-                progress=progress,
+                proc, data, server, username=username, password=password, progress=progress,
             )
         finally:
             # Leaving the `with` block waits for the server to stop, so make sure it does.
-            # `docker run` can stop without its container, like when we stop reading its log, so always stop that.
-            running = proc.poll() is None
-            if stop_cmd:
-                running = subprocess.run(stop_cmd, capture_output=True, check=False).returncode == 0 or running
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait()
-            if running:
-                print(f"{server_formatted} Odoo Server has stopped :white_check_mark:")
+            if _stop_server(proc, server):
+                print(f"{server.formatted} Odoo Server has stopped :white_check_mark:")
 
     if data.database_created and data.server_error:
         print_warning(
-            f"The database [b]{database}[/b] was not deleted to allow inspecting the error. "
+            f"{server.formatted} The database [b]{server.database}[/b] was not deleted to allow inspecting the error. "
             "You can delete it manually afterwards.",
         )
+    elif data.database_created and not server.drop_cmds:
+        print(f"{server.formatted} Database [b]{server.database}[/b] has been kept to re-use or inspect later :white_check_mark:\n")
     elif data.database_created:
-        if not dropdb_cmd:
-            print(f"{server_formatted} Database [b]{database}[/b] has been kept to re-use or inspect later :white_check_mark:\n")
-        else:
-            try:
-                subprocess.run(dropdb_cmd, env=env, capture_output=True, check=True)
-                print(f"{server_formatted} Database [b]{database}[/b] has been deleted :white_check_mark:\n")
-            except CalledProcessError as e:
+        for drop_cmd in server.drop_cmds:
+            result = subprocess.run(drop_cmd, env=server.env or None, capture_output=True, text=True, check=False)
+            if result.returncode:
                 print_error(
-                    f"Deleting database [b]{database}[/b] failed. You can try deleting it manually.",
-                    e.stderr.decode().strip() if e.stderr else None,
+                    f"{server.formatted} Deleting database [b]{server.database}[/b] failed. You can try deleting it "
+                    "manually.",
+                    result.stderr.strip(),
                 )
-                _print_command_for_copy(dropdb_cmd)
+                _print_command_for_copy(drop_cmd)
+                break
+        else:
+            print(f"{server.formatted} Database [b]{server.database}[/b] has been deleted :white_check_mark:\n")
 
     return not data.server_error
+
+
+def _stop_server(proc: Popen[str], server: _Server) -> bool:
+    """Stop a server, if it still runs.
+
+    :return: Whether it was running.
+    """
+    running = proc.poll() is None
+    # `docker run` can stop without its container, like when we stop reading its log, so always stop that.
+    if server.stop_cmd:
+        running = subprocess.run(server.stop_cmd, capture_output=True, check=False).returncode == 0 or running
+    if proc.poll() is None:
+        proc.kill()
+        proc.wait()
+    return running
+
+
+def _format_server_name(server_type: ServerType) -> str:
+    """Format the name of a server in a short printable way, like `[COM]`, to prefix its messages with."""
+    name = f"[{server_type.name}]"
+    return f"[b][cyan]{name:10}[/cyan][/b]"
+
+
+def _get_addons_path(server_type: ServerType, com: Path, ent: Path, extra: list[Path]) -> str:
+    """Get the addons path of a server: custom modules see everything, the others only what they need."""
+    if server_type == ServerType.CUSTOM:
+        paths = [*extra, ent, com]
+    elif server_type in (ServerType.ENT, ServerType.L10N):
+        paths = [ent, com]
+    else:
+        paths = [com]
+    return ",".join(str(path) for path in paths)
+
+
+def _run_in_container(server: _Server, container: _Container, *, port: int, arch: Arch, keep_db: bool) -> None:
+    """Make a server run in the version's Docker image, with the PostgreSQL of `otk dev`."""
+    options = RunOptions(
+        version_dir=container.version_dir,
+        version=container.version,
+        port=port,
+        # Odoo listens on its usual port in the container, published on the free port we found.
+        command=[*server.odoo_cmd, f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}", "--db_user=odoo",
+                 "--db_password=odoo"],
+        arch=arch,
+        role="export",
+    )
+    server.odoo_cmd = build_run_command(
+        options,
+        multiverse_dir=container.multiverse_dir,
+        git_identity=get_git_identity(),
+        tty=False,
+        ssh_agent=get_ssh_agent(),
+    )
+    # Stopping `docker run` doesn't stop the container.
+    server.stop_cmd = ["docker", "rm", "--force", get_container_name(options)]
+    if not keep_db:
+        filestore = f"{VOLUMES['otk-filestore']}/filestore/{server.database}"
+        server.drop_cmds = [
+            # Odoo's connections may not be closed yet, right after stopping it.
+            ["docker", "exec", DB_HOST, "dropdb", "--username=odoo", "--force", server.database],
+            [
+                "docker", "run", "--rm", "--platform", f"linux/{arch}",
+                "--volume", f"otk-filestore:{VOLUMES['otk-filestore']}",
+                get_image_tag(container.version), "rm", "-rf", filestore,
+            ],
+        ]
+
+
+def _run_locally(server: _Server, *, port: int, keep_db: bool, db: tuple[str, int, str, str]) -> None:
+    """Make a server run with Python on this machine.
+
+    :param db: The PostgreSQL host, port, user and password.
+    """
+    db_host, db_port, db_username, db_password = db
+    server.odoo_cmd += ["--http-port", str(port), "--db_host", db_host, "--db_port", str(db_port)]
+    if db_username:
+        server.odoo_cmd += ["--db_user", db_username]
+    server.env = dict(os.environ)
+    if db_password:
+        # Odoo and dropdb both read it from here, so it doesn't show up in the commands.
+        server.env["PGPASSWORD"] = db_password
+    if not keep_db:
+        dropdb_cmd = ["dropdb", server.database, "--host", db_host, "--port", str(db_port)]
+        server.drop_cmds = [[*dropdb_cmd, "--username", db_username] if db_username else dropdb_cmd]
 
 
 def _find_container(*, local: bool) -> _Container | None:
@@ -593,7 +576,7 @@ def _find_container(*, local: bool) -> _Container | None:
     if not (version := get_versions().get(version_dir.name)):
         print_warning(f"Odoo [b]{version_dir.name}[/b] has no Docker image, so the servers run on this machine.\n")
         return None
-    multiverse_dir = find_multiverse_dir(version_dir) or version_dir.parent
+    multiverse_dir = version_dir.parent
     if problem := check_mountable(multiverse_dir):
         print_error(f"{problem}\n")
         raise Exit(1)
@@ -614,22 +597,13 @@ def _check_mounted(container: _Container, paths: Iterable[Path]) -> None:
             raise Exit(1)
 
 
-def resolve_excludes(exclude: list[str]) -> list[str]:
-    """Replace `default` in the excluded modules by the default ones, keeping the others."""
-    if "default" not in exclude:
-        return exclude
-    return [e for e in exclude if e != "default"] + DEFAULT_EXCLUDE
-
-
 def _wait_and_export_terms(
     proc: Popen[str],
     data: _LogLineData,
-    server_name: str,
-    odoo_cmd: Sequence[str | Path],
-    url: str,
+    server: _Server,
+    *,
     username: str,
     password: str,
-    module_to_path: Mapping[str, Path],
     progress: Progress,
 ) -> bool:
     """Follow the server's log until its modules are installed, then export the terms.
@@ -642,53 +616,45 @@ def _wait_and_export_terms(
         data.log_buffer += log_line
 
         if _process_server_log_line(log_line=log_line, data=data):
-            # The server is ready to export.
-
-            # Close the pipe to prevent overfilling the buffer and blocking the process.
+            # The server is ready to export. Close the pipe to prevent overfilling the buffer and blocking the process.
             proc.stderr.close()
-
-            # Stop the progress.
-            if data.progress_task is not None:
-                progress.update(
-                    data.progress_task,
-                    description=f"{data.server_formatted} :package: Installing modules",
-                    completed=1,
-                    total=1,
-                )
-
-            print(f"{data.server_formatted} Modules have been installed :white_check_mark:")
-            print(f"{data.server_formatted} Odoo Server has started :white_check_mark:")
-
+            progress.update(data.progress_task, completed=1, total=1)
+            print(f"{server.formatted} Modules have been installed :white_check_mark:")
+            print(f"{server.formatted} Odoo Server has started :white_check_mark:")
             try:
-                exported = _export_module_terms(
-                    server_name=server_name,
-                    server_formatted=data.server_formatted,
-                    module_to_path=module_to_path,
-                    url=url,
-                    database=data.database,
+                return _export_module_terms(
+                    server_name=server.name,
+                    server_formatted=server.formatted,
+                    module_to_path=server.module_to_path,
+                    url=server.url,
+                    database=server.database,
                     username=username,
                     password=password,
                     progress=progress,
                 )
             except (OSError, xmlrpc.client.Error) as e:
-                print_error(f"{data.server_formatted} Exporting the terms failed.", str(e))
+                print_error(f"{server.formatted} Exporting the terms failed.", str(e))
                 return False
-            return exported
 
         if data.server_error:
-            # The server encountered an error.
-            print_error(data.error_msg or "The server encountered an error.", data.log_buffer.strip())
-            _print_command_for_copy(odoo_cmd)
+            # The traceback follows the error line, so give Odoo a moment to log it, then read what's left.
+            time.sleep(1)
+            _stop_server(proc, server)
+            data.log_buffer += proc.stderr.read()
+            print_error(
+                f"{server.formatted} {data.error_msg or 'The server encountered an error.'}", data.log_buffer.strip(),
+            )
+            _print_command_for_copy(server.odoo_cmd)
             return False
 
     # The server stopped by itself. Its last lines often hold the traceback.
     if proc.stderr and not proc.stderr.closed:
         data.log_buffer += proc.stderr.read()
     print_error(
-        f"Running the Odoo server failed and exited with code: {proc.returncode}",
+        f"{server.formatted} Running the Odoo server failed and exited with code: {proc.returncode}",
         data.log_buffer.strip(),
     )
-    _print_command_for_copy(odoo_cmd)
+    _print_command_for_copy(server.odoo_cmd)
     return False
 
 
@@ -718,24 +684,16 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     match = re.search(r"loading (\d+) modules", log_line)
     if match:
         data.log_buffer = ""
-        if data.progress:
-            if data.progress_task is None:
-                data.progress_task = data.progress.add_task(
-                    f"{data.server_formatted} :package: Installing modules",
-                    total=None,
-                )
-            else:
-                data.progress.update(data.progress_task, total=int(match.group(1)))
+        data.progress.update(data.progress_task, total=int(match.group(1)))
 
     match = re.search(r"Loading module (\w+) \(\d+/\d+\)", log_line)
     if match:
         data.log_buffer = ""
-        if data.progress is not None and data.progress_task is not None:
-            data.progress.update(
-                data.progress_task,
-                advance=1,
-                description=f"{data.server_formatted} :package: Installing module [b]{match.group(1)}[/b]",
-            )
+        data.progress.update(
+            data.progress_task,
+            advance=1,
+            description=f"{data.server_formatted} :package: Installing module [b]{match.group(1)}[/b]",
+        )
     return False
 
 
@@ -976,7 +934,7 @@ def get_modules_per_server_type(  # noqa: C901, PLR0912
 
     # Track server types that already have a complete module install (dependents resolution is not needed).
     fully_installed_server_types: set[ServerType] = set()
-    if full_install or "base" in module_to_path:
+    if full_install or ("base" in module_to_path and not quick_install):
         modules_to_install_tmp = _get_full_install_modules_per_server_type(
             com_modules_path=com_modules_path,
             ent_modules_path=ent_modules_path,
@@ -997,13 +955,8 @@ def get_modules_per_server_type(  # noqa: C901, PLR0912
         for server_type in ServerType:
             if server_type in fully_installed_server_types or not modules_to_export[server_type]:
                 continue
-            dependents = _find_all_dependents(
-                addons_paths=paths_and_filter_per_server_type[server_type][0],
-                include_module=paths_and_filter_per_server_type[server_type][1],
-            )
-            modules_to_install[server_type].update(
-                d for m in modules_to_export[server_type] for d in dependents.get(m, set[str]())
-            )
+            addons_paths, include = paths_and_filter_per_server_type[server_type]
+            modules_to_install[server_type] |= find_dependents(addons_paths, include, modules_to_export[server_type])
             # The `calendar` and `rating` modules seem to add fields to a lot of models, so we always install them.
             if include_module("calendar"):
                 modules_to_install[server_type].add("calendar")
@@ -1015,21 +968,18 @@ def get_modules_per_server_type(  # noqa: C901, PLR0912
     }
 
 
-def _collect_manifest_deps(addons_paths: Iterable[Path]) -> tuple[dict[str, list[str]], set[str], bool]:
-    """Collect raw dependency data from all manifests in the given addons paths.
+@cache
+def _collect_manifest_deps(addons_paths: tuple[Path, ...]) -> tuple[dict[str, list[str]], set[str], bool]:
+    """Collect the dependencies of all modules in the given addons paths, once per set of addons paths.
 
-    :param addons_paths: A list of paths to directories containing Odoo module folders.
+    :param addons_paths: The directories containing Odoo modules.
     :return: A tuple of (module → direct dependencies, all known modules, l10n_multilang found).
     """
     module_deps: dict[str, list[str]] = {}
     all_modules: set[str] = set()
-    l10n_multilang = False
-
     for addons_path in addons_paths:
         for manifest_file in addons_path.glob("*/__manifest__.py"):
             module = manifest_file.parent.name
-            if module == "l10n_multilang":
-                l10n_multilang = True
             all_modules.add(module)
             try:
                 manifest = ast.literal_eval(manifest_file.read_text(encoding="utf-8"))
@@ -1037,10 +987,8 @@ def _collect_manifest_deps(addons_paths: Iterable[Path]) -> tuple[dict[str, list
                 print_warning(f"Reading [b]{manifest_file}[/b] failed, so its dependencies are left out: {e}")
                 continue
             module_deps[module] = manifest.get("depends", [])
-            for dep in module_deps[module]:
-                all_modules.add(dep)
-
-    return module_deps, all_modules, l10n_multilang
+            all_modules.update(module_deps[module])
+    return module_deps, all_modules, "l10n_multilang" in all_modules
 
 
 def _expand_excluded_set(
@@ -1050,9 +998,8 @@ def _expand_excluded_set(
 ) -> set[str]:
     """Compute the transitively expanded set of excluded modules.
 
-    A module is excluded if ``include_module`` returns ``False`` for it, or if any
-    module in its transitive dependency chain is excluded (installing it would force
-    the excluded dependency to be installed as well).
+    A module is excluded if ``include_module`` returns ``False`` for it, or if any module in its transitive dependency
+    chain is excluded (installing it would force the excluded dependency to be installed as well).
 
     :param all_modules: All known module names.
     :param include_module: A function returning `True` if a module name should be included.
@@ -1067,68 +1014,38 @@ def _expand_excluded_set(
     excluded = {m for m in all_modules if not include_module(m)}
     worklist = list(excluded)
     while worklist:
-        m = worklist.pop()
-        for dependent in direct_dependents.get(m, set()):
-            if dependent not in excluded:
-                excluded.add(dependent)
-                worklist.append(dependent)
+        for dependent in direct_dependents[worklist.pop()] - excluded:
+            excluded.add(dependent)
+            worklist.append(dependent)
     return excluded
 
 
-def _collect_transitive_dependents(
-    module: str,
-    dependents_mapping: dict[str, set[str]],
-    visited: set[str],
-) -> set[str]:
-    """Recursively collect all direct and indirect dependents of a module.
+def find_dependents(addons_paths: Iterable[Path], include_module: Callable[[str], bool], modules: set[str]) -> set[str]:
+    """Find the modules that (indirectly) depend on the given ones, since they can add terms to them.
 
-    :param module: The module to find dependents for.
-    :param dependents_mapping: A mapping from each module to its direct dependents.
-    :param visited: Modules already visited in the current call chain (prevents infinite loops).
-    :return: A set of all dependents of the given module.
+    :param addons_paths: The directories containing Odoo modules.
+    :param include_module: A function returning `True` if a module name may be installed.
+    :param modules: The modules to find the dependents of.
+    :return: Their direct and indirect dependents, and `l10n_multilang` for localizations, which makes all
+        translatable fields exported.
     """
-    all_dependents: set[str] = set()
-    for dependent in dependents_mapping[module]:
-        if dependent in visited:
-            continue
-        all_dependents.add(dependent)
-        all_dependents.update(_collect_transitive_dependents(dependent, dependents_mapping, visited | {dependent}))
-    return all_dependents
-
-
-def _find_all_dependents(
-    addons_paths: Iterable[Path],
-    include_module: Callable[[str], bool] = lambda _: True,
-) -> Mapping[str, set[str]]:
-    """Find all direct and indirect dependents for each module in the given addons paths.
-
-    :param addons_paths: A list of paths to directories containing Odoo module folders.
-    :param include_module: A function returning `True` if a module name should be included, defaults to always `True`.
-    :return: A mapping where keys are module names and values are sets of their direct and indirect dependents.
-        Includes all modules found, even those without any dependencies.
-    """
-    module_deps, all_modules, l10n_multilang = _collect_manifest_deps(addons_paths)
+    module_deps, all_modules, l10n_multilang = _collect_manifest_deps(tuple(addons_paths))
     excluded = _expand_excluded_set(all_modules, include_module, module_deps)
-
-    dependents_mapping: dict[str, set[str]] = defaultdict(set)
+    direct_dependents: dict[str, set[str]] = defaultdict(set)
     for module, deps in module_deps.items():
-        if module in excluded:
-            continue
-        for dep in deps:
-            if dep in excluded:
-                continue
-            dependents_mapping[dep].add(module)
+        if module not in excluded:
+            for dep in deps:
+                direct_dependents[dep].add(module)
 
-    all_dependents_mapping: dict[str, set[str]] = {}
-    for module in all_modules:
-        if module in excluded:
-            continue
-        all_dependents_mapping[module] = _collect_transitive_dependents(module, dependents_mapping, set())
-        if l10n_multilang and is_l10n_module(module) and "l10n_multilang" not in excluded:
-            # Add `l10n_multilang` to all l10n modules, to have all translatable fields exported.
-            all_dependents_mapping[module].add("l10n_multilang")
-
-    return all_dependents_mapping
+    found: set[str] = set()
+    worklist = [module for module in modules if module not in excluded]
+    while worklist:
+        for dependent in direct_dependents[worklist.pop()] - found:
+            found.add(dependent)
+            worklist.append(dependent)
+    if l10n_multilang and "l10n_multilang" not in excluded and any(is_l10n_module(m) for m in modules - excluded):
+        found.add("l10n_multilang")
+    return found
 
 
 def _get_full_install_modules_per_server_type(
@@ -1163,6 +1080,14 @@ def _get_full_install_modules_per_server_type(
             modules[ServerType.CUSTOM].add(m)
 
     return modules
+
+
+def free_ports(host: str, start_port: int, count: int) -> list[int]:
+    """Find free ports for several servers, each one after the previous: finding a free port doesn't reserve it."""
+    ports: list[int] = []
+    for _ in range(count):
+        ports.append(_free_port(host, ports[-1] + 1 if ports else start_port))
+    return ports
 
 
 def _free_port(host: str, start_port: int) -> int:

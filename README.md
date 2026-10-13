@@ -85,19 +85,23 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 **Work with Odoo Translation Files (`.po` and `.pot` files).**
 
-The following commands allow you to export `.pot` files for Odoo modules, create or update `.po` files according to their (updated) `.pot` files, or merge multiple `.po` files into one.
+The following commands allow you to export `.pot` files for Odoo modules, and create or update `.po` files according to their (updated) `.pot` files.
+
+Inside an [Odoo Multiverse](#odoo-multiverse-otk-mv) version directory (like `19.0`), they use its `odoo` and `enterprise` repositories, wherever you are in it.
 
 
 ## `otk po export`
 
 **Export Odoo translation files (`.pot`) to each module's `i18n` folder.**
 
-This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server will be started for Community, Community (Localizations), Enterprise, Enterprise (Localizations), and custom modules with only the modules installed to be exported in that version, and all (indirect) dependent modules that might contribute terms to the modules to be exported.
+This command can autonomously start separate Odoo servers to export translatable terms for one or more modules. A separate server is started for Community, Enterprise, localizations, and custom modules, with only the modules to export installed, and all (indirect) dependent modules that might contribute terms to them.
+
+Inside an [Odoo Multiverse](#odoo-multiverse-otk-mv) version directory, the servers run in that version's Docker image, like [`otk dev run`](#otk-dev-run), with the PostgreSQL of `otk dev`. Use `--local` to run them with Python on this machine instead.
 
 You can also export terms from your own running server using the `--own-server` option and optionally passing the correct arguments to reach your Odoo server.
 
 > [!NOTE]
-> Without any options specified, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost` using port `5432`, accessible without a password using your current user.
+> Outside a multiverse, the command is supposed to run from within the parent directory where your `odoo` and `enterprise` repositories are checked out with these names. Your database is supposed to run on `localhost` using port `5432`, accessible without a password using your current user.
 >
 > Of course, all of this can be tweaked with the available options. 😉
 
@@ -109,16 +113,17 @@ $ otk po export [OPTIONS] MODULES...
 e.g.
 
 ```console
-$ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
+$ otk po export "account_*" mrp sale
+$ otk po export --local --db-username odoo "account_*" mrp sale
 ```
 
 ### Arguments
 
-* `MODULES...`: Export .pot files for these Odoo modules (supports glob patterns), or either `all`, `community`, or `enterprise`.  **[required]**
+* `MODULES...`: Export .pot files for these Odoo modules (supports glob patterns), or either `all`, `community`, `enterprise`, `community-l10n`, or `enterprise-l10n`.  **[required]**
 
 ### Options
 
-* `-x, --exclude TEXT`: Exclude these modules from being installed and exported, or `default`.
+* `-x, --exclude TEXT`: Exclude these modules from being installed and exported. `default` stands for localizations, themes, hardware and test modules.
 * `-f, --path-filter PATH`: Only include modules within these paths.
 * `--help`: Show this message and exit.
 
@@ -126,8 +131,10 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 
 * `--start-server / --own-server`: Start an Odoo server automatically or connect to your own server.  [default: `start-server`]
 * `--keep-db`: Keep the database after exporting the `.pot` files.
-* `--full-install`: Install every available Odoo module.
+* `--full-install`: Install every available Odoo module in Community and Enterprise.
 * `--quick-install`: Install only the modules to export.
+* `--local`: Run the Odoo servers with Python on this machine, instead of in the Docker image of the Odoo Multiverse version directory you're in.
+* `--build`: Build the Docker image on your machine instead of pulling it.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
@@ -139,7 +146,7 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 **Database Options**:
 
 * `-d, --database TEXT`: Specify the PostgreSQL database name used by Odoo.  [default: `export_pot_db_{port}`]
-* `--db-host TEXT`: Specify the PostgreSQL server's hostname.  [default: `localhost`]
+* `--db-host TEXT`: Specify the PostgreSQL server's hostname. The database options don't apply to servers in Docker, which use the PostgreSQL of `otk dev`.  [default: `localhost`]
 * `--db-port INTEGER`: Specify the PostgreSQL server's port.  [default: `5432`]
 * `--db-username TEXT`: Specify the PostgreSQL server's username.
 * `--db-password TEXT`: Specify the PostgreSQL user's password.
@@ -149,7 +156,7 @@ $ otk po export --db-username odoo --db-password odoo "account_*" mrp sale
 **Create Odoo translation files (`.po`) according to their `.pot` files.**
 
 > [!NOTE]
-> Uses the gettext `msginit` command if available.
+> Uses the gettext `msginit` command if available. Either way, the plural rules are the ones Weblate uses.
 
 This command will provide you with a clean `.po` file per language you specified for the given modules. It basically copies all entries from the `.pot` file in the module and completes the metadata with the right language information. All generated `.po` files will be saved in the respective modules' `i18n` directories.
 
@@ -169,12 +176,12 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 
 ### Arguments
 
-* `MODULES...`: Create .po files for these Odoo modules, or either `all`, `community`, or `enterprise`.  **[required]**
+* `MODULES...`: Create .po files for these Odoo modules, or either `all`, `community`, `enterprise`, `community-l10n`, or `enterprise-l10n`.  **[required]**
 
 ### Options
 
-* `-l, --languages TEXT`: Create .po files for these language codes, or `all`.  **[required]**
-* `-x, --exclude TEXT`: Exclude these modules from being updated.
+* `-l, --language TEXT`: Create .po files for these language codes, or `all`.  **[required]**
+* `-x, --exclude TEXT`: Exclude these modules from being created. `default` stands for localizations, themes, hardware and test modules.
 * `-f, --path-filter PATH`: Only include modules within these paths.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
@@ -206,12 +213,13 @@ $ otk po update -l nl -l fr account account_accountant
 
 ### Arguments
 
-* `MODULES...`: Update .po files for these Odoo modules, or either `all`, `community`, or `enterprise`.  **[required]**
+* `MODULES...`: Update .po files for these Odoo modules, or either `all`, `community`, `enterprise`, `community-l10n`, or `enterprise-l10n`.  **[required]**
 
 ### Options
 
-* `-l, --languages TEXT`: Update .po files for these language codes, or `all`.  [default: `all`]
-* `-x, --exclude TEXT`: Exclude these modules from being updated.
+* `-l, --language TEXT`: Update .po files for these language codes, or `all`.  [default: `all`]
+* `-t, --only-translated`: Only keep translated terms in the updated `.po` files, removing all untranslated terms.
+* `-x, --exclude TEXT`: Exclude these modules from being updated. `default` stands for localizations, themes, hardware and test modules.
 * `-f, --path-filter PATH`: Only include modules within these paths.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]

@@ -1,21 +1,17 @@
 import os
+import re
 import shutil
 import subprocess
-from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
 from polib import POFile, pofile
 from rich.console import RenderableType
-from rich.tree import Tree
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
-    Status,
-    TransientProgress,
     get_error_log_panel,
-    get_valid_modules_to_path_mapping,
     normalize_list_option,
     print,
     print_command_title,
@@ -25,9 +21,13 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import ODOO_LANGUAGES, get_plural_forms, update_module_po
+from .common import ODOO_LANGUAGES, get_nplurals, get_plural_forms, process_modules, select_modules
 
 app = Typer()
+
+PLURAL_FORMS_PATTERN = re.compile(r'^"Plural-Forms: .*\\n"$', flags=re.MULTILINE)
+# Matches the empty translations of a plural entry, which need one `msgstr[n]` per plural form.
+EMPTY_PLURALS_PATTERN = re.compile(r'(?:^msgstr\[\d+\] ""\n)+', flags=re.MULTILINE)
 
 
 @app.command()
@@ -48,7 +48,12 @@ def create(
         ),
     ],
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being created."),
+        list[str],
+        Option(
+            "--exclude",
+            "-x",
+            help="Exclude these modules from being created, or `default` for localizations, themes, hardware and tests.",
+        ),
     ] = EMPTY_LIST,
     path_filters: Annotated[
         list[Path],
@@ -93,74 +98,46 @@ def create(
     print_command_title(":memo: Odoo PO Create")
 
     languages = normalize_list_option(languages)
-    exclude = normalize_list_option(exclude)
-
-    def include_path(p: Path) -> bool:
-        if exclude and any(fnmatch(p.name, e) for e in exclude):
-            return False
-        if path_filters:
-            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
-        return True
-
-    module_to_path = get_valid_modules_to_path_mapping(
-        modules=normalize_list_option(modules),
+    selection = select_modules(
+        modules,
+        exclude=exclude,
+        path_filters=path_filters,
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        include_path=include_path,
     )
-
-    if not module_to_path:
+    if not selection.module_to_path:
         print_error("The provided modules are not available! Nothing to create ...")
         raise Exit(1)
 
-    modules = sorted(module_to_path.keys())
-    print(f"Modules to create translation files for: [b]{'[/b], [b]'.join(modules)}[/b]\n")
-
+    print(f"Modules to create translation files for: [b]{'[/b], [b]'.join(sorted(selection.module_to_path))}[/b]\n")
     print_header(":speech_balloon: Create Translation Files")
 
     # Determine all .po file languages to create.
-    if "all" in languages:
-        languages = list(ODOO_LANGUAGES)
-    languages = sorted(languages)
+    languages = sorted(ODOO_LANGUAGES if "all" in languages else languages)
+    processed, failures = process_modules(
+        selection.module_to_path,
+        languages_of=lambda _: languages,
+        action=_create_po_for_lang,
+        description="Creating",
+    )
 
-    status = None
-    with TransientProgress() as progress:
-        progress_task = progress.add_task("Creating .po files", total=len(modules))
-        for module in modules:
-            progress.update(progress_task, description=f"Creating .po files for [b]{module}[/b]")
-            module_tree = Tree(f"[b]{module}[/b]")
-            create_status, _ = update_module_po(
-                action=_create_po_for_lang,
-                module=module,
-                languages=languages,
-                module_path=module_to_path[module],
-                module_tree=module_tree,
-            )
-            print(module_tree, "")
-            status = Status.PARTIAL if status and status != create_status else create_status
-            progress.advance(progress_task, 1)
-
-    match status:
-        case Status.FAILURE:
-            print_error("No translation files were created!\n")
-            raise Exit(1)
-        case Status.PARTIAL:
-            print_warning("Some translation files were created correctly, while others weren't!\n")
-            raise Exit(1)
-        case Status.SUCCESS:
-            print_success("All translation files were created correctly!\n")
-        case _:
-            pass
+    if not processed:
+        print_warning("There were no .pot files to create translation files from.\n")
+    elif failures:
+        failed_str = "\n".join(f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failures.items())
+        print_error(f"Some translation files weren't created:\n\n{failed_str}\n")
+        raise Exit(1)
+    else:
+        print_success("All translation files were created correctly!\n")
 
 
-def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path, _: bool) -> tuple[bool, RenderableType]:
+def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[bool, RenderableType]:
     """Create a .po file for the given language code and .pot file.
 
     :param lang: The language code to create the .po file for.
     :param pot_path: The .pot file path to get the terms from.
     :param module_path: The path to the module.
-    :param _: Placeholder for the `only_translated` parameter, not used in creation.
     :return: A tuple containing `True` if the creation succeeded and `False` if it didn't, and the message to render.
     """
     po_path = module_path / "i18n" / f"{lang}.po"
@@ -179,6 +156,12 @@ def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path, _: bool) -
                 f"--output-file={po_path}",
             ]
             subprocess.run(cmd, env=cmd_env, capture_output=True, check=True)
+            # msginit prefers its own plural rules for common languages over the CLDR ones Weblate uses, which can have
+            # more plural forms, like 3 instead of 2 for French. Use the CLDR rule, with a translation per form.
+            plural_forms = f'"Plural-Forms: {get_plural_forms(lang)}\\n"'
+            empty_plurals = "".join(f'msgstr[{i}] ""\n' for i in range(get_nplurals(lang)))
+            content = PLURAL_FORMS_PATTERN.sub(lambda _: plural_forms, po_path.read_text(encoding="utf-8"), count=1)
+            po_path.write_text(EMPTY_PLURALS_PATTERN.sub(lambda _: empty_plurals, content), encoding="utf-8")
         except subprocess.CalledProcessError as e:
             return False, get_error_log_panel(e.stderr.decode().strip(), f"Creating {po_path.name} failed!")
         else:
@@ -193,7 +176,9 @@ def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path, _: bool) -
             # Set the correct language and plural forms in the .po file.
             po.metadata.update({"Language": lang, "Plural-Forms": get_plural_forms(lang)})
             for entry in pot:
-                # Just add all entries in the .pot to the .po file.
+                # Add all entries in the .pot to the .po file, with a translation per plural form of the language.
+                if entry.msgid_plural:
+                    entry.msgstr_plural = dict.fromkeys(range(get_nplurals(lang)), "")
                 po.append(entry)
             po.save(str(po_path))
         except (OSError, ValueError) as e:

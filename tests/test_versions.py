@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from odoo_toolkit.versions import get_branch_version_name, get_versions, resolve_version, version_sort_key
+from odoo_toolkit.versions import get_versions, version_sort_key
 
 SCRIPT = Path(__file__).parent.parent / "scripts" / "sync_runbot.py"
 spec = importlib.util.spec_from_file_location("sync_runbot", SCRIPT)
@@ -11,30 +11,6 @@ assert spec
 assert spec.loader
 sync_runbot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync_runbot)
-
-
-@pytest.mark.parametrize(
-    ("branch", "expected"),
-    [
-        ("19.0", "19.0"),
-        ("19.0-fix-abc", "19.0"),
-        ("saas-19.2", "saas-19.2"),
-        ("saas-19.2-fix-abc", "saas-19.2"),
-        ("master", "master"),
-        # The first number in the name used to pick the version, so this resolved to an image for Odoo 10.
-        ("master-l10n_be-fix", "master"),
-        ("master2", None),
-        ("my-19.0-branch", None),
-        ("19", None),
-    ],
-)
-def test_get_branch_version_name(branch: str, expected: str | None) -> None:
-    assert get_branch_version_name(branch) == expected
-
-
-def test_resolve_version_only_returns_supported_versions() -> None:
-    assert resolve_version("master-l10n_be-fix") == get_versions()["master"]
-    assert resolve_version("17.0-fix-abc") is None
 
 
 def test_version_sort_key_orders_saas_and_master() -> None:

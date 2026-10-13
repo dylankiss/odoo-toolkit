@@ -2,22 +2,18 @@ import os
 import shlex
 import shutil
 import subprocess
-from fnmatch import fnmatch
+from functools import partial
 from pathlib import Path
 from typing import Annotated
 
 from polib import POEntry, pofile
 from rich.console import RenderableType
 from rich.markup import escape
-from rich.tree import Tree
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
-    Status,
-    TransientProgress,
     get_error_log_panel,
-    get_valid_modules_to_path_mapping,
     normalize_list_option,
     print,
     print_command_title,
@@ -27,7 +23,7 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import update_module_po
+from .common import process_modules, select_modules
 
 app = Typer()
 
@@ -54,7 +50,12 @@ def update(
         ),
     ] = False,
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being updated."),
+        list[str],
+        Option(
+            "--exclude",
+            "-x",
+            help="Exclude these modules from being updated, or `default` for localizations, themes, hardware and tests.",
+        ),
     ] = EMPTY_LIST,
     path_filters: Annotated[
         list[Path],
@@ -98,92 +99,55 @@ def update(
     print_command_title(":arrows_counterclockwise: Odoo PO Update")
 
     languages = sorted(normalize_list_option(languages))
-    exclude = normalize_list_option(exclude)
-
-    def include_path(p: Path) -> bool:
-        if exclude and any(fnmatch(p.name, e) for e in exclude):
-            return False
-        if path_filters:
-            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
-        return True
-
-    module_to_path = get_valid_modules_to_path_mapping(
-        modules=normalize_list_option(modules),
-        com_path=com_path,
-        ent_path=ent_path,
-        extra_addons_paths=extra_addons_paths,
-        include_path=include_path,
-    )
-
-    if not module_to_path:
-        print_error("The provided modules are not available! Nothing to update ...")
-        raise Exit(1)
-
-    modules = sorted(module_to_path.keys())
-    print(f"Modules to update translation files for: [b]{'[/b], [b]'.join(modules)}[/b]\n")
-
-    print_header(":speech_balloon: Update Translation Files")
-
-    status = None
-    failed_langs_per_module: dict[str, list[str]] = {}
-    all_failed_langs: set[str] = set()
-    with TransientProgress() as progress:
-        progress_task = progress.add_task("Updating .po files", total=len(modules))
-        for module in modules:
-            progress.update(progress_task, description=f"Updating .po files for [b]{module}[/b]")
-            if "all" in languages:
-                module_languages = sorted([
-                    lang.stem
-                    for lang in (module_to_path[module] / "i18n").glob("*.po")
-                    if lang.is_file()
-                ])
-            else:
-                module_languages = sorted([
-                    lang for lang in languages if (module_to_path[module] / "i18n" / f"{lang}.po").is_file()
-                ])
-            module_tree = Tree(f"[b]{module}[/b]")
-            update_status, failed_langs = update_module_po(
-                action=_update_po_for_lang,
-                module=module,
-                languages=module_languages,
-                only_translated=only_translated,
-                module_path=module_to_path[module],
-                module_tree=module_tree,
-            )
-            if failed_langs:
-                failed_langs_per_module[module] = failed_langs
-                all_failed_langs.update(failed_langs)
-            print(module_tree, "")
-            status = Status.PARTIAL if status and status != update_status else update_status
-            progress.advance(progress_task, 1)
-
-    failed_langs_per_module_str = "\n".join(
-        f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failed_langs_per_module.items()
-    )
-    retry_cmd = get_retry_command(
-        modules=sorted(failed_langs_per_module),
-        languages=sorted(all_failed_langs),
-        only_translated=only_translated,
+    selection = select_modules(
+        modules,
         exclude=exclude,
         path_filters=path_filters,
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
     )
-    match status:
-        case Status.SUCCESS:
-            print_success("All translation files were updated correctly!\n")
-        case Status.PARTIAL:
-            print_warning(
-                "Some translation files were updated correctly, while others weren't!\n\n"
-                f"{failed_langs_per_module_str}\n\n"
-                "You can run the command again for the failed modules using:\n"
-                f"[b]{escape(shlex.join(retry_cmd))}[/b]\n",
-            )
-            raise Exit(1)
-        case _:
-            print_error("No translation files were updated!\n")
-            raise Exit(1)
+    if not selection.module_to_path:
+        print_error("The provided modules are not available! Nothing to update ...")
+        raise Exit(1)
+
+    print(f"Modules to update translation files for: [b]{'[/b], [b]'.join(sorted(selection.module_to_path))}[/b]\n")
+    print_header(":speech_balloon: Update Translation Files")
+
+    def languages_of(module_path: Path) -> list[str]:
+        existing = sorted(po.stem for po in (module_path / "i18n").glob("*.po") if po.is_file())
+        return existing if "all" in languages else [lang for lang in languages if lang in existing]
+
+    processed, failures = process_modules(
+        selection.module_to_path,
+        languages_of=languages_of,
+        action=partial(_update_po_for_lang, only_translated=only_translated),
+        description="Updating",
+    )
+
+    if not processed:
+        print_warning("There were no translation files to update.\n")
+        return
+    if not failures:
+        print_success("All translation files were updated correctly!\n")
+        return
+    retry_cmd = get_retry_command(
+        modules=sorted(failures),
+        languages=sorted({lang for langs in failures.values() for lang in langs}),
+        only_translated=only_translated,
+        exclude=normalize_list_option(exclude),
+        path_filters=path_filters,
+        com_path=com_path,
+        ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
+    )
+    failed_str = "\n".join(f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failures.items())
+    print_error(
+        f"Some translation files weren't updated:\n\n{failed_str}\n\n"
+        "You can run the command again for them using:\n"
+        f"[b]{escape(shlex.join(retry_cmd))}[/b]\n",
+    )
+    raise Exit(1)
 
 
 def get_retry_command(
@@ -222,7 +186,9 @@ def is_translated(entry: POEntry) -> bool:
     return bool(entry.msgstr)
 
 
-def _update_po_for_lang(lang: str, pot_path: Path, module_path: Path, only_translated: bool) -> tuple[bool, RenderableType]:
+def _update_po_for_lang(
+    lang: str, pot_path: Path, module_path: Path, *, only_translated: bool,
+) -> tuple[bool, RenderableType]:
     """Update a .po file for the given language and .pot file.
 
     :param lang: The language code to update the .po file for.
