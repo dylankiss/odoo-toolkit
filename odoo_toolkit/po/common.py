@@ -122,20 +122,25 @@ def _create_cldr_dicts() -> tuple[dict[str, str], dict[str, str]]:
 CLDR_LANGUAGE_NAMES, CLDR_PLURAL_RULES = _create_cldr_dicts()
 
 
+# The Odoo language codes (used in the `.po` file names) that differ from their CLDR codes, which Weblate uses.
+ODOO_TO_CLDR_LANG = {
+    "ku": "ckb",
+    "nb": "nb_NO",
+    "sr@latin": "sr_Latn",
+    "zh_CN": "zh_Hans",
+    "zh_TW": "zh_Hant",
+}
+CLDR_TO_ODOO_LANG = {cldr: odoo for odoo, cldr in ODOO_TO_CLDR_LANG.items()}
+
+
 def get_cldr_lang(lang_code: str) -> str:
-    """Convert Odoo lang codes to CLDR ones, also used by Weblate."""
-    lang_mapping = {
-        "b+es+419": "es_419",
-        "ku": "ckb",
-        "nb": "nb_NO",
-        "pt-rBR": "pt_BR",
-        "sr@latin": "sr_Latn",
-        "zh-rCN": "zh_Hans",
-        "zh-rTW": "zh_Hant",
-        "zh_CN": "zh_Hans",
-        "zh_TW": "zh_Hant",
-    }
-    return lang_mapping.get(lang_code, lang_code)
+    """Convert an Odoo language code to the CLDR one, which Weblate uses, like `zh_Hans` for `zh_CN`."""
+    return ODOO_TO_CLDR_LANG.get(lang_code, lang_code)
+
+
+def get_odoo_lang(lang_code: str) -> str:
+    """Convert a CLDR language code to the Odoo one, used in the `.po` file names, like `zh_CN` for `zh_Hans`."""
+    return CLDR_TO_ODOO_LANG.get(lang_code, lang_code)
 
 
 def get_language_name(lang: str) -> str:

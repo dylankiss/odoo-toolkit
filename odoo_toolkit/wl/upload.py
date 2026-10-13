@@ -1,28 +1,21 @@
-import itertools
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Annotated
 
-from polib import pofile
-from rich.table import Table
 from typer import Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
     filter_by_globs,
-    get_error_log_panel,
     normalize_list_option,
-    print,
     print_command_title,
     print_error,
     print_success,
     print_warning,
 )
-from odoo_toolkit.po.common import get_cldr_lang, get_language_name
+from odoo_toolkit.po.common import get_cldr_lang
 
 from .common import (
-    WEBLATE_MAX_WORKERS,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     UploadConflicts,
     UploadFuzzy,
@@ -31,14 +24,15 @@ from .common import (
     WeblateApiError,
     WeblateTranslationsUploadResponse,
     format_upload_counts,
-    get_weblate_project_component_slugs,
+    print_failures,
+    run_concurrently,
 )
 
 app = Typer()
 
 
 @app.command()
-def upload(  # noqa: C901, PLR0912, PLR0915
+def upload(
     project: Annotated[str, Option("--project", "-p", help="The Weblate project to upload translations to.")],
     languages: Annotated[
         list[str],
@@ -53,7 +47,8 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         Option(
             "--component",
             "-c",
-            help="The Weblate components to upload translations to. You can use glob patterns. Uploads to all components if none are specified.",
+            help="The Weblate components to upload translations to. You can use glob patterns. Uploads all matching "
+            "files if none are specified.",
         ),
     ] = EMPTY_LIST,
     author: Annotated[
@@ -95,15 +90,15 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         Option(
             "--fuzzy",
             "-f",
-            help='Specify how fuzzy translations should be handled. Either ignore them (`ignore`), mark them as'
+            help='Specify how fuzzy translations should be handled. Either ignore them (`ignore`), mark them as '
             '"Needs editing" (`process`), or add them as a regular translation (`approve`).',
         ),
     ] = UploadFuzzy.PROCESS,
 ) -> None:
     """Upload specific PO files to Weblate.
 
-    This command can be useful to bulk upload specific PO files to Weblate. The files will be need to be saved in the
-    current working directory with the name pattern `<project>-<component>-<language>.po`.
+    This command can be useful to bulk upload specific PO files to Weblate. The files need to be in the current working
+    directory, named `<project>-<component>-<language>.po`, like the ones `otk wl download` saves.
     """
     print_command_title(":outbox_tray: Odoo Weblate PO Upload")
 
@@ -113,142 +108,62 @@ def upload(  # noqa: C901, PLR0912, PLR0915
         print_error(str(e))
         raise Exit(1) from e
 
-    languages_set = set(normalize_list_option(languages))
-    components = normalize_list_option(components)
-    try:
-        with TransientProgress() as progress:
-            progress_task = progress.add_task(
-                "Fetching components...", total=None,
-            )
-            components = filter_by_globs(get_weblate_project_component_slugs(weblate_api, project), components)
-            progress.update(progress_task, completed=1, total=1)
-    except WeblateApiError as e:
-        print_error("Weblate API Error: Failed to fetch components for project.", str(e))
-        raise Exit(1) from e
-
-    accepted_count = 0
-    skipped_count = 0
-    not_found_count = 0
-    failed_uploads = 0
-    missing_po_files: set[Path] = set()
-
-    # Weblate reads these from the form, next to the file. As query parameters, they were silently ignored.
+    # Weblate reads these from the form, next to the file.
     upload_data: dict[str, str] = {
         "method": method.value,
         "conflicts": conflicts.value,
-        "fuzzy": "" if fuzzy.value == UploadFuzzy.IGNORE else fuzzy.value,
+        "fuzzy": "" if fuzzy == UploadFuzzy.IGNORE else fuzzy.value,
     }
     if author:
         upload_data["author_name"] = author
     if email:
         upload_data["author_email"] = email
 
+    files = _find_files(project, [get_cldr_lang(lang) for lang in normalize_list_option(languages)])
+    patterns = normalize_list_option(components)
+    files = {key: path for key, path in files.items() if not patterns or filter_by_globs([key[0]], patterns)}
+    if not files:
+        print_error(f"No files named [b]{project}-<component>-<language>.po[/b] to upload in [u]{Path.cwd()}[/u].")
+        raise Exit(1)
+
     with TransientProgress() as progress:
-        progress_task = progress.add_task(
-            "Uploading PO files...",
-            total=len(components) * len(languages_set),
+        task = progress.add_task("Uploading PO files", total=len(files))
+        results = run_concurrently(
+            sorted(files),
+            lambda key: weblate_api.request(
+                WeblateTranslationsUploadResponse,
+                "POST",
+                WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(project=project, component=key[0], language=key[1]),
+                data=upload_data,
+                files={"file": (files[key].name, files[key].read_bytes())},
+            ),
+            progress=progress,
+            task_id=task,
         )
-        upload_table = Table(box=None, pad_edge=False, show_header=False)
 
-        results: list[tuple[str, str, str, str]] = []
-        with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
-            futures = {
-                executor.submit(
-                    _upload_translation, weblate_api, project, component, language, upload_data, fuzzy,
-                ): (component, language)
-                for component, language in itertools.product(sorted(components), sorted(languages_set))
-            }
-            for future in as_completed(futures):
-                component, _ = futures[future]
-                results.append((component, *future.result()))
-                progress.advance(progress_task)
+    counts = {"accepted": 0, "skipped": 0, "not_found": 0}
+    failures: dict[str, str] = {}
+    for (component, language), result in results.items():
+        if isinstance(result, WeblateApiError):
+            failures[f"{component}/{language}"] = result.summary
+            continue
+        for key in counts:
+            counts[key] += result[key]
 
-        for component, language_code, status, detail in sorted(results, key=lambda r: (r[0], r[1])):
-            language_name = get_language_name(language_code)
-            if status == "missing":
-                missing_po_files.add(Path(detail))
-            elif status == "read_failed":
-                failed_uploads += 1
-                upload_table.add_row(
-                    f"{project}/{component} ({language_name})",
-                    get_error_log_panel(detail, "Reading PO file failed!"),
-                )
-            elif status == "upload_failed":
-                failed_uploads += 1
-                upload_table.add_row(
-                    f"{project}/{component} ({language_name})",
-                    get_error_log_panel(detail, "Uploading failed!"),
-                )
-            elif status == "success":
-                accepted, skipped, not_found = (int(x) for x in detail.split(":"))
-                accepted_count += accepted
-                skipped_count += skipped
-                not_found_count += not_found
-                if accepted:
-                    upload_table.add_row(
-                        f"{project}/{component} ({language_name})",
-                        f"Accepted: [b]{accepted}[/b], Skipped: [b]{skipped}[/b], Not Found: [b]{not_found}[/b] :white_check_mark:",
-                    )
-
-    print(upload_table, "")
-
-    if missing_po_files:
-        print_warning(
-            f"Missing {len(missing_po_files)} PO files that were not found in the current directory:",
-        )
-        for missing_file in sorted(missing_po_files):
-            print_warning(f" - {missing_file}")
-        print()
-    result = format_upload_counts(accepted_count, skipped_count, not_found_count)
-    (print_success if accepted_count else print_warning)(f"{result[0].upper()}{result[1:]}.")
-    if failed_uploads:
-        print_error(f"Failed to upload {failed_uploads} file(s) due to errors.")
+    result_text = format_upload_counts(counts["accepted"], counts["skipped"], counts["not_found"])
+    (print_success if counts["accepted"] else print_warning)(f"{result_text[0].upper()}{result_text[1:]}.")
+    if failures:
+        print_error(f"Failed to upload {len(failures)} file(s):")
+        print_failures(failures)
         raise Exit(1)
 
 
-def _upload_translation(
-    weblate_api: WeblateApi,
-    project: str,
-    component: str,
-    language: str,
-    upload_data: dict[str, str],
-    fuzzy: UploadFuzzy,
-) -> tuple[str, str, str]:
-    """Upload a single translation file. Returns (language_code, status, detail).
-
-    status/detail:
-    - "missing": file path as string (file not found on disk)
-    - "read_failed": error message (failed to read/process PO file)
-    - "upload_failed": error message (API call failed)
-    - "success": "accepted:skipped:not_found" integer counts
-    """
-    language_code = get_cldr_lang(language)
-    file_path = Path(f"{project}-{component}-{language_code}.po")
-
-    if not file_path.is_file():
-        return language_code, "missing", str(file_path)
-
-    try:
-        if fuzzy == UploadFuzzy.APPROVE:
-            po = pofile(file_path)
-            for entry in po.fuzzy_entries():
-                entry.flags.remove("fuzzy")
-            content = str(po).encode("utf-8")
-        else:
-            content = file_path.read_bytes()
-    except (OSError, ValueError) as e:
-        return language_code, "read_failed", str(e)
-
-    try:
-        response = weblate_api.post(
-            WeblateTranslationsUploadResponse,
-            WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-                project=project, component=component, language=language_code,
-            ),
-            data=upload_data,
-            files={"file": (f"{project}-{component}-{language_code}.po", content)},
-        )
-    except (WeblateApiError, OSError) as e:
-        return language_code, "upload_failed", str(e)
-
-    return language_code, "success", f"{response['accepted']}:{response['skipped']}:{response['not_found']}"
+def _find_files(project: str, language_codes: list[str]) -> dict[tuple[str, str], Path]:
+    """Find the PO files to upload in the current directory, by component and language."""
+    files: dict[tuple[str, str], Path] = {}
+    for language in language_codes:
+        suffix = f"-{language}.po"
+        for path in Path.cwd().glob(f"{project}-*{suffix}"):
+            if component := path.name.removeprefix(f"{project}-").removesuffix(suffix):
+                files[component, language] = path
+    return files

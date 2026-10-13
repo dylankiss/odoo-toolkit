@@ -1,33 +1,30 @@
 import io
-import json
 import re
 import threading
 import time
 import zipfile
-from collections import defaultdict
-from collections.abc import Callable, Collection, Generator, Mapping
+from collections.abc import Callable, Collection, Generator, Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from enum import StrEnum
-from fnmatch import fnmatch
 from os import environ
-from pathlib import Path
-from typing import Any, Literal, TypedDict, TypeVar, cast
+from typing import Any, TypedDict, TypeVar, cast
 from urllib.parse import urljoin
 
 from requests import ConnectionError as RequestsConnectionError
 from requests import HTTPError, JSONDecodeError, Response, Session
 from requests import Timeout as RequestsTimeout
 from requests.adapters import HTTPAdapter
+from rich.progress import TaskID
 from urllib3 import BaseHTTPResponse
 from urllib3.util.retry import Retry
 
-from odoo_toolkit.common import USER_AGENT, print_warning
+from odoo_toolkit.common import USER_AGENT, TransientProgress, print, print_warning
 
 WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
 
 WEBLATE_PROJECT_COMPONENTS_ENDPOINT = "/api/projects/{project}/components/"
-WEBLATE_COMPONENT_ENDPOINT = "/api/components/{project}/{component}/"
-WEBLATE_AUTOTRANSLATE_ENDPOINT = "/api/translations/{project}/{component}/{language}/autotranslate/"
 WEBLATE_GROUPS_ENDPOINT = "/api/groups/"
 WEBLATE_GROUP_ENDPOINT = "/api/groups/{group}/"
 WEBLATE_GROUP_PROJECTS_ENDPOINT = "/api/groups/{group}/projects/"
@@ -36,8 +33,6 @@ WEBLATE_GROUP_ROLES_ENDPOINT = "/api/groups/{group}/roles/"
 WEBLATE_GROUP_ROLE_ENDPOINT = "/api/groups/{group}/roles/{role}/"
 WEBLATE_GROUP_LANGUAGES_ENDPOINT = "/api/groups/{group}/languages/"
 WEBLATE_GROUP_LANGUAGE_ENDPOINT = "/api/groups/{group}/languages/{language}/"
-WEBLATE_PROJECT_ENDPOINT = "/api/projects/{project}/"
-WEBLATE_PROJECT_LANGUAGES_ENDPOINT = "/api/projects/{project}/languages/"
 WEBLATE_PROJECTS_ENDPOINT = "/api/projects/"
 WEBLATE_ROLES_ENDPOINT = "/api/roles/"
 WEBLATE_TRANSLATIONS_FILE_ENDPOINT = "/api/translations/{project}/{component}/{language}/file/"
@@ -45,13 +40,17 @@ WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT = "/api/projects/{project}/languages/{lan
 
 WEBLATE_ERR_1 = "Please configure WEBLATE_API_TOKEN in your current environment."
 
+# Below this many components, fetching each file individually costs few enough requests that it beats downloading the
+# whole project archive, whose size is driven by the project rather than by the selection.
+BULK_ZIP_MIN_COMPONENTS = 10
+
 # translate.odoo.com sits behind nginx, which allows bursts of up to 1000 requests, and 2 requests per second after
 # that. It refuses more with HTTP 429, without saying how long to wait.
 WEBLATE_REQUESTS_PER_SECOND = 2
 WEBLATE_REQUEST_BURST = 1000
-# Weblate itself allows a number of requests per hour (5000 at the time of writing), and reports what's left of it in
-# the X-RateLimit-* headers. All requests wait for the window to reset once fewer than this many remain, which covers
-# the requests that are still in flight.
+# Weblate itself allows a number of requests per hour (5000 at the time of writing), in a sliding window, and reports
+# what's left of it in the X-RateLimit-* headers, with the seconds until the oldest request leaves the window. All
+# requests wait for that once fewer than this many remain, which covers the requests that are still in flight.
 WEBLATE_RATE_LIMIT_RESERVE = 20
 # The rate limiter controls the start of every request, so extra workers can never breach the rate limits. They only keep
 # requests in flight while others wait on the server, which is what actually saturates the allowed rate.
@@ -203,8 +202,9 @@ RETRY = WeblateRetry(
     total=None,
     # Connecting failed, so nothing was sent: safe to retry for any request.
     connect=3,
-    # Reading the response failed: only retried for requests that don't change anything.
-    read=3,
+    # Reading the response failed: only retried for requests that don't change anything, and only once, since every
+    # attempt can wait for the whole read timeout.
+    read=1,
     # Rate limits and server errors (server errors only for requests that don't change anything).
     status=10,
     other=0,
@@ -217,12 +217,6 @@ RETRY = WeblateRetry(
 )
 
 
-class WeblatePagedResponse(TypedDict):
-    """Minimal response structure of Weblate paged results."""
-
-    count: int
-    next: str | None
-
 
 class WeblateFileFormatParamsData(TypedDict, total=False):
     """Partial structure of Weblate file format parameters."""
@@ -231,34 +225,6 @@ class WeblateFileFormatParamsData(TypedDict, total=False):
     po_keep_previous: bool
     po_line_wrap: int
     po_no_location: bool
-
-class WeblateProjectData(TypedDict):
-    """Partial structure of a Weblate project."""
-
-    id: int
-    slug: str
-
-
-class WeblateProjectDetailData(TypedDict, total=False):
-    """Partial structure of a Weblate project's details."""
-
-    slug: str
-    name: str
-    contribute_shared_tm: bool
-    use_shared_tm: bool
-
-
-class WeblateAutotranslateResponse(TypedDict, total=False):
-    """Minimal response structure of a Weblate autotranslate request."""
-
-    details: str
-
-
-class WeblateProjectLanguageData(TypedDict, total=False):
-    """Partial structure of a Weblate project language statistic."""
-
-    code: str
-    language: str
 
 
 class WeblateComponentData(TypedDict, total=False):
@@ -281,7 +247,6 @@ class WeblateComponentData(TypedDict, total=False):
     name: str
     new_base: str
     new_lang: str
-    project: WeblateProjectData
     push: str
     push_branch: str
     push_on_commit: bool
@@ -291,132 +256,6 @@ class WeblateComponentData(TypedDict, total=False):
     suggestion_autoaccept: int
     url: str
     vcs: str
-
-
-WeblateConfigType = dict[str, dict[str, list[WeblateComponentData]]]
-
-# Maps fnmatch glob patterns (matched against module names) to a fixed list of language codes.
-# Patterns are evaluated in order; the first match wins.
-# Modules not listed here fall back to scanning available .po files.
-L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
-    "*l10n_account_withholding_tax*": ["es_419", "id", "th"],
-    "*l10n_ae*": ["ar"],
-    "*l10n_ar*": ["es_419"],
-    "*l10n_at*": ["de"],
-    "*l10n_bd*": ["bn"],
-    "*l10n_be*": ["de", "fr", "nl"],
-    "*l10n_bf*": ["fr"],
-    "*l10n_bg*": ["bg"],
-    "*l10n_bh*": ["ar"],
-    "*l10n_bj*": ["fr"],
-    "*l10n_bo*": ["es_419"],
-    "*l10n_br*": ["pt_BR"],
-    "*l10n_ca*": ["fr"],
-    "*l10n_cd*": ["fr"],
-    "*l10n_cf*": ["fr"],
-    "*l10n_cg*": ["fr"],
-    "*l10n_ch*": ["de", "fr", "it"],
-    "*l10n_ci*": ["fr"],
-    "*l10n_cl*": ["es_419"],
-    "*l10n_cm*": ["fr"],
-    "*l10n_cn_city*": None,
-    "*l10n_cn*": ["zh_CN"],
-    "*l10n_co*": ["es_419"],
-    "*l10n_cr*": ["es_419"],
-    "*l10n_cy*": ["el", "tr"],
-    "*l10n_cz*": ["cs"],
-    "*l10n_de*": ["de"],
-    "*l10n_din5008*": ["de", "fr", "it"],
-    "*l10n_dk*": ["da"],
-    "*l10n_do*": ["es_419"],
-    "*l10n_dz*": ["ar", "fr"],
-    "*l10n_ec*": ["es_419"],
-    "*l10n_ee*": ["et"],
-    "*l10n_eg*": ["ar"],
-    "*l10n_employment_hero*": ["ms"],
-    "*l10n_es*": ["es"],
-    "*l10n_et*": ["am"],
-    "*l10n_eu*": ["bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
-    "*l10n_fi*": ["fi"],
-    "*l10n_fr*": ["fr"],
-    "*l10n_ga*": ["fr"],
-    "*l10n_gcc*": ["ar"],
-    "*l10n_gn*": ["fr"],
-    "*l10n_gp*": ["fr"],
-    "*l10n_gq*": ["es", "fr", "pt"],
-    "*l10n_gr*": ["el"],
-    "*l10n_gt*": ["es_419"],
-    "*l10n_gw*": ["pt"],
-    "*l10n_hk*": ["zh_TW"],
-    "*l10n_hn*": ["es_419"],
-    "*l10n_hr*": ["hr"],
-    "*l10n_hu*": ["hu"],
-    "*l10n_id*": ["id"],
-    "*l10n_il*": ["he"],
-    "*l10n_in*": ["hi"],
-    "*l10n_iq*": ["ar"],
-    "*l10n_it*": ["it"],
-    "*l10n_jo*": ["ar"],
-    "*l10n_jp*": ["ja"],
-    "*l10n_ke*": ["sw"],
-    "*l10n_kh*": ["km"],
-    "*l10n_km*": ["ar", "fr"],
-    "*l10n_kr*": ["ko"],
-    "*l10n_kw*": ["ar"],
-    "*l10n_kz*": ["ru"],
-    "*l10n_latam*": ["es_419", "pt_BR"],
-    "*l10n_lb*": ["ar", "fr"],
-    "*l10n_lt*": ["lt"],
-    "*l10n_lu*": ["de", "fr", "lb"],
-    "*l10n_lv*": ["lv"],
-    "*l10n_ma*": ["ar", "fr"],
-    "*l10n_mc*": ["fr"],
-    "*l10n_mk*": ["mk"],
-    "*l10n_ml*": ["fr"],
-    "*l10n_mm*": ["my"],
-    "*l10n_mn*": ["mn"],
-    "*l10n_mq*": ["fr"],
-    "*l10n_mr*": ["fr"],
-    "*l10n_mu*": ["fr"],
-    "*l10n_mx*": ["es_419"],
-    "*l10n_my*": ["ms"],
-    "*l10n_mz*": ["pt"],
-    "*l10n_ne*": ["fr"],
-    "*l10n_nl*": ["nl"],
-    "*l10n_no*": ["nb"],
-    "*l10n_om*": ["ar"],
-    "*l10n_pa*": ["es_419"],
-    "*l10n_pe*": ["es_419"],
-    "*l10n_ph*": ["tl"],
-    "*l10n_pl*": ["pl"],
-    "*l10n_pt*": ["pt"],
-    "*l10n_qa*": ["ar"],
-    "*l10n_re*": ["fr"],
-    "*l10n_ro*": ["ro"],
-    "*l10n_rs*": ["sr@latin"],
-    "*l10n_rw*": ["fr", "sw"],
-    "*l10n_sa*": ["ar"],
-    "*l10n_se*": ["sv"],
-    "*l10n_si*": ["sl"],
-    "*l10n_sk*": ["sk"],
-    "*l10n_sn*": ["fr"],
-    "*l10n_syscohada*": ["fr"],
-    "*l10n_td*": ["ar", "fr"],
-    "*l10n_tg*": ["fr"],
-    "*l10n_th*": ["th"],
-    "*l10n_tn*": ["ar", "fr"],
-    "*l10n_tr*": ["tr"],
-    "*l10n_tw*": ["zh_TW"],
-    "*l10n_tz*": ["sw"],
-    "*l10n_ua*": ["uk"],
-    "*l10n_ug*": ["sw"],
-    "*l10n_us*": ["es_419"],
-    "*l10n_uy*": ["es_419"],
-    "*l10n_uz*": ["ru", "uz"],
-    "*l10n_ve*": ["es_419"],
-    "*l10n_vn*": ["vi"],
-    "*l10n_yt*": ["fr"],
-}
 
 
 class WeblateGroupResponse(TypedDict):
@@ -440,12 +279,6 @@ class WeblateTranslationsUploadResponse(TypedDict):
     accepted: int
     total: int
 
-
-class WeblateRoleResponse(TypedDict):
-    """Minimal response structure of a Weblate role."""
-
-    id: int
-    name: str
 
 
 class WeblateApiError(Exception):
@@ -514,6 +347,7 @@ class WeblateConnectionError(WeblateApiError):
         :param error: The connection error.
         """
         self.error = error
+        self.response = None
         self.status_code = None
         self.error_type = "connection"
         self.errors = [{"code": None, "detail": str(error)}]
@@ -523,8 +357,9 @@ class WeblateConnectionError(WeblateApiError):
     @property
     def summary(self) -> str:
         """Describe the error in one line."""
-        kind = "timed out" if isinstance(self.error, RequestsTimeout) else "couldn't connect"
-        return f"Weblate {kind}"
+        # Read timeouts that were retried end up as connection errors, but still mention the timeout.
+        timed_out = isinstance(self.error, RequestsTimeout) or "timed out" in str(self.error).lower()
+        return f"Weblate {'timed out' if timed_out else "couldn't connect"}"
 
     def __str__(self) -> str:
         """Describe the error and the request that failed."""
@@ -543,21 +378,29 @@ class WeblateApi:
             raise NameError(WEBLATE_ERR_1)
         self.base_url = WEBLATE_URL
         self.session = Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {WEBLATE_API_TOKEN}",
-            "User-Agent": USER_AGENT,
-        })
-        self.json_session = Session()
-        self.json_session.headers.update({
-            "Authorization": f"Bearer {WEBLATE_API_TOKEN}",
-            "Accept": "application/json",
-            "User-Agent": USER_AGENT,
-        })
-        for session in (self.session, self.json_session):
-            session.mount("https://", HTTPAdapter(max_retries=RETRY))
-            session.mount("http://", HTTPAdapter(max_retries=RETRY))
+        self.session.headers.update({"Authorization": f"Bearer {WEBLATE_API_TOKEN}", "User-Agent": USER_AGENT})
+        for prefix in ("https://", "http://"):
+            self.session.mount(prefix, HTTPAdapter(max_retries=RETRY))
 
-    def _request(
+    def _send(self, method: str, url: str, **kwargs: Any) -> Response:  # noqa: ANN401
+        """Send a request at the allowed rate. The session retries it if needed.
+
+        :raises WeblateApiError: If the request failed.
+        :raises WeblateConnectionError: If Weblate couldn't be reached, or didn't answer in time.
+        """
+        RATE_LIMITER.acquire()
+        try:
+            response = self.session.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            raise WeblateConnectionError(e) from e
+        RATE_LIMITER.update(response.headers)
+        try:
+            response.raise_for_status()
+        except HTTPError as e:
+            raise WeblateApiError(response) from e
+        return response
+
+    def request(
         self,
         return_type: type[T],  # noqa: ARG002
         method: str,
@@ -568,42 +411,48 @@ class WeblateApi:
         json: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
     ) -> T:
-        """Do an HTTP request and handle errors.
+        """Call a Weblate API endpoint.
 
-        :param method: An HTTP method verb.
+        :param return_type: The type of the response, for type checking.
+        :param method: The HTTP method, like `GET` or `POST`.
         :param endpoint: The API endpoint to access.
-        :param json: The JSON payload to send, defaults to None.
+        :param data: The form data to send, if any.
+        :param files: The files to send with the form data, if any.
+        :param json: The JSON payload to send, if any.
+        :param params: The query parameters to pass, if any.
         :raises WeblateApiError: If the request returns an error.
-        :return: The response in JSON format.
+        :return: The response, parsed from JSON.
         """
-        url = urljoin(self.base_url, endpoint)
         response = self._send(
-            lambda: self.json_session.request(
-                method, url, data=data, files=files, json=json, params=params, timeout=REQUEST_TIMEOUT,
-            ),
+            method,
+            urljoin(self.base_url, endpoint),
+            data=data,
+            files=files,
+            json=json,
+            params=params,
+            headers={"Accept": "application/json"},
         )
         try:
-            response.raise_for_status()
             return cast("T", response.json() if response.content else {})
-        except (HTTPError, JSONDecodeError) as e:
+        except JSONDecodeError as e:
             raise WeblateApiError(response) from e
+
+    def get(self, return_type: type[T], endpoint: str, *, params: Mapping[str, Any] | None = None) -> T:
+        """Get the response of a Weblate API endpoint, parsed from JSON.
+
+        :raises WeblateApiError: If the request returns an error.
+        """
+        return self.request(return_type, "GET", endpoint, params=params)
 
     def get_bytes(self, endpoint: str, *, params: Mapping[str, Any] | None = None) -> bytes:
-        """Get the response from a Weblate API endpoint as bytes.
+        """Get the response from a Weblate API endpoint as bytes, like a file.
 
         :param endpoint: The API endpoint to access.
-        :param params: The query parameters to pass, defaults to None.
+        :param params: The query parameters to pass, if any.
         :raises WeblateApiError: If the request returns an error.
-        :return: The raw response content as bytes.
+        :return: The raw response content.
         """
-        url = urljoin(self.base_url, endpoint)
-        response = self._send(lambda: self.session.get(url, params=params, timeout=REQUEST_TIMEOUT))
-        try:
-            response.raise_for_status()
-        except (HTTPError, JSONDecodeError) as e:
-            raise WeblateApiError(response) from e
-        else:
-            return response.content
+        return self._send("GET", urljoin(self.base_url, endpoint), params=params).content
 
     def get_generator(
         self,
@@ -612,237 +461,20 @@ class WeblateApi:
         *,
         params: Mapping[str, Any] | None = None,
     ) -> Generator[T]:
-        """Fetch all results from a paginated Weblate API endpoint.
+        """Fetch all results from a Weblate API endpoint, following its pages.
 
         :param endpoint: The API endpoint to access.
-        :param params: Query parameters for the first request. Subsequent pages use the
-            server-provided ``next`` URL which already embeds pagination params.
+        :param params: Query parameters for the first request. The next pages use the `next` URL Weblate provides,
+            which already holds them.
         :raises WeblateApiError: If the request returns an error.
-        :yield: Every element in the `results` section of the response(s), or in the response itself for endpoints
-            that aren't paginated, like a project's languages.
+        :yield: Every element in the `results` section of the response(s).
         """
-        current_url = urljoin(self.base_url, endpoint)
-        current_params = params
-        while current_url:
-            response = self._send(
-                lambda url=current_url, p=current_params: self.json_session.get(url, params=p, timeout=REQUEST_TIMEOUT),
-            )
-            data: dict[str, Any] | list[T] = {}
-            try:
-                response.raise_for_status()
-                data = response.json() if response.content else {}
-            except (HTTPError, JSONDecodeError) as e:
-                raise WeblateApiError(response) from e
-            if isinstance(data, list):
-                yield from data
-                return
+        url: str | None = endpoint
+        while url:
+            data = self.request(dict[str, Any], "GET", url, params=params)
             yield from cast("list[T]", data.get("results", []))
-            current_url = cast("str | None", data.get("next"))
-            current_params = None  # next URL already includes all query params
-
-    def get(
-        self,
-        return_type: type[T],
-        endpoint: str,
-        *,
-        data: Mapping[str, Any] | None = None,
-        json: Mapping[str, Any] | None = None,
-        params: Mapping[str, Any] | None = None,
-    ) -> T:
-        """Perform a GET request against a Weblate API endpoint.
-
-        :param endpoint: The API endpoint to access.
-        :param json: The JSON payload to send, defaults to None.
-        :raises WeblateApiError: If the request returns an error.
-        :return: The response in JSON format.
-        """
-        return self._request(return_type, "GET", endpoint, data=data, json=json, params=params)
-
-    def post(
-        self,
-        return_type: type[T],
-        endpoint: str,
-        *,
-        data: Mapping[str, Any] | None = None,
-        files: Mapping[str, Any] | None = None,
-        json: Mapping[str, Any] | None = None,
-        params: Mapping[str, Any] | None = None,
-    ) -> T:
-        """Perform a POST request against a Weblate API endpoint.
-
-        :param endpoint: The API endpoint to access.
-        :param json: The JSON payload to send, defaults to None.
-        :raises WeblateApiError: If the request returns an error.
-        :return: The response in JSON format.
-        """
-        return self._request(return_type, "POST", endpoint, data=data, files=files, json=json, params=params)
-
-    def _send(self, request: Callable[[], Response]) -> Response:
-        """Send a request at the allowed rate. The sessions retry it if needed.
-
-        :raises WeblateConnectionError: If Weblate couldn't be reached, or didn't answer in time.
-        """
-        RATE_LIMITER.acquire()
-        try:
-            response = request()
-        except (RequestsConnectionError, RequestsTimeout) as e:
-            raise WeblateConnectionError(e) from e
-        RATE_LIMITER.update(response.headers)
-        return response
-
-    def patch(
-        self,
-        return_type: type[T],
-        endpoint: str,
-        *,
-        data: Mapping[str, Any] | None = None,
-        json: Mapping[str, Any] | None = None,
-        params: Mapping[str, Any] | None = None,
-    ) -> T:
-        """Perform a PATCH request against a Weblate API endpoint.
-
-        :param endpoint: The API endpoint to access.
-        :param json: The JSON payload to send, defaults to None.
-        :raises WeblateApiError: If the request returns an error.
-        :return: The response in JSON format.
-        """
-        return self._request(return_type, "PATCH", endpoint, data=data, json=json, params=params)
-
-    def delete(
-        self,
-        return_type: type[T],
-        endpoint: str,
-        *,
-        data: Mapping[str, Any] | None = None,
-        json: Mapping[str, Any] | None = None,
-        params: Mapping[str, Any] | None = None,
-    ) -> T:
-        """Perform a DELETE request against a Weblate API endpoint.
-
-        :param endpoint: The API endpoint to access.
-        :param json: The JSON payload to send, defaults to None.
-        :raises WeblateApiError: If the request returns an error.
-        :return: The response in JSON format.
-        """
-        return self._request(return_type, "DELETE", endpoint, data=data, json=json, params=params)
-
-
-class WeblateConfigError(Exception):
-    """Custom exception for WeblateConfig errors."""
-
-    def __init__(self, file_path: Path, error_type: Literal["load", "save"]) -> None:
-        """Initialize a WeblateConfigError for loading `file_path`."""
-        match error_type:
-            case "load":
-                super().__init__(f"The configuration file '{file_path}' could not be loaded.")
-            case "save":
-                super().__init__(f"The configuration file '{file_path}' could not be saved.")
-
-
-class WeblateConfig:
-    """A Weblate config file."""
-
-    def __init__(self, file_path: Path) -> None:
-        """Initialize a WeblateConfig object.
-
-        :param file_path: The file to load into the object or to save the new object to.
-        :raises WeblateConfigError: If the given file could not be loaded or parsed.
-        """
-        self.file_path = file_path
-        self.config: dict[str, dict[str, list[WeblateComponentData]]] = {
-            "projects": defaultdict[str, list[WeblateComponentData]](list),
-        }
-
-        if self.file_path.is_file():
-            try:
-                projects = json.loads(self.file_path.read_text()).get("projects")
-                if projects:
-                    self.config["projects"].update(projects)
-            except (OSError, json.JSONDecodeError) as e:
-                raise WeblateConfigError(self.file_path, "load") from e
-
-    def update_module(self, module_path: Path, project: str, languages: list[str]) -> bool:
-        """Update a module configuration in the Weblate config file.
-
-        If the `.pot` file exists, the module configuration will be added or updated.
-        If the `.pot` file doesn't exist, the module configuration will be removed.
-
-        If no languages are provided and the module is a l10n module, only the languages available in that module will
-        be added.
-
-        :param module_path: The path to the module to update.
-        :param project: The Weblate project slug.
-        :param languages: The specific language codes to translate this module into.
-        :return: True if the module was added or updated, False if it couldn't be added or updated, or was removed.
-        """
-        module_name = module_path.name
-        existing_module_config = next(
-            (c for c in self.config["projects"][project] if c.get("name") == module_name), None,
-        )
-        if not (module_path / "i18n" / f"{module_name}.pot").is_file():
-            if existing_module_config:
-                self.config["projects"][project].remove(existing_module_config)
-            return False
-
-        relative_module_path = module_path.relative_to(self.file_path.parent)
-        module_config: WeblateComponentData = {
-            "name": module_name,
-            "filemask": f"{relative_module_path}/i18n/*.po",
-            "new_base": f"{relative_module_path}/i18n/{module_name}.pot",
-        }
-        if not languages and "l10n_" in module_name:
-            # If we are adding a l10n module, check the fixed language map first.
-            fixed_language_match = next(
-                ((pattern, langs) for pattern, langs in L10N_LANGUAGE_MAP.items() if fnmatch(module_name, pattern)),
-                None,
-            )
-            if fixed_language_match is None:
-                languages = sorted([lang.stem for lang in (module_path / "i18n").glob("*.po") if lang.is_file()])
-            else:
-                _, fixed_languages = fixed_language_match
-                languages = fixed_languages or []
-        if languages:
-            module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
-        if existing_module_config:
-            existing_module_config.update(module_config)
-        else:
-            self.config["projects"][project].append(module_config)
-        return True
-
-    def save(self) -> None:
-        """Save the Weblate config to a file.
-
-        :raises WeblateConfigError: If the given file could not be saved.
-        """
-
-        def sort_config(config: WeblateConfigType) -> WeblateConfigType:
-            return {
-                "projects": {
-                    project: sorted(components, key=lambda c: c.get("name", ""))
-                    for project, components in sorted(config["projects"].items())
-                },
-            }
-
-        try:
-            self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n")
-        except (OSError, json.JSONDecodeError) as e:
-            raise WeblateConfigError(self.file_path, "save") from e
-
-    def clear(self, project: str | None = None) -> None:
-        """Clear one or all projects' components from the config."""
-        if project:
-            if project in self.config["projects"]:
-                self.config["projects"][project].clear()
-        else:
-            self.config["projects"].clear()
-
-    def get_projects(self) -> list[str]:
-        """Get the list of projects in the config file."""
-        return list(self.config["projects"])
-
-    def get_components(self, project: str) -> list[WeblateComponentData]:
-        """Get the list of components for a given project."""
-        return self.config["projects"].get(project, [])
+            url = cast("str | None", data.get("next"))
+            params = None
 
 
 class UploadMethod(StrEnum):
@@ -895,42 +527,6 @@ def get_weblate_project_component_slugs(api: WeblateApi, project: str) -> set[st
     }
 
 
-def get_weblate_components(api: WeblateApi, project: str) -> list[WeblateComponentData]:
-    """Fetch and return a list of components for a given project.
-
-    :param api: The Weblate API to use.
-    :param project: The project slug to find the components for.
-    :raises WeblateApiError: If the request returns an error.
-    :return: A list of components for the given project.
-    """
-    return list(
-        api.get_generator(
-            WeblateComponentData,
-            WEBLATE_PROJECT_COMPONENTS_ENDPOINT.format(project=project),
-            params={"page_size": 1000},
-        ),
-    )
-
-
-def get_weblate_project_languages(api: WeblateApi, project: str) -> list[str]:
-    """Fetch and return the language codes present in a given project.
-
-    :param api: The Weblate API to use.
-    :param project: The project slug to find the languages for.
-    :raises WeblateApiError: If the request returns an error.
-    :return: A sorted list of language codes available in the given project.
-    """
-    return sorted(
-        code
-        for language in api.get_generator(
-            WeblateProjectLanguageData,
-            WEBLATE_PROJECT_LANGUAGES_ENDPOINT.format(project=project),
-            params={"page_size": 1000},
-        )
-        if (code := language.get("code"))
-    )
-
-
 # Matches the header lines Weblate fills in per translation, which must not be carried over to another translation.
 PO_CLEAN_HEADER_PATTERN = re.compile(b'^"(?:Language|Plural-Forms):.*\n', flags=re.MULTILINE)
 # Matches a `msgstr` (or `msgstr[n]`) whose value is non-empty, either inline or on a following continuation line.
@@ -979,19 +575,14 @@ def po_has_translations(po_file: bytes) -> bool:
     return PO_TRANSLATED_PATTERN.search(_po_body(po_file)) is not None
 
 
-def extract_po_files_from_zip(
-    zip_bytes: bytes,
-    language_code: str,
-    components: Collection[str] | None = None,
-) -> dict[str, bytes]:
-    """Extract the PO files of one language from a Weblate project ZIP, keyed by component slug.
+def extract_po_files_from_zip(zip_bytes: bytes, components: Collection[str] | None = None) -> dict[str, bytes]:
+    """Extract the PO files from a Weblate archive of one language of a project, keyed by component slug.
 
     Weblate stores all components that share a Git repo under a single VCS directory. Inside the ZIP, every Odoo PO
     file sits at `…/{module}/i18n/{language}.po`, so the component slug (= module name) is always at `parts[-3]` of
-    the ZIP entry path.
+    the ZIP entry path. The file names use Odoo's language codes, like `zh_CN.po`, not Weblate's.
 
     :param zip_bytes: The raw ZIP archive as returned by the project language file endpoint.
-    :param language_code: The CLDR language code whose PO files should be extracted.
     :param components: Only extract these component slugs, or all of them when None.
     :raises zipfile.BadZipFile: If the archive could not be read.
     :return: A mapping of component slug to the raw contents of its PO file.
@@ -1001,10 +592,123 @@ def extract_po_files_from_zip(
         for name in zip_file.namelist():
             parts = name.split("/")
             # All Odoo PO files live at …/{module}/i18n/{language}.po
-            if len(parts) < 3 or parts[-2] != "i18n" or parts[-1] != f"{language_code}.po":  # noqa: PLR2004
+            if len(parts) < 3 or parts[-2] != "i18n" or not parts[-1].endswith(".po"):  # noqa: PLR2004
                 continue
             component_slug = parts[-3]
             if components is not None and component_slug not in components:
                 continue
             po_files[component_slug] = zip_file.read(name)
     return po_files
+
+
+@dataclass
+class LanguageFiles:
+    """The PO files of one language of a project."""
+
+    # The PO files, by component slug.
+    files: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    # The components that don't have the language, like localization modules for other countries.
+    missing: set[str] = field(default_factory=set[str])
+    # Why the other components couldn't be fetched.
+    failures: dict[str, str] = field(default_factory=dict[str, str])
+
+
+def fetch_language_files(
+    api: WeblateApi,
+    project: str,
+    language_code: str,
+    components: set[str],
+    *,
+    query: str | None = None,
+    progress: TransientProgress,
+    task_id: TaskID,
+) -> LanguageFiles:
+    """Fetch the PO files of one language of a project.
+
+    Without a query, the files of many components are fetched in a single request for the whole project, instead of one
+    request per component. That request can't filter strings, so a query needs one request per component.
+
+    :param api: The Weblate API to use.
+    :param project: The project to fetch the files from.
+    :param language_code: The CLDR language code, like `zh_Hans`.
+    :param components: The component slugs to fetch.
+    :param query: The Weblate search string to filter the strings by, if any.
+    :param progress: The progress bar to advance.
+    :param task_id: The progress bar task to advance.
+    :return: The files, the components without the language, and the ones that failed.
+    """
+    if not query and len(components) >= BULK_ZIP_MIN_COMPONENTS:
+        try:
+            zip_bytes = api.get_bytes(
+                WEBLATE_PROJECT_LANGUAGE_FILE_ENDPOINT.format(project=project, language=language_code),
+                params={"format": "zip"},
+            )
+            po_files = extract_po_files_from_zip(zip_bytes, components)
+        except (WeblateApiError, zipfile.BadZipFile) as e:
+            reason = e.summary if isinstance(e, WeblateApiError) else f"invalid ZIP file ({e})"
+            print_warning(
+                f"Downloading all {language_code} files at once failed ({reason}), so downloading them one by one.",
+            )
+        else:
+            progress.advance(task_id, len(components))
+            return LanguageFiles(files=po_files, missing=components - set(po_files))
+
+    params = {"format": "po"} | ({"q": query} if query else {})
+    results = run_concurrently(
+        sorted(components),
+        lambda component: api.get_bytes(
+            WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(project=project, component=component, language=language_code),
+            params=params,
+        ),
+        progress=progress,
+        task_id=task_id,
+    )
+    language_files = LanguageFiles()
+    for component, result in results.items():
+        if isinstance(result, bytes):
+            language_files.files[component] = result
+        elif result.status_code == NOT_FOUND:
+            language_files.missing.add(component)
+        else:
+            language_files.failures[component] = result.summary
+    return language_files
+
+
+K = TypeVar("K")
+R = TypeVar("R")
+
+
+def run_concurrently(
+    items: Iterable[K],
+    work: Callable[[K], R],
+    *,
+    progress: TransientProgress,
+    task_id: TaskID,
+) -> dict[K, R | WeblateApiError]:
+    """Run Weblate requests for many items at once, at the allowed rate.
+
+    :param items: The items to run the work for, like components.
+    :param work: The work to run for each item.
+    :param progress: The progress bar to advance.
+    :param task_id: The progress bar task to advance for every item done.
+    :return: The result or the Weblate error per item.
+    """
+    results: dict[K, R | WeblateApiError] = {}
+    with ThreadPoolExecutor(max_workers=WEBLATE_MAX_WORKERS) as executor:
+        futures = {executor.submit(work, item): item for item in items}
+        for future in as_completed(futures):
+            try:
+                results[futures[future]] = future.result()
+            except WeblateApiError as e:
+                results[futures[future]] = e
+            progress.advance(task_id)
+    return results
+
+
+def print_failures(failures: Mapping[str, str]) -> None:
+    """Print failures, grouped by reason, since many usually fail for the same reason."""
+    by_reason: dict[str, list[str]] = {}
+    for item, reason in sorted(failures.items()):
+        by_reason.setdefault(reason, []).append(item)
+    for reason, items in by_reason.items():
+        print(f"  {reason}: {', '.join(items)}")

@@ -15,15 +15,12 @@ from typer.testing import CliRunner
 from odoo_toolkit.common import TransientProgress
 from odoo_toolkit.main import app
 from odoo_toolkit.wl import common as wl_common
-from odoo_toolkit.wl import copy as wl_copy
-from odoo_toolkit.wl import upload as wl_upload
 from odoo_toolkit.wl.common import (
     REQUEST_TIMEOUT,
     WeblateApi,
     WeblateApiError,
     WeblateConnectionError,
     WeblateRateLimiter,
-    get_weblate_project_languages,
 )
 
 
@@ -93,7 +90,7 @@ def weblate(monkeypatch: pytest.MonkeyPatch) -> Iterator[type[FakeWeblate]]:
 def test_rate_limited_uploads_are_retried(weblate: type[FakeWeblate]) -> None:
     weblate.queued = [(429, {"Retry-After": "0"}, b"{}"), (200, {}, b'{"accepted": 1}')]
 
-    result = WeblateApi().post(dict[str, Any], "/api/translations/p/c/fr/file/", data={"method": "translate"})
+    result = WeblateApi().request(dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"})
 
     assert result == {"accepted": 1}
     assert weblate.requests == ["POST", "POST"]
@@ -103,7 +100,7 @@ def test_uploads_refused_by_nginx_are_retried(weblate: type[FakeWeblate]) -> Non
     # nginx's rate limit doesn't say how long to wait.
     weblate.queued = [(429, {}, b"<html>Too Many Requests</html>"), (200, {}, b'{"accepted": 1}')]
 
-    result = WeblateApi().post(dict[str, Any], "/api/translations/p/c/fr/file/", data={"method": "translate"})
+    result = WeblateApi().request(dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"})
 
     assert result == {"accepted": 1}
     assert weblate.requests == ["POST", "POST"]
@@ -119,14 +116,10 @@ def test_requests_wait_when_weblate_rate_limit_runs_low(weblate: type[FakeWeblat
     assert timed(lambda: api.get(dict[str, Any], "/api/projects/")) >= 0.25
 
 
-def test_generator_reads_paginated_and_plain_list_responses(weblate: type[FakeWeblate]) -> None:
+def test_generator_follows_the_pages(weblate: type[FakeWeblate]) -> None:
     next_page = f'{{"next": "{wl_common.WEBLATE_URL}/api/projects/?page=2", "results": [{{"slug": "a"}}]}}'.encode()
     weblate.queued = [(200, {}, next_page), (200, {}, b'{"next": null, "results": [{"slug": "b"}]}')]
     assert list(WeblateApi().get_generator(dict[str, str], "/api/projects/")) == [{"slug": "a"}, {"slug": "b"}]
-
-    # Some endpoints, like a project's languages, aren't paginated.
-    weblate.queued = [(200, {}, b'[{"code": "fr"}, {"code": "nl"}]')]
-    assert get_weblate_project_languages(WeblateApi(), "p") == ["fr", "nl"]
 
 
 def test_rate_limiter_allows_a_burst_then_a_steady_rate() -> None:
@@ -179,7 +172,7 @@ def test_uploads_are_not_retried_after_a_server_error(weblate: type[FakeWeblate]
     weblate.queued = [(500, {}, b'{"errors": [{"detail": "Server error"}]}')]
 
     with pytest.raises(WeblateApiError) as error:
-        WeblateApi().post(dict[str, Any], "/api/translations/p/c/fr/file/", data={"method": "translate"})
+        WeblateApi().request(dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"})
 
     # Weblate may have processed it, so it must not run twice.
     assert weblate.requests == ["POST"]
@@ -226,9 +219,7 @@ def test_every_request_has_a_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         return make_response(200, body=b'{"results": []}')
 
     api = WeblateApi()
-    monkeypatch.setattr(api.json_session, "request", request)
-    monkeypatch.setattr(api.json_session, "get", request)
-    monkeypatch.setattr(api.session, "get", request)
+    monkeypatch.setattr(api.session, "request", request)
 
     api.get(dict[str, Any], "/api/projects/")
     api.get_bytes("/api/file/")
@@ -245,32 +236,38 @@ class FakeApi:
             raise WeblateConnectionError(ReadTimeout())
         if "/broken/" in endpoint:
             raise WeblateApiError(make_response(500, body=b'{"errors": [{"detail": "Server error"}]}'))
+        if "/l10n_be/" in endpoint:
+            # A localization module without the language.
+            raise WeblateApiError(make_response(404, body=b'{"errors": [{"detail": "Not found."}]}'))
         return b'msgid ""\nmsgstr ""\n"Language: fr\\n"\n\nmsgid "Hello"\nmsgstr "Bonjour"\n'
 
 
 def test_fetch_falls_back_to_one_file_per_component_when_the_zip_fails() -> None:
-    components = {f"module_{i}" for i in range(wl_copy.BULK_ZIP_MIN_COMPONENTS)} | {"broken"}
+    components = {f"module_{i}" for i in range(wl_common.BULK_ZIP_MIN_COMPONENTS)} | {"broken", "l10n_be"}
 
     with TransientProgress() as progress:
-        files, failures = wl_copy.fetch_language_sources(
+        fetched = wl_common.fetch_language_files(
             FakeApi(),  # pyright: ignore[reportArgumentType]
             "odoo-19",
             "fr",
             components,
-            query=None,
             progress=progress,
             task_id=progress.add_task("test"),
         )
 
-    assert len(files) == wl_copy.BULK_ZIP_MIN_COMPONENTS
-    assert failures == {"broken": "HTTP 500: Server error"}
+    assert len(fetched.files) == wl_common.BULK_ZIP_MIN_COMPONENTS
+    assert fetched.missing == {"l10n_be"}
+    assert fetched.failures == {"broken": "HTTP 500: Server error"}
 
 
-def test_zip_extraction_still_works() -> None:
+def test_zip_extraction_uses_the_file_names_of_odoo() -> None:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("odoo/addons/sale/i18n/fr.po", b"content")
-    assert wl_common.extract_po_files_from_zip(buffer.getvalue(), "fr", {"sale"}) == {"sale": b"content"}
+        # Weblate's `zh_Hans` is `zh_CN` in Odoo's files.
+        archive.writestr("odoo/addons/sale/i18n/zh_CN.po", b"content")
+        archive.writestr("odoo/addons/sale/i18n/sale.pot", b"template")
+        archive.writestr("odoo/addons/crm/i18n/zh_CN.po", b"other")
+    assert wl_common.extract_po_files_from_zip(buffer.getvalue(), {"sale"}) == {"sale": b"content"}
 
 
 def test_cli_copy_invalid_arguments_exit_with_an_error() -> None:
@@ -282,30 +279,33 @@ def test_cli_copy_invalid_arguments_exit_with_an_error() -> None:
 def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(wl_common, "WEBLATE_API_TOKEN", "secret")
-    def components(*_: object) -> set[str]:
-        return {"account"}
-
-    monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", components)
     (tmp_path / "odoo-19-account-fr.po").write_bytes(b'msgid "a"\nmsgstr "b"\n')
-    sent: list[dict[str, Any]] = []
+    # Another project's file, and another language's.
+    (tmp_path / "odoo-18-account-fr.po").write_bytes(b"")
+    (tmp_path / "odoo-19-account-nl.po").write_bytes(b"")
+    sent: list[tuple[tuple[object, ...], dict[str, Any]]] = []
 
-    def post(_: WeblateApi, *__: object, **kwargs: Any) -> dict[str, int]:  # noqa: ANN401
-        sent.append(kwargs)
+    def request(_: WeblateApi, *args: object, **kwargs: Any) -> dict[str, int]:  # noqa: ANN401
+        sent.append((args, kwargs))
         return {"accepted": 1, "skipped": 0, "not_found": 0, "total": 1}
 
-    monkeypatch.setattr(WeblateApi, "post", post)
+    monkeypatch.setattr(WeblateApi, "request", request)
 
     result = CliRunner().invoke(
         app, ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
     )
 
     assert result.exit_code == 0, result.output
-    assert sent[0]["data"] == {
+    # Only the file of this project and language.
+    assert len(sent) == 1
+    args, kwargs = sent[0]
+    assert args[1:] == ("POST", "/api/translations/odoo-19/account/fr/file/")
+    assert kwargs["data"] == {
         "method": "suggest",
         "conflicts": "ignore",
         "fuzzy": "process",
         "author_name": "Ann",
         "author_email": "ann@example.com",
     }
-    assert "params" not in sent[0]
+    assert "params" not in kwargs
     assert "Updated 1 and skipped 0 translation(s)." in result.output

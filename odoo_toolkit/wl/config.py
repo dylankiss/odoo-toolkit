@@ -1,15 +1,17 @@
+import json
 import re
 from collections import defaultdict
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from typer import Argument, Option, Typer
+from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
     get_valid_modules_to_path_mapping,
+    is_l10n_module,
     normalize_list_option,
     print,
     print_command_title,
@@ -17,10 +19,248 @@ from odoo_toolkit.common import (
     print_header,
     print_success,
 )
+from odoo_toolkit.mv.config import get_default_repo_path
 
-from .common import WeblateConfig, WeblateConfigError
+from .common import WeblateComponentData
 
 app = Typer()
+
+WeblateConfigType = dict[str, dict[str, list[WeblateComponentData]]]
+
+# Maps fnmatch glob patterns (matched against module names) to a fixed list of language codes.
+# Patterns are evaluated in order; the first match wins.
+# Modules not listed here fall back to scanning available .po files.
+L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
+    "*l10n_account_withholding_tax*": ["es_419", "id", "th"],
+    "*l10n_ae*": ["ar"],
+    "*l10n_ar*": ["es_419"],
+    "*l10n_at*": ["de"],
+    "*l10n_bd*": ["bn"],
+    "*l10n_be*": ["de", "fr", "nl"],
+    "*l10n_bf*": ["fr"],
+    "*l10n_bg*": ["bg"],
+    "*l10n_bh*": ["ar"],
+    "*l10n_bj*": ["fr"],
+    "*l10n_bo*": ["es_419"],
+    "*l10n_br*": ["pt_BR"],
+    "*l10n_ca*": ["fr"],
+    "*l10n_cd*": ["fr"],
+    "*l10n_cf*": ["fr"],
+    "*l10n_cg*": ["fr"],
+    "*l10n_ch*": ["de", "fr", "it"],
+    "*l10n_ci*": ["fr"],
+    "*l10n_cl*": ["es_419"],
+    "*l10n_cm*": ["fr"],
+    "*l10n_cn_city*": None,
+    "*l10n_cn*": ["zh_CN"],
+    "*l10n_co*": ["es_419"],
+    "*l10n_cr*": ["es_419"],
+    "*l10n_cy*": ["el", "tr"],
+    "*l10n_cz*": ["cs"],
+    "*l10n_de*": ["de"],
+    "*l10n_din5008*": ["de", "fr", "it"],
+    "*l10n_dk*": ["da"],
+    "*l10n_do*": ["es_419"],
+    "*l10n_dz*": ["ar", "fr"],
+    "*l10n_ec*": ["es_419"],
+    "*l10n_ee*": ["et"],
+    "*l10n_eg*": ["ar"],
+    "*l10n_employment_hero*": ["ms"],
+    "*l10n_es*": ["es"],
+    "*l10n_et*": ["am"],
+    "*l10n_eu*": ["bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
+    "*l10n_fi*": ["fi"],
+    "*l10n_fr*": ["fr"],
+    "*l10n_ga*": ["fr"],
+    "*l10n_gcc*": ["ar"],
+    "*l10n_gn*": ["fr"],
+    "*l10n_gp*": ["fr"],
+    "*l10n_gq*": ["es", "fr", "pt"],
+    "*l10n_gr*": ["el"],
+    "*l10n_gt*": ["es_419"],
+    "*l10n_gw*": ["pt"],
+    "*l10n_hk*": ["zh_TW"],
+    "*l10n_hn*": ["es_419"],
+    "*l10n_hr*": ["hr"],
+    "*l10n_hu*": ["hu"],
+    "*l10n_id*": ["id"],
+    "*l10n_il*": ["he"],
+    "*l10n_in*": ["hi"],
+    "*l10n_iq*": ["ar"],
+    "*l10n_it*": ["it"],
+    "*l10n_jo*": ["ar"],
+    "*l10n_jp*": ["ja"],
+    "*l10n_ke*": ["sw"],
+    "*l10n_kh*": ["km"],
+    "*l10n_km*": ["ar", "fr"],
+    "*l10n_kr*": ["ko"],
+    "*l10n_kw*": ["ar"],
+    "*l10n_kz*": ["ru"],
+    "*l10n_latam*": ["es_419", "pt_BR"],
+    "*l10n_lb*": ["ar", "fr"],
+    "*l10n_lt*": ["lt"],
+    "*l10n_lu*": ["de", "fr", "lb"],
+    "*l10n_lv*": ["lv"],
+    "*l10n_ma*": ["ar", "fr"],
+    "*l10n_mc*": ["fr"],
+    "*l10n_mk*": ["mk"],
+    "*l10n_ml*": ["fr"],
+    "*l10n_mm*": ["my"],
+    "*l10n_mn*": ["mn"],
+    "*l10n_mq*": ["fr"],
+    "*l10n_mr*": ["fr"],
+    "*l10n_mu*": ["fr"],
+    "*l10n_mx*": ["es_419"],
+    "*l10n_my*": ["ms"],
+    "*l10n_mz*": ["pt"],
+    "*l10n_ne*": ["fr"],
+    "*l10n_nl*": ["nl"],
+    "*l10n_no*": ["nb"],
+    "*l10n_om*": ["ar"],
+    "*l10n_pa*": ["es_419"],
+    "*l10n_pe*": ["es_419"],
+    "*l10n_ph*": ["tl"],
+    "*l10n_pl*": ["pl"],
+    "*l10n_pt*": ["pt"],
+    "*l10n_qa*": ["ar"],
+    "*l10n_re*": ["fr"],
+    "*l10n_ro*": ["ro"],
+    "*l10n_rs*": ["sr@latin"],
+    "*l10n_rw*": ["fr", "sw"],
+    "*l10n_sa*": ["ar"],
+    "*l10n_se*": ["sv"],
+    "*l10n_si*": ["sl"],
+    "*l10n_sk*": ["sk"],
+    "*l10n_sn*": ["fr"],
+    "*l10n_syscohada*": ["fr"],
+    "*l10n_td*": ["ar", "fr"],
+    "*l10n_tg*": ["fr"],
+    "*l10n_th*": ["th"],
+    "*l10n_tn*": ["ar", "fr"],
+    "*l10n_tr*": ["tr"],
+    "*l10n_tw*": ["zh_TW"],
+    "*l10n_tz*": ["sw"],
+    "*l10n_ua*": ["uk"],
+    "*l10n_ug*": ["sw"],
+    "*l10n_us*": ["es_419"],
+    "*l10n_uy*": ["es_419"],
+    "*l10n_uz*": ["ru", "uz"],
+    "*l10n_ve*": ["es_419"],
+    "*l10n_vn*": ["vi"],
+    "*l10n_yt*": ["fr"],
+}
+
+
+
+class WeblateConfigError(Exception):
+    """Custom exception for WeblateConfig errors."""
+
+    def __init__(self, file_path: Path, error_type: Literal["load", "save"]) -> None:
+        """Initialize a WeblateConfigError for loading `file_path`."""
+        match error_type:
+            case "load":
+                super().__init__(f"The configuration file '{file_path}' could not be loaded.")
+            case "save":
+                super().__init__(f"The configuration file '{file_path}' could not be saved.")
+
+
+class WeblateConfig:
+    """A Weblate config file."""
+
+    def __init__(self, file_path: Path) -> None:
+        """Initialize a WeblateConfig object.
+
+        :param file_path: The file to load into the object or to save the new object to.
+        :raises WeblateConfigError: If the given file could not be loaded or parsed.
+        """
+        self.file_path = file_path
+        self.config: dict[str, dict[str, list[WeblateComponentData]]] = {
+            "projects": defaultdict[str, list[WeblateComponentData]](list),
+        }
+
+        if self.file_path.is_file():
+            try:
+                projects = json.loads(self.file_path.read_text()).get("projects")
+                if projects:
+                    self.config["projects"].update(projects)
+            except (OSError, json.JSONDecodeError) as e:
+                raise WeblateConfigError(self.file_path, "load") from e
+
+    def update_module(self, module_path: Path, project: str, languages: list[str]) -> bool:
+        """Update a module configuration in the Weblate config file.
+
+        If the `.pot` file exists, the module configuration will be added or updated.
+        If the `.pot` file doesn't exist, the module configuration will be removed.
+
+        If no languages are provided and the module is a l10n module, only the languages available in that module will
+        be added.
+
+        :param module_path: The path to the module to update.
+        :param project: The Weblate project slug.
+        :param languages: The specific language codes to translate this module into.
+        :return: True if the module was added or updated, False if it couldn't be added or updated, or was removed.
+        """
+        module_name = module_path.name
+        existing_module_config = next(
+            (c for c in self.config["projects"][project] if c.get("name") == module_name), None,
+        )
+        if not (module_path / "i18n" / f"{module_name}.pot").is_file():
+            if existing_module_config:
+                self.config["projects"][project].remove(existing_module_config)
+            return False
+
+        relative_module_path = module_path.relative_to(self.file_path.parent)
+        module_config: WeblateComponentData = {
+            "name": module_name,
+            "filemask": f"{relative_module_path}/i18n/*.po",
+            "new_base": f"{relative_module_path}/i18n/{module_name}.pot",
+        }
+        if not languages and is_l10n_module(module_name):
+            # If we are adding a l10n module, check the fixed language map first.
+            fixed_language_match = next(
+                ((pattern, langs) for pattern, langs in L10N_LANGUAGE_MAP.items() if fnmatch(module_name, pattern)),
+                None,
+            )
+            if fixed_language_match is None:
+                languages = sorted([lang.stem for lang in (module_path / "i18n").glob("*.po") if lang.is_file()])
+            else:
+                _, fixed_languages = fixed_language_match
+                languages = fixed_languages or []
+        if languages:
+            module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
+        if existing_module_config:
+            # Without languages anymore, the module follows the project's languages again.
+            existing_module_config.pop("language_regex", None)
+            existing_module_config.update(module_config)
+        else:
+            self.config["projects"][project].append(module_config)
+        return True
+
+    def save(self) -> None:
+        """Save the Weblate config to a file.
+
+        :raises WeblateConfigError: If the given file could not be saved.
+        """
+
+        def sort_config(config: WeblateConfigType) -> WeblateConfigType:
+            return {
+                "projects": {
+                    project: sorted(components, key=lambda c: c.get("name", ""))
+                    for project, components in sorted(config["projects"].items())
+                },
+            }
+
+        try:
+            self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n")
+        except (OSError, json.JSONDecodeError) as e:
+            raise WeblateConfigError(self.file_path, "save") from e
+
+    def clear(self, project: str) -> None:
+        """Remove a project's components from the config."""
+        if project in self.config["projects"]:
+            self.config["projects"][project].clear()
+
+
 
 _DEFAULT_ODOO_CONFIG_EXCLUDES = [
     "hw_*",
@@ -47,9 +287,6 @@ _DEFAULT_ODOO_CONFIG_EXCLUDES = [
     "*l10n_zm*",
 ]
 
-_DEFAULT_ODOO_PROFILE_CONFIGS = [
-    ("odoo-{version}", ["all"], _DEFAULT_ODOO_CONFIG_EXCLUDES),
-]
 
 
 def _get_config_languages(module_path: Path, module_name: str, languages: list[str], lang_filter: bool) -> list[str] | None:
@@ -68,14 +305,18 @@ def _get_config_languages(module_path: Path, module_name: str, languages: list[s
 
 
 def _save_config(weblate_config: WeblateConfig, updated: int, skipped: int) -> None:
-    """Persist a Weblate config and report the outcome."""
+    """Persist a Weblate config and report the outcome.
+
+    :raises Exit: If the file couldn't be saved.
+    """
     try:
         weblate_config.save()
-        print(f"Modules added or updated: [b]{updated}[/b]")
-        print(f"Modules skipped or removed: [b]{skipped}[/b]")
-        print_success("Config file successfully updated.\n")
     except WeblateConfigError as e:
         print_error("Config file update failed.\n", str(e))
+        raise Exit(1) from e
+    print(f"Modules added or updated: [b]{updated}[/b]")
+    print(f"Modules skipped or removed: [b]{skipped}[/b]")
+    print_success("Config file successfully updated.\n")
 
 
 def _update_addons_config(
@@ -100,35 +341,12 @@ def _update_addons_config(
         if module_languages is None:
             skipped += 1
             continue
-        if weblate_config.update_module(module_to_path[module_name], project, normalize_list_option(module_languages)):
+        if weblate_config.update_module(module_to_path[module_name], project, module_languages):
             updated += 1
         else:
             skipped += 1
 
     _save_config(weblate_config, updated, skipped)
-
-
-def _configure_odoo_profile(
-    project: str,
-    modules: list[str],
-    exclude: list[str],
-    com_path: Path,
-    ent_path: Path,
-    extra_addons_paths: list[Path],
-) -> None:
-    """Apply one predefined Odoo Weblate config profile."""
-    print_header(f"Configuring [u]{project}[/u]")
-    _update_config(
-        modules=modules,
-        project=project,
-        exclude=exclude,
-        path_filters=EMPTY_LIST,
-        languages=EMPTY_LIST,
-        reset=True,
-        com_path=com_path,
-        ent_path=ent_path,
-        extra_addons_paths=extra_addons_paths,
-    )
 
 
 def _normalize_odoo_version(value: str) -> str:
@@ -175,7 +393,9 @@ def _update_config(
     ent_path: Path,
     extra_addons_paths: list[Path],
 ) -> None:
-    """Update one Weblate config profile."""
+    """Update the `.weblate.json` files of the given modules."""
+    com_path = get_default_repo_path(com_path, "odoo")
+    ent_path = get_default_repo_path(ent_path, "enterprise")
     languages = sorted(normalize_list_option(languages))
     exclude = normalize_list_option(exclude)
     lang_filter = False
@@ -339,22 +559,27 @@ def config_odoo(
     """Generate the standard Odoo Weblate config profile."""
     print_command_title(":memo: Odoo Weblate Config Profiles")
 
+    com_path = get_default_repo_path(com_path, "odoo")
     try:
         raw_odoo_version = odoo_version or _detect_odoo_version_from_path(com_path.expanduser().resolve())
         normalized_odoo_version = _normalize_odoo_version(raw_odoo_version)
     except ValueError as e:
         print_error(str(e))
-        return
+        raise Exit(1) from e
 
     print(f"Detected Odoo version: [b]{raw_odoo_version}[/b]")
     print(f"Using Weblate project suffix: [b]{normalized_odoo_version}[/b]\n")
 
-    for project_template, modules, exclude in _DEFAULT_ODOO_PROFILE_CONFIGS:
-        _configure_odoo_profile(
-            project=project_template.format(version=normalized_odoo_version),
-            modules=modules,
-            exclude=exclude,
-            com_path=com_path,
-            ent_path=ent_path,
-            extra_addons_paths=extra_addons_paths,
-        )
+    project = f"odoo-{normalized_odoo_version}"
+    print_header(f"Configuring [u]{project}[/u]")
+    _update_config(
+        modules=["all"],
+        project=project,
+        exclude=_DEFAULT_ODOO_CONFIG_EXCLUDES,
+        path_filters=EMPTY_LIST,
+        languages=EMPTY_LIST,
+        reset=True,
+        com_path=com_path,
+        ent_path=ent_path,
+        extra_addons_paths=extra_addons_paths,
+    )

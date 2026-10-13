@@ -62,13 +62,10 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 | Command                                                 | Purpose                                                                                     |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [`otk wl autotranslate`](#otk-wl-autotranslate)         | Autotranslate translations for components in a Weblate project.                             |
-| [`otk wl autotranslate-from`](#otk-wl-autotranslate-from) | Autotranslate components in a Weblate project from equally named components in another project. |
 | [`otk wl config`](#otk-wl-config)                       | Update modules in the Weblate config file.                                                  |
 | [`otk wl config-odoo`](#otk-wl-config-odoo)             | Generate the standard Odoo Weblate config profile for a version.                            |
 | [`otk wl copy`](#otk-wl-copy)                           | Copy translations between languages, components, and/or projects.                           |
 | [`otk wl download`](#otk-wl-download)                   | Download specific PO files from Weblate.                                                    |
-| [`otk wl update-components`](#otk-wl-update-components) | Update Weblate components based on the `.weblate.json` configuration in the current folder. |
 | [`otk wl update-teams`](#otk-wl-update-teams)           | Update Weblate teams permissions.                                                           |
 | [`otk wl upload`](#otk-wl-upload)                       | Upload specific PO files to Weblate.                                                        |
 
@@ -363,74 +360,6 @@ or make the variable available to your execution environment by putting it in yo
 configuration file for your shell.
 
 
-## `otk wl autotranslate`
-
-**Autotranslate translations for components in a Weblate project.**
-
-This command allows you to autotranslate existing components in a Weblate project using various translation engines. You need to specify for which language(s) you want the translations autotranslated.
-
-You can provide specific components or none at all. In that case, all components will be autotranslated. You can also specify which type of strings you want to have translated in the project and how the translations should be added. Finally, you can choose which translation engines to use for the autotranslation.
-
-### Usage
-
-```console
-$ otk wl autotranslate [OPTIONS] PROJECT
-```
-e.g.
-
-```console
-$ otk wl autotranslate all odoo-19 -q "state:empty" -m translate -e weblate -e deepl
-```
-
-### Arguments
-
-* `PROJECT`: The Weblate project to autotranslate.  **[required]**
-
-### Options
-
-* `-l, --language TEXT`: The languages to autotranslate.  **[required]**
-* `-c, --component TEXT`: The Weblate components to autotranslate. You can use glob patterns. Translates all components if none are specified.
-* `-q, --query TEXT`: Specify which strings need to be translated by using a Weblate search string. Translates all strings if not specified.
-* `-m, --mode [suggest|translate|fuzzy|approved]`: Specify the translation mode to use. Either add translations as suggestions (`suggest`), as translations (`translate`), as "Needing edit" (`fuzzy`), or as approved translations (`approved`).  [default: `suggest`]
-* `-e, --engine [alibaba|apertium-apy|aws|azure-openai|baidu|cyrtranslit|deepl|glosbe|google-translate|google-translate-api-v3|libretranslate|microsoft-translator|modernmt|mymemory|netease-sight|openai|sap-translation-hub|systran|tmserver|weblate|weblate-translation-memory|yandex|yandex-v2|youdao-zhiyun]`: Specify which translation engines to use. They need to be activated in your Weblate instance. You can provide multiple engines.  [default: `[weblate]`]
-* `-t, --threshold INTEGER`: Specify the minimum match percentage threshold for using translation memory engines.  [default: `100`]
-* `--help`: Show this message and exit.
-
-
-## `otk wl autotranslate-from`
-
-**Autotranslate components in a Weblate project from equally named components in another project.**
-
-This command looks up every component of the target project that also exists, under the same slug, in the source project, and autotranslates it using only the translations of that matching source component. No machine translation engines are involved.
-
-If you don't specify any languages, all languages present in the target project are used, restricted per component by that component's language regex. If you don't specify any components, all components that exist in both projects are used.
-
-Note that the source project needs to have "Contribute to shared translation memory" enabled, unless it is the same project as the target one.
-
-### Usage
-
-```console
-$ otk wl autotranslate-from [OPTIONS]
-```
-e.g.
-
-```console
-$ otk wl autotranslate-from -p odoo-19-l10n -s odoo-19
-$ otk wl autotranslate-from -p odoo-19 -s odoo-18 -l nl,fr,de -c "l10n_*" -m translate
-```
-
-### Options
-
-* `-p, --project TEXT`: The Weblate project whose components should be autotranslated.  **[required]**
-* `-s, --src-project TEXT`: The Weblate project to take the translations from. Its components are matched by slug against the components of the target project.  **[required]**
-* `-l, --language TEXT`: The languages to autotranslate. Autotranslates every language present in the target project if none are specified.
-* `-c, --component TEXT`: The Weblate components to autotranslate. You can use glob patterns. Considers all matching components if none are specified.
-* `-x, --exclude TEXT`: The Weblate components to skip. You can use glob patterns.
-* `-q, --query TEXT`: Specify which strings need to be translated by using a Weblate search string.  [default: `state:<translated`]
-* `-m, --mode [suggest|translate|fuzzy|approved]`: Specify the translation mode to use. Either add translations as suggestions (`suggest`), as translations (`translate`), as "Needing edit" (`fuzzy`), or as approved translations (`approved`).  [default: `suggest`]
-* `--help`: Show this message and exit.
-
-
 ## `otk wl config`
 
 **Update modules in the Weblate config file.**
@@ -549,7 +478,7 @@ $ otk wl download [OPTIONS]
 e.g.
 
 ```console
-$ otk wl download -p odoo-19 -l fr -q "state:<translated" --filter-empty
+$ otk wl download -p odoo-19 -l fr -q "state:<translated"
 ```
 
 ### Options
@@ -557,37 +486,11 @@ $ otk wl download -p odoo-19 -l fr -q "state:<translated" --filter-empty
 * `-p, --project TEXT`: The Weblate project to download translations from.  **[required]**
 * `-l, --language TEXT`: The languages to download translations for. At least one language must be specified.  **[required]**
 * `-c, --component TEXT`: The Weblate components to download translations from. You can use glob patterns. Downloads all components if none are specified.
-* `-q, --query TEXT`: A Weblate query to filter strings.
-* `--filter-empty`: If set, only download PO files that are not empty after applying the query filter.
+* `-i, --ignore-component TEXT`: The Weblate components to ignore when downloading translations. You can use glob patterns.
+* `-q, --query TEXT`: A Weblate query to filter strings. Files without any matching string aren't saved.
 * `--help`: Show this message and exit.
 
-
-## `otk wl update-components`
-
-**Update Weblate components based on the `.weblate.json` configuration in the current folder.**
-
-### Usage
-
-```console
-$ otk wl update-components [OPTIONS]
-```
-e.g.
-
-```console
-$ otk wl update-components -p odoo-19 -l ar,az,bg,bs,ca,cs,da,de,el,es,es_419,et,fa,fi,fr,he,hi,hr,hu,id,it,ja,kab,ko,ku,lt,lv,mn,my,nb,nl,pl,pt,pt_BR,ro,ru,sk,sl,sr@latin,sv,th,tr,uk,vi,zh_CN,zh_TW
-```
-
-### Options
-
-* `-p, --project TEXT`: The Weblate project to update components in.  **[required]**
-* `-l, --language TEXT`: The default languages to apply to components if not specified in the `.weblate.json` configuration.  **[required]**
-* `-c, --component TEXT`: The Weblate components to update. You can use glob patterns. Updates all components if none are specified.
-* `-k, --key TEXT`: The specific keys to update in the component configuration. Updates all keys if none are specified.
-* `--git-url`: Override the Git repo URL to use on the components.
-* `--git-push-url`: Override the Git repo push URL to use on the components.
-* `--git-branch`: Override the Git branch to use on the components.
-* `--git-push-branch`: Override the Git push branch to use on the components.
-* `--help`: Show this message and exit.
+Components that don't have the language, like localization modules of other countries, are skipped.
 
 
 ## `otk wl update-teams`
@@ -595,6 +498,8 @@ $ otk wl update-components -p odoo-19 -l ar,az,bg,bs,ca,cs,da,de,el,es,es_419,et
 **Update Weblate teams permissions.**
 
 This command will update the languages, projects, and/or roles associated with one or more teams in Weblate.
+
+Adding or removing specific languages or projects only applies to teams that use their own list of them. A team with access to all languages or projects is left as is, and reported. Teams defined by a project are skipped. If a project or role doesn't exist, nothing is changed.
 
 ### Usage
 
@@ -617,6 +522,38 @@ $ otk wl update-teams "Translators:*" -p -odoo-16,+odoo-19 -r "+Add suggestion"
 * `-p, --project TEXT`: The project slugs to add or remove from the teams, or `all`, `public`, or `protected`. Only existing Weblate projects can be used. To add a project, prefix it with `+`. To remove a project, prefix it with `-`.
 * `-r, --role TEXT`: The roles to add or remove from the teams. The names need to match exactly with Weblate. To add a role, prefix it with `+`. To remove a role, prefix it with `-`.
 * `--help`: Show this message and exit.
+
+
+## `otk wl upload`
+
+**Upload specific PO files to Weblate.**
+
+This command can be useful to bulk upload specific PO files to Weblate. The files need to be in the current working directory, named `<project>-<component>-<language>.po`, like the ones [`otk wl download`](#otk-wl-download) saves.
+
+### Usage
+
+```console
+$ otk wl upload [OPTIONS]
+```
+e.g.
+
+```console
+$ otk wl upload -p odoo-19 -l fr -m suggest
+```
+
+### Options
+
+* `-p, --project TEXT`: The Weblate project to upload translations to.  **[required]**
+* `-l, --language TEXT`: The languages to upload translations for. At least one language must be specified.  **[required]**
+* `-c, --component TEXT`: The Weblate components to upload translations to. You can use glob patterns. Uploads all matching files if none are specified.
+* `-a, --author TEXT`: The author name to use for the uploaded translations. If not set, the API key user will be used.
+* `-e, --email TEXT`: The author email to use for the uploaded translations. If not set, the API key user will be used.
+* `-m, --method [translate|approve|suggest]`: Upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
+* `-o, --overwrite [ignore|replace-translated|replace-approved]`: Don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
+* `-f, --fuzzy [ignore|process|approve]`: Ignore fuzzy translations (`ignore`), mark them as "Needs editing" (`process`), or add them as regular translations (`approve`).  [default: `process`]
+* `--help`: Show this message and exit.
+
+The author is only used if your API key's user may set it.
 
 
 ## Odoo Multiverse (`otk mv`)

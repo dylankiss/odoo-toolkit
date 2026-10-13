@@ -249,10 +249,8 @@ def get_odoo_version(odoo_repo: Path) -> float | None:
 
 
 def normalize_list_option(option_list: Collection[str]) -> list[str]:
-    """Normalize input by splitting comma-separated strings into a list."""
-    if len(option_list) > 0 and any("," in options for options in option_list):
-        return [option.strip() for options in option_list for option in options.split(",")]
-    return list(option_list)
+    """Normalize input by splitting comma-separated strings into a list, like `-l fr,nl -l de`."""
+    return [option.strip() for options in option_list for option in options.split(",") if option.strip()]
 
 
 def filter_by_globs(items: Iterable[str], globs: Collection[str], ignore_globs: Collection[str] = ()) -> list[str]:

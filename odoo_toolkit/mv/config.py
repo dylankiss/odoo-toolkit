@@ -326,6 +326,21 @@ def find_version_dir(start: Path | None = None) -> Path | None:
     return None
 
 
+def get_default_repo_path(path: Path, name: str) -> Path:
+    """Get the path of a repository given as option, like `--com-path`.
+
+    Its default (a relative path like `odoo`) means the repository of the version directory you're in, if any, so the
+    commands work anywhere inside it.
+
+    :param path: The path given as option.
+    :param name: The repository name, which is also the default path.
+    :return: The path to use.
+    """
+    if path == Path(name) and (version_dir := find_version_dir()) and (version_dir / name).is_dir():
+        return version_dir / name
+    return path
+
+
 def get_repo_dirs(version_dir: Path, *, include_linked: bool) -> list[Path]:
     """Get the repositories inside a version directory.
 

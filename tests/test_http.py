@@ -14,6 +14,5 @@ def test_weblate_api_sends_user_agent_and_bearer_token(monkeypatch: pytest.Monke
 
     api = wl_common.WeblateApi()
 
-    for session in (api.session, api.json_session):
-        assert session.headers["User-Agent"] == USER_AGENT
-        assert session.headers["Authorization"] == "Bearer secret"
+    assert api.session.headers["User-Agent"] == USER_AGENT
+    assert api.session.headers["Authorization"] == "Bearer secret"
