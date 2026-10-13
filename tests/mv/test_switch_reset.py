@@ -226,7 +226,7 @@ def test_cli_reset_asks_before_discarding_local_commits(multiverse: Path, monkey
     assert result.exit_code == 0, result.output
     assert git(worktree, "rev-parse", "HEAD") != local_head
     # The exact command to restore the stashed changes.
-    assert f"git -C {multiverse / '19.0' / 'odoo'} stash pop stash@{{0}}" in result.output.replace("\n", "")
+    assert f"git -C {multiverse / '19.0' / 'odoo'} stash pop stash@{{0}}" in result.output
 
 
 def test_commands_work_inside_a_linked_repository(multiverse: Path, monkeypatch: pytest.MonkeyPatch) -> None:

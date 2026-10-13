@@ -327,7 +327,8 @@ def print_results(results: list[RepoResult], version_dir: Path) -> bool:
         for result in stashed:
             repo_dir = version_dir / result.name
             ref = find_stash(Git(repo_dir), result.stash or "") or "stash@{0}"
-            print(f"  [b]git -C {repo_dir} stash pop {ref}[/b]  [d]# {result.stash}[/d]", highlight=False)
+            # Don't wrap the command, so it can be copied as is.
+            print(f"  [b]git -C {repo_dir} stash pop {ref}[/b]  [d]# {result.stash}[/d]", highlight=False, soft_wrap=True)
         print()
 
     failed = [result for result in results if result.outcome == Outcome.FAILED]

@@ -119,8 +119,9 @@ def run(
     )
     addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
     addons = ", ".join(str(path.relative_to(version_dir)) for path in addons_paths)
-    print(f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False)
-    print(f"otk: addons path: {addons}", highlight=False)
+    # Visual Studio Code's task waits for these lines, so they must not wrap.
+    print(f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False, soft_wrap=True)
+    print(f"otk: addons path: {addons}", highlight=False, soft_wrap=True)
     _exec(command)
 
 
