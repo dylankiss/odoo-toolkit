@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.0
       - run: uv run scripts/sync_runbot.py
       # Pull requests opened by this workflow don't run the CI, so check the rendered images here.
       - run: uv run pytest -q tests/dev tests/test_versions.py
