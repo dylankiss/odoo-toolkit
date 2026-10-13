@@ -14,12 +14,12 @@ jobs:
   sync:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv run scripts/sync_runbot.py
       # Pull requests opened by this workflow don't run the CI, so check the rendered images here.
       - run: uv run pytest -q tests/dev tests/test_versions.py
-      - uses: peter-evans/create-pull-request@v7
+      - uses: peter-evans/create-pull-request@v8
         with:
           branch: sync-runbot
           commit-message: "[IMP] versions: sync with Runbot"

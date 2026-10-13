@@ -21,8 +21,8 @@ jobs:
       # Proves to PyPI that this workflow is the one it trusts.
       id-token: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - name: Check that the tag is the package version
         env:
           TAG: ${{ github.ref_name }}
