@@ -24,6 +24,9 @@ DOCKER_REPOSITORY = "dylankiss/odoo-dev"
 # The label telling the images of this toolkit apart from the ones of odoo-toolkit 3.x, which used the same tags.
 LAYOUT_LABEL = "io.github.dylankiss.odoo-toolkit.layout"
 LAYOUT_VERSION = "2"
+# The user ID the image runs as. The images on Docker Hub use 1000.
+UID_LABEL = "io.github.dylankiss.odoo-toolkit.uid"
+DEFAULT_UID = 1000
 DOCKER_DIR = Path(__file__).parent.parent / "docker"
 RUNBOT_DOCKERFILES_DIR = DOCKER_DIR / "runbot"
 DEV_LAYER_FILE = DOCKER_DIR / "dev.Dockerfile"
@@ -179,13 +182,21 @@ def arch_tag(image: str, arch: Arch) -> str:
     return f"{DOCKER_REPOSITORY}:{image.lower()}-{arch}"
 
 
-def build_image(image: str, arch: Arch, *, push: bool = False, load: bool = True) -> None:
+def build_image(
+    image: str,
+    arch: Arch,
+    *,
+    push: bool = False,
+    load: bool = True,
+    user_ids: tuple[int, int] | None = None,
+) -> None:
     """Build an image for one architecture.
 
     :param image: The Runbot image name, like `Docker19`.
     :param arch: The architecture to build for.
     :param push: Whether to push the image to the registry.
     :param load: Whether to load the image in the local Docker, tagged with its Odoo versions.
+    :param user_ids: The user and group IDs the image runs as, or None for 1000.
     :raises subprocess.CalledProcessError: If the build failed.
     """
     with tempfile.TemporaryDirectory() as context_dir:
@@ -197,6 +208,7 @@ def build_image(image: str, arch: Arch, *, push: bool = False, load: bool = True
             "--platform", f"linux/{arch}",
             "--file", str(dockerfile),
             *(arg for tag in tags for arg in ("--tag", tag)),
+            *(["--build-arg", f"USERUID={user_ids[0]}", "--build-arg", f"USERGID={user_ids[1]}"] if user_ids else []),
             *(["--push"] if push else []),
             *(["--load"] if load else []),
             context_dir,
@@ -240,20 +252,29 @@ def parse_image_layouts(image_json: str) -> dict[str, str | None]:
     return layouts
 
 
-def get_image_layout(tag: str, arch: Arch) -> str | None:
-    """Get the layout version of a local image, or None if it doesn't exist or is from odoo-toolkit 3.x.
+def get_image_labels(tag: str, arch: Arch) -> dict[str, str] | None:
+    """Get the labels of a local image, or None if there's no image with this tag for the architecture.
 
     :param tag: The image tag, like `dylankiss/odoo-dev:19.0`.
     :param arch: The architecture of the image, since one tag can hold both.
-    :return: The layout version, like `2`.
+    :return: The labels, which include the layout version for the images of this toolkit.
     """
+    image_format = "{{json .Config.Labels}} {{.Architecture}}"
     result = subprocess.run(
-        ["docker", "image", "inspect", "--platform", f"linux/{arch}", "--format", "{{json .Config.Labels}}", tag],
+        ["docker", "image", "inspect", "--platform", f"linux/{arch}", "--format", image_format, tag],
         capture_output=True,
         text=True,
         check=False,
     )
+    if result.returncode and "unknown flag" in result.stderr:
+        # Docker before 28.1 can't choose the architecture, so check the one of the image the tag points to.
+        result = subprocess.run(
+            ["docker", "image", "inspect", "--format", image_format, tag], capture_output=True, text=True, check=False,
+        )
     if result.returncode:
         return None
-    labels: dict[str, str] | None = json.loads(result.stdout or "null")
-    return (labels or {}).get(LAYOUT_LABEL)
+    labels_json, _, image_arch = result.stdout.strip().rpartition(" ")
+    if image_arch != arch:
+        return None
+    labels: dict[str, str] | None = json.loads(labels_json or "null")
+    return labels or {}

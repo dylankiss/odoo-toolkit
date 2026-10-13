@@ -56,7 +56,7 @@ def test_registry_is_sorted_and_complete() -> None:
 VERSIONS_PAGE = """
 <table class="table">
   <thead><tr><th>Version</th><th>Docker file</th><th>Host</th><th>os_version</th><th>python_version</th></tr></thead>
-  <tr>
+  <tr class="o_row">
     <td> master </td>
     <td><a class="" href="/runbot/dockerfile?id=52">DockerMaster</a></td>
     <td>116</td>

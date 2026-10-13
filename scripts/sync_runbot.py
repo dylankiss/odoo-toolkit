@@ -26,10 +26,12 @@ DOCKERFILES_DIR = Path(__file__).parent.parent / "odoo_toolkit" / "docker" / "ru
 MIN_VERSION = (18.0, 0.0)
 TIMEOUT = 30
 
-ROW_PATTERN = re.compile(r"<tr>(.*?)</tr>", re.DOTALL)
+ROW_PATTERN = re.compile(r"<tr(?:\s[^>]*)?>(.*?)</tr>", re.DOTALL)
 CELL_PATTERN = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL)
+HEADER_PATTERN = re.compile(r"<th[^>]*>(.*?)</th>", re.DOTALL)
 DOCKERFILE_LINK_PATTERN = re.compile(r'href="/runbot/dockerfile\?id=(\d+)"[^>]*>\s*([^<]+?)\s*<')
 FROM_PATTERN = re.compile(r"^FROM\s+ubuntu:(\S+)", re.MULTILINE)
+VERSION_NAME_PATTERN = re.compile(r"master|saas-\d+\.\d+|\d+\.\d+")
 
 
 @dataclass(frozen=True)
@@ -48,14 +50,19 @@ def parse_versions_page(page: str) -> list[RunbotVersion]:
     :param page: The HTML of the versions page.
     :return: The listed versions.
     """
+    headers = [_text(header).lower() for header in HEADER_PATTERN.findall(page)]
+    # Find the Python column by its header, in case the columns change. The version is always the first one.
+    python_column = next((i for i, header in enumerate(headers) if "python" in header), None)
+    if python_column is None:
+        msg = "Runbot's versions page has no Python column anymore. Has the page layout changed?"
+        raise ValueError(msg)
     versions: list[RunbotVersion] = []
     for row in ROW_PATTERN.findall(page):
         link = DOCKERFILE_LINK_PATTERN.search(row)
         if not link:
             continue
-        # Columns: version, Dockerfile, host, OS version, Python version, ...
-        cells = [html.unescape(re.sub(r"<[^>]+>", "", cell)).strip() for cell in CELL_PATTERN.findall(row)]
-        python = re.match(r"\d+\.\d+", cells[4]) if len(cells) > 4 else None  # noqa: PLR2004
+        cells = [_text(cell) for cell in CELL_PATTERN.findall(row)]
+        python = re.match(r"\d+\.\d+", cells[python_column]) if len(cells) > python_column else None
         versions.append(
             RunbotVersion(
                 name=cells[0],
@@ -65,6 +72,11 @@ def parse_versions_page(page: str) -> list[RunbotVersion]:
             ),
         )
     return versions
+
+
+def _text(cell: str) -> str:
+    """Get the text of an HTML table cell."""
+    return html.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
 
 
 def parse_ubuntu_release(dockerfile: str) -> str:
@@ -121,7 +133,8 @@ def main() -> int:
     versions = [
         version
         for version in parse_versions_page(fetch(VERSIONS_URL))
-        if version_sort_key(version.name) >= MIN_VERSION
+        # Names that aren't versions sort last, like `master`, so only keep the ones that look like versions.
+        if version_sort_key(version.name) >= MIN_VERSION and VERSION_NAME_PATTERN.fullmatch(version.name)
     ]
     if not versions:
         print("No supported versions found on runbot. Has the page layout changed?", file=sys.stderr)
@@ -134,6 +147,8 @@ def main() -> int:
             dockerfiles[version.image] = fetch(DOCKERFILE_URL, params={"id": version.dockerfile_id})
 
     registry = build_registry(versions, dockerfiles)
+    if removed := sorted(set(json.loads(VERSIONS_FILE.read_text(encoding="utf-8"))) - set(registry)):
+        print(f"No longer on runbot: {', '.join(removed)}. Check that this is expected.", file=sys.stderr)
     write_dockerfiles(dockerfiles, {info["image"] for info in registry.values()})
     VERSIONS_FILE.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
 

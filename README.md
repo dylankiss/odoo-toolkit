@@ -234,12 +234,11 @@ The multiverse directory is mounted at the same path as on your machine, so the 
 
 What stays between runs:
 - your databases, in the `otk-postgres-data` volume,
-- the filestores, in the `otk-filestore` volume,
-- your SSH key, in the `odoo-ssh-keys` volume, for Odoo modules that run Git commands. If you didn't use odoo-toolkit 3.x, copy your key into it once, as the container's user:
-  ```console
-  $ docker run --rm -v odoo-ssh-keys:/home/odoo/.ssh -v ~/.ssh/id_ed25519:/tmp/key:ro dylankiss/odoo-dev:19.0 \
-      bash -c 'cp /tmp/key ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519'
-  ```
+- the filestores, in the `otk-filestore` volume.
+
+Your SSH agent (the one in `SSH_AUTH_SOCK`, like Bitwarden's or 1Password's) is available in the container, for Odoo modules that run Git commands. Your keys never leave your machine.
+
+On Linux, the container runs as your user, so the files Odoo writes are yours. The images on Docker Hub run as user ID 1000, the first user on most Linux machines. With another user ID, build the image on your machine once with `--build`.
 
 > [!TIP]
 > In Visual Studio Code, `F5` runs Odoo with the debugger and attaches to it, and stopping the debugger stops Odoo. The configuration comes with [`otk mv setup`](#otk-mv-setup).
@@ -273,10 +272,11 @@ $ otk dev run --community -- -d community-db
 * `--debug`: Start Odoo under the debugger, waiting for Visual Studio Code to attach.
 * `--debug-port INTEGER`: The port of the debugger, on your machine.  [default: `5678`]
 * `--upgrade`: Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path.
-* `-c, --community`: Only load the modules of Odoo Community (`odoo/addons`).
+* `--community`: Only load the modules of Odoo Community (`odoo/addons`).
 * `-x, --exclude TEXT`: Leave these repositories out of the addons path, like `enterprise` or `odoofin,design-themes`.
 * `--build`: Build the image on your machine instead of pulling it.
-* `--db-port INTEGER`: The port to reach PostgreSQL on, on your machine.  [default: `5432`]
+* `--pull`: Pull the latest image, even if you have one already.
+* `--db-port INTEGER`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it restarts PostgreSQL.
 * `--platform [amd64|arm64]`: Run the image of this architecture. On Apple Silicon, `amd64` runs emulated and slower, but has what only exists for amd64, like Paper Muncher. Defaults to the architecture of this machine.
 * `--help`: Show this message and exit.
 
@@ -298,6 +298,7 @@ $ otk dev shell [OPTIONS]
 ### Options
 
 * `--build`: Build the image on your machine instead of pulling it.
+* `--pull`: Pull the latest image, even if you have one already.
 * `--platform [amd64|arm64]`: Use the image of this architecture. Defaults to the architecture of this machine.
 * `--help`: Show this message and exit.
 
@@ -306,7 +307,7 @@ $ otk dev shell [OPTIONS]
 
 **Stop the Odoo containers started with `otk dev run`.**
 
-Inside a multiverse version directory, this stops the Odoo containers of that version. Elsewhere, it stops all of them. Your databases and filestores stay.
+Inside a multiverse version directory, this stops the Odoo containers of that version. Elsewhere, it stops all of them. Your shells and `otk po export` servers keep running. Your databases and filestores stay.
 
 ### Usage
 
@@ -316,7 +317,8 @@ $ otk dev stop [OPTIONS]
 
 ### Options
 
-* `--all`: Stop every Odoo container, and PostgreSQL, Mailpit and pgAdmin as well.
+* `-p, --port INTEGER`: Only stop the Odoo running on this port, on your machine.
+* `--all`: Stop every container of this toolkit, including shells and `otk po export` servers, and PostgreSQL, Mailpit and pgAdmin as well.
 * `--help`: Show this message and exit.
 
 
@@ -341,7 +343,7 @@ $ otk dev db [OPTIONS]
 
 ### Options
 
-* `-p, --port INTEGER`: The port to reach PostgreSQL on, on your machine.  [default: `5432`]
+* `-p, --port INTEGER`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it restarts PostgreSQL.
 * `--pgadmin`: Start pgAdmin as well, on `http://localhost:5050`.
 * `--help`: Show this message and exit.
 

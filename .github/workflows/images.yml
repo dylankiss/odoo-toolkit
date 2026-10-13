@@ -50,7 +50,10 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - run: uv run scripts/build_images.py --image "${{ matrix.image }}" --arch "${{ matrix.arch }}" --push
+      - env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+        run: uv run scripts/build_images.py --image "$IMAGE" --arch "$ARCH" --push
 
   merge:
     needs: [plan, build]
@@ -67,4 +70,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - run: uv run scripts/build_images.py --image "${{ matrix.image }}" --merge
+      - env:
+          IMAGE: ${{ matrix.image }}
+        run: uv run scripts/build_images.py --image "$IMAGE" --merge

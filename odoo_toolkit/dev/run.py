@@ -1,23 +1,25 @@
 import os
 import sys
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated
 
 from typer import Context, Exit, Option, Typer
 
-from odoo_toolkit.common import EMPTY_LIST, normalize_list_option, print, print_error
-from odoo_toolkit.mv.config import find_multiverse_dir
+from odoo_toolkit.common import EMPTY_LIST, normalize_list_option, print, print_error, print_warning
+from odoo_toolkit.mv.config import get_repo_dirs
+from odoo_toolkit.versions import OdooVersion
 
 from .common import ensure_image, get_run_containers, get_version_dir, start_services
-from .images import get_native_arch
+from .images import Arch, get_native_arch
 from .runtime import (
     RunOptions,
     build_run_command,
     check_mountable,
     find_free_port,
-    get_addons_paths_of,
-    get_container_user,
+    get_addons_paths,
     get_git_identity,
+    get_ssh_agent,
     is_port_free,
 )
 
@@ -43,7 +45,7 @@ def run(
         bool, Option("--upgrade", help="Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path."),
     ] = False,
     community: Annotated[
-        bool, Option("--community", "-c", help="Only load the modules of Odoo Community (`odoo/addons`)."),
+        bool, Option("--community", help="Only load the modules of Odoo Community (`odoo/addons`)."),
     ] = False,
     exclude: Annotated[
         list[str],
@@ -54,7 +56,15 @@ def run(
         ),
     ] = EMPTY_LIST,
     build: Annotated[bool, Option("--build", help="Build the image on your machine instead of pulling it.")] = False,
-    db_port: Annotated[int, Option("--db-port", help="The port to reach PostgreSQL on, on your machine.")] = 5432,
+    pull: Annotated[bool, Option("--pull", help="Pull the latest image, even if you have one already.")] = False,
+    db_port: Annotated[
+        int | None,
+        Option(
+            "--db-port",
+            help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or 5432. Changing "
+            "it restarts PostgreSQL.",
+        ),
+    ] = None,
     platform: Annotated[
         Platform | None,
         Option(
@@ -75,10 +85,9 @@ def run(
     `--exclude` to leave out repositories. Pass any other Odoo options after `--`, like `otk dev run -- -d mydb -i sale`.
     """
     version_dir, version = get_version_dir()
-    multiverse_dir = find_multiverse_dir(version_dir)
-    if multiverse_dir and (problem := check_mountable(multiverse_dir)):
-        print_error(f"{problem}\n")
-        raise Exit(1)
+    exclude = normalize_list_option(exclude)
+    if unknown := sorted(set(exclude) - {path.name for path in get_repo_dirs(version_dir, include_linked=True)}):
+        print_warning(f"There is no [b]{'[/b], [b]'.join(unknown)}[/b] in [u]{version_dir}[/u] to leave out.\n")
 
     for name, wanted in (("--port", port), ("--debug-port", debug_port if debug else None)):
         if wanted and not is_port_free(wanted):
@@ -88,8 +97,7 @@ def run(
             raise Exit(1)
 
     arch = platform.value if platform else get_native_arch()
-    ensure_image(version, build=build, arch=arch)
-    start_services(db_port=db_port)
+    _prepare(version_dir, version, arch=arch, build=build, pull=pull, db_port=db_port)
 
     options = RunOptions(
         version_dir=version_dir,
@@ -99,17 +107,18 @@ def run(
         upgrade=upgrade,
         odoo_args=list(context.args),
         arch=arch,
-        exclude=normalize_list_option(exclude),
+        exclude=exclude,
         community=community,
     )
     command = build_run_command(
         options,
-        multiverse_dir=multiverse_dir or version_dir.parent,
+        multiverse_dir=version_dir.parent,
         git_identity=get_git_identity(),
-        user=get_container_user(),
         tty=sys.stdin.isatty(),
+        ssh_agent=get_ssh_agent(),
     )
-    addons = ", ".join(str(path.relative_to(version_dir)) for path in get_addons_paths_of(options))
+    addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
+    addons = ", ".join(str(path.relative_to(version_dir)) for path in addons_paths)
     print(f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False)
     print(f"otk: addons path: {addons}", highlight=False)
     _exec(command)
@@ -118,6 +127,7 @@ def run(
 @app.command()
 def shell(
     build: Annotated[bool, Option("--build", help="Build the image on your machine instead of pulling it.")] = False,
+    pull: Annotated[bool, Option("--pull", help="Pull the latest image, even if you have one already.")] = False,
     platform: Annotated[
         Platform | None,
         Option("--platform", help="Use the image of this architecture. Defaults to the architecture of this machine."),
@@ -129,21 +139,40 @@ def shell(
     the same environment, removed when you exit the shell.
     """
     version_dir, version = get_version_dir()
+    tty = sys.stdin.isatty()
     if running := get_run_containers(version.name):
-        _exec(["docker", "exec", "--interactive", "--tty", running[0], "bash"])
+        _exec(["docker", "exec", "--interactive", *(["--tty"] if tty else []), running[0], "bash"])
 
     arch = platform.value if platform else get_native_arch()
-    ensure_image(version, build=build, arch=arch)
-    start_services()
-    multiverse_dir = find_multiverse_dir(version_dir) or version_dir.parent
+    _prepare(version_dir, version, arch=arch, build=build, pull=pull)
     command = build_run_command(
-        RunOptions(version_dir=version_dir, version=version, port=None, command=["bash"], arch=arch),
-        multiverse_dir=multiverse_dir,
+        RunOptions(version_dir=version_dir, version=version, port=None, command=["bash"], arch=arch, role="shell"),
+        multiverse_dir=version_dir.parent,
         git_identity=get_git_identity(),
-        user=get_container_user(),
-        tty=sys.stdin.isatty(),
+        tty=tty,
+        ssh_agent=get_ssh_agent(),
     )
     _exec(command)
+
+
+def _prepare(
+    version_dir: Path,
+    version: OdooVersion,
+    *,
+    arch: Arch,
+    build: bool,
+    pull: bool,
+    db_port: int | None = None,
+) -> None:
+    """Make sure the multiverse can be mounted, the image is available, and the services are running.
+
+    :raises Exit: If one of them isn't possible.
+    """
+    if problem := check_mountable(version_dir.parent):
+        print_error(f"{problem}\n")
+        raise Exit(1)
+    ensure_image(version, build=build, arch=arch, pull=pull)
+    start_services(db_port=db_port)
 
 
 def _exec(command: list[str]) -> None:

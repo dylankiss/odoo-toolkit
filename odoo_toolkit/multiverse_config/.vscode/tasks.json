@@ -32,7 +32,7 @@
             "label": "otk: stop Odoo",
             "type": "shell",
             "command": "otk",
-            "args": ["dev", "stop"],
+            "args": ["dev", "stop", "--port", "8069"],
             "presentation": {
                 "reveal": "silent"
             },

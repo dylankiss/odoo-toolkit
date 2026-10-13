@@ -5,11 +5,10 @@ from typer import Option, Typer
 
 from odoo_toolkit.common import print, print_command_title, print_panel, print_success
 
-from .common import start_services
+from .common import DEFAULT_DB_PORT, get_db_port, start_services
 
 app = Typer()
 
-DEFAULT_PORT = 5432
 # The PostgreSQL volume of odoo-toolkit 3.x, which PostgreSQL 18 can't use.
 OLD_DB_VOLUME = "odoo-postgres-data"
 
@@ -17,8 +16,14 @@ OLD_DB_VOLUME = "odoo-postgres-data"
 @app.command()
 def db(
     port: Annotated[
-        int, Option("--port", "-p", help="The port to reach PostgreSQL on, on your machine."),
-    ] = DEFAULT_PORT,
+        int | None,
+        Option(
+            "--port",
+            "-p",
+            help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or 5432. Changing "
+            "it restarts PostgreSQL.",
+        ),
+    ] = None,
     pgadmin: Annotated[bool, Option("--pgadmin", help="Start pgAdmin as well, on http://localhost:5050.")] = False,
 ) -> None:
     """Start :elephant: PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.
@@ -28,6 +33,7 @@ def db(
     """
     print_command_title(":elephant: Odoo Services")
     start_services(db_port=port, pgadmin=pgadmin)
+    port = get_db_port() or DEFAULT_DB_PORT
     print_success("PostgreSQL and Mailpit are running.\n")
     print_panel(
         f"PostgreSQL: [b]localhost:{port}[/b], user [b]odoo[/b], no password needed\n"
@@ -38,7 +44,7 @@ def db(
     print(
         "\nTo connect without options, from an Odoo on your machine as well as from tools like [b]psql[/b], add this to "
         "your shell profile (like [u]~/.zshrc[/u]):\n"
-        f"  [b]export PGHOST=localhost PGUSER=odoo{'' if port == DEFAULT_PORT else f' PGPORT={port}'}[/b]",
+        f"  [b]export PGHOST=localhost PGUSER=odoo{'' if port == DEFAULT_DB_PORT else f' PGPORT={port}'}[/b]",
     )
     volumes = subprocess.run(["docker", "volume", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=False)
     if OLD_DB_VOLUME in volumes.stdout.split():

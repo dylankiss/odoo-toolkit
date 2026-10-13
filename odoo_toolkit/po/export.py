@@ -45,8 +45,9 @@ from odoo_toolkit.dev.runtime import (
     RunOptions,
     build_run_command,
     check_mountable,
-    get_container_user,
+    get_container_name,
     get_git_identity,
+    get_ssh_agent,
 )
 from odoo_toolkit.mv.config import find_multiverse_dir, find_version_dir
 from odoo_toolkit.versions import OdooVersion, get_versions
@@ -401,24 +402,27 @@ def export(  # noqa: C901, PLR0912, PLR0915
             stop_cmd = None
             if container:
                 # Odoo listens on its usual port in the container, published on the free port we found.
-                run_cmd = build_run_command(
-                    RunOptions(
-                        version_dir=container.version_dir,
-                        version=container.version,
-                        port=cur_port,
-                        command=[str(arg) for arg in odoo_cmd] + [
-                            f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}", "--db_user=odoo",
-                        ],
-                        arch=arch,
-                    ),
-                    multiverse_dir=container.multiverse_dir,
-                    git_identity=get_git_identity(),
-                    user=get_container_user(),
-                    tty=False,
+                options = RunOptions(
+                    version_dir=container.version_dir,
+                    version=container.version,
+                    port=cur_port,
+                    command=[str(arg) for arg in odoo_cmd] + [
+                        f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}", "--db_user=odoo",
+                    ],
+                    arch=arch,
+                    role="export",
                 )
-                odoo_cmd = list[str | Path](run_cmd)
+                odoo_cmd = list[str | Path](
+                    build_run_command(
+                        options,
+                        multiverse_dir=container.multiverse_dir,
+                        git_identity=get_git_identity(),
+                        tty=False,
+                        ssh_agent=get_ssh_agent(),
+                    ),
+                )
                 # Stopping `docker run` doesn't stop the container.
-                stop_cmd = ["docker", "rm", "--force", _get_container_name(run_cmd)]
+                stop_cmd = ["docker", "rm", "--force", get_container_name(options)]
                 # Odoo's connections may not be closed yet, right after stopping it.
                 dropdb_cmd = None if keep_db else [
                     "docker", "exec", DB_HOST, "dropdb", "--username=odoo", "--force", cur_database,
@@ -608,11 +612,6 @@ def _check_mounted(container: _Container, paths: Iterable[Path]) -> None:
                 "to run them on this machine instead.\n",
             )
             raise Exit(1)
-
-
-def _get_container_name(run_cmd: Sequence[str]) -> str:
-    """Get the name of the container a `docker run` command starts."""
-    return run_cmd[run_cmd.index("--name") + 1]
 
 
 def resolve_excludes(exclude: list[str]) -> list[str]:

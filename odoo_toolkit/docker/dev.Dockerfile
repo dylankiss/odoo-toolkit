@@ -1,8 +1,9 @@
 # Development layer added by odoo-toolkit on top of Runbot's image.
 USER root
 
-# `otk dev run` checks this, to tell these images apart from the ones of odoo-toolkit 3.x, which used the same tags.
-LABEL io.github.dylankiss.odoo-toolkit.layout="2"
+# `otk dev run` checks these: the layout tells these images apart from the ones of odoo-toolkit 3.x, which used the same
+# tags, and on Linux, the user ID must be yours.
+LABEL io.github.dylankiss.odoo-toolkit.layout="2" io.github.dylankiss.odoo-toolkit.uid="${USERUID}"
 
 # Show Odoo's logs right away, instead of in chunks.
 ENV PYTHONUNBUFFERED=1
@@ -24,9 +25,9 @@ RUN printf '%s\n' \
 # The debugger, used by `otk dev run --debug`, and the file watchers Odoo's `--dev=reload` restarts with.
 RUN python3 -m pip install --no-cache-dir debugpy pydevd-odoo inotify watchdog
 
-# The folders `otk dev run` mounts volumes on: the filestore, the Python bytecode cache and the SSH key. Docker gives
-# new volumes the owner of these folders, so Odoo can write in them.
-RUN mkdir -p /home/${USERNAME}/.local/share/Odoo /home/${USERNAME}/.cache/pycache /home/${USERNAME}/.ssh \
+# The folders `otk dev run` mounts volumes on: the filestore and the Python bytecode cache. Docker gives new volumes the
+# owner of these folders, so Odoo can write in them.
+RUN mkdir -p /home/${USERNAME}/.local/share/Odoo /home/${USERNAME}/.cache/pycache \
     && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
 
 USER ${USERNAME}

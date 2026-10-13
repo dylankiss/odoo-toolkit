@@ -10,11 +10,13 @@ ones of your machine.
 
 import os
 import socket
+import stat
 import subprocess
 import sys
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from odoo_toolkit.mv.config import get_repo_dirs
 from odoo_toolkit.versions import OdooVersion
@@ -26,8 +28,11 @@ NETWORK = "otk"
 DB_HOST = "otk-postgres"
 SMTP_HOST = "otk-mailpit"
 HOME = "/home/odoo"
-# The label marking the Odoo containers started by `otk dev run`, with their version as value.
+# The labels marking the containers of this toolkit, with the Odoo version, and what they're for, as values.
 RUN_LABEL = "io.github.dylankiss.odoo-toolkit.version"
+ROLE_LABEL = "io.github.dylankiss.odoo-toolkit.role"
+# What a container is for: running Odoo, a shell, or exporting terms with `otk po export`.
+Role = Literal["run", "shell", "export"]
 # The ports Odoo and the debugger listen on inside the container.
 ODOO_PORT = 8069
 DEBUG_PORT = 5678
@@ -36,11 +41,11 @@ DEBUGGER_READY = "otk: waiting for the debugger"
 VOLUMES = {
     "otk-filestore": f"{HOME}/.local/share/Odoo",
     "otk-pycache": f"{HOME}/.cache/pycache",
-    # The SSH key for Odoo modules running Git commands, kept from odoo-toolkit 3.x.
-    "odoo-ssh-keys": f"{HOME}/.ssh",
 }
-# Mounting the multiverse at one of these paths would hide files the image needs.
-SYSTEM_PATHS = ("/bin", "/etc", "/home/odoo", "/lib", "/opt", "/root", "/sbin", "/tmp", "/usr", "/var", "/venv")  # noqa: S108
+# Where your SSH agent is available in the container, for Odoo modules that run Git commands.
+SSH_AGENT_SOCKET = "/run/otk-ssh-agent.sock"
+# Mounting the multiverse at one of these paths, or at one containing them, would hide files the image needs.
+SYSTEM_PATHS = ("/bin", "/etc", HOME, "/lib", "/opt", "/root", "/sbin", "/tmp", "/usr", "/var", "/venv")  # noqa: S108
 
 
 @dataclass
@@ -63,6 +68,7 @@ class RunOptions:
     command: list[str] | None = None
     # The architecture to run. Another than the machine's runs emulated, which is slower.
     arch: Arch = field(default_factory=get_native_arch)
+    role: Role = "run"
 
 
 def get_image_tag(version: OdooVersion) -> str:
@@ -73,12 +79,14 @@ def get_image_tag(version: OdooVersion) -> str:
 def check_mountable(multiverse_dir: Path) -> str | None:
     """Check whether the multiverse can be mounted at its own path in the container.
 
+    Mounting it hides what the image has at that path, so it can't be a folder the container needs, or one containing
+    such a folder. Inside the home folder, it would collide with the volumes.
+
     :return: The problem, or None if it can be mounted.
     """
-    path = str(multiverse_dir)
-    for system in SYSTEM_PATHS:
-        if path == system or path.startswith(f"{system}/"):
-            return f"The multiverse can't be inside [u]{system}[/u], since the container needs that path itself."
+    path = str(multiverse_dir).rstrip("/")
+    if path.startswith(f"{HOME}/") or any(path == system or system.startswith(f"{path}/") for system in SYSTEM_PATHS):
+        return f"The multiverse can't be at [u]{path or '/'}[/u], since the container needs that path itself."
     return None
 
 
@@ -107,11 +115,6 @@ def get_addons_paths(version_dir: Path, *, exclude: Collection[str] = (), commun
     return sorted(paths, key=priority)
 
 
-def get_addons_paths_of(options: RunOptions) -> list[Path]:
-    """Get the addons paths to run Odoo with."""
-    return get_addons_paths(options.version_dir, exclude=options.exclude, community=options.community)
-
-
 def get_upgrade_paths(version_dir: Path) -> list[Path]:
     """Get the paths of the upgrade scripts in a version, if the upgrade repositories are linked into it."""
     candidates = [version_dir / "upgrade-util" / "src", version_dir / "upgrade" / "migrations"]
@@ -121,9 +124,10 @@ def get_upgrade_paths(version_dir: Path) -> list[Path]:
 def build_odoo_command(options: RunOptions) -> list[str]:
     """Build the command that starts Odoo in the container."""
     version_dir = options.version_dir
+    addons_paths = get_addons_paths(version_dir, exclude=options.exclude, community=options.community)
     command = [
         str(version_dir / "odoo" / "odoo-bin"),
-        f"--addons-path={','.join(str(path) for path in get_addons_paths_of(options))}",
+        f"--addons-path={','.join(str(path) for path in addons_paths)}",
         f"--db_host={DB_HOST}",
         "--db_user=odoo",
         "--db_password=odoo",
@@ -139,8 +143,24 @@ def build_odoo_command(options: RunOptions) -> list[str]:
         command.append(f"--upgrade-path={','.join(str(path) for path in upgrade_paths)}")
     command += options.odoo_args
     if options.debug_port:
-        command = ["python3", "-m", "debugpy", "--listen", f"0.0.0.0:{DEBUG_PORT}", "--wait-for-client", *command]
+        # Only say the debugger is ready once it listens, since Visual Studio Code attaches right away.
+        launcher = (
+            "import debugpy, runpy, sys; "
+            f"debugpy.listen(('0.0.0.0', {DEBUG_PORT})); "
+            f"print('{DEBUGGER_READY} on port {options.debug_port}', flush=True); "
+            "debugpy.wait_for_client(); "
+            "sys.argv = sys.argv[1:]; "
+            "runpy.run_path(sys.argv[0], run_name='__main__')"
+        )
+        # Frozen modules make the debugger miss breakpoints in the standard library.
+        command = ["python3", "-Xfrozen_modules=off", "-c", launcher, *command]
     return command
+
+
+def get_container_name(options: RunOptions) -> str:
+    """Get the name of a container, like `otk-19.0-8069`, or `otk-19.0-export-8070` for a `po export` server."""
+    role = "" if options.role == "run" else f"-{options.role}"
+    return f"otk-{options.version.name}{role}" + (f"-{options.port}" if options.port else "")
 
 
 def build_run_command(
@@ -148,28 +168,22 @@ def build_run_command(
     *,
     multiverse_dir: Path,
     git_identity: dict[str, str],
-    user: str | None,
     tty: bool,
+    ssh_agent: Path | None = None,
 ) -> list[str]:
     """Build the `docker run` command for an Odoo container.
 
     :param options: What to run, and how.
     :param multiverse_dir: The multiverse directory, mounted at the same path in the container.
     :param git_identity: The Git name and email to commit with, as environment variables.
-    :param user: The user and group IDs to run as (needed on Linux), or None to use the image's `odoo` user.
     :param tty: Whether the command runs in a terminal.
+    :param ssh_agent: The socket of your SSH agent, to use your SSH keys in the container, if any.
     :return: The command.
     """
     version = options.version.name
     command = options.command or build_odoo_command(options)
-    # Load the SSH key once, asking for its passphrase if it has one, and tell Visual Studio Code when to attach.
-    script = 'eval "$(ssh-agent -s)" >/dev/null; ssh-add -q 2>/dev/null || true; '
-    if options.debug_port and not options.command:
-        script += f'echo "{DEBUGGER_READY} on port {options.debug_port}"; '
-    script += 'exec "$@"'
-
-    name_suffix = options.port or "shell"
-    run = ["docker", "run", "--rm", "--name", f"otk-{version}-{name_suffix}", "--label", f"{RUN_LABEL}={version}"]
+    run = ["docker", "run", "--rm", "--name", get_container_name(options)]
+    run += ["--label", f"{RUN_LABEL}={version}", "--label", f"{ROLE_LABEL}={options.role}"]
     # A small init process forwards signals to Odoo and cleans up the processes it leaves behind, like wkhtmltopdf.
     run += ["--init"]
     run += ["--platform", f"linux/{options.arch}", "--network", NETWORK, "--workdir", str(options.version_dir)]
@@ -184,9 +198,35 @@ def build_run_command(
     run += ["--env", f"PYTHONPYCACHEPREFIX={VOLUMES['otk-pycache']}"]
     for key, value in git_identity.items():
         run += ["--env", f"{key}={value}"]
-    if user:
-        run += ["--user", user]
-    return [*run, get_image_tag(options.version), "bash", "-c", script, "otk", *command]
+    run += get_ssh_agent_args(ssh_agent)
+    return [*run, get_image_tag(options.version), *command]
+
+
+def get_ssh_agent() -> Path | None:
+    """Get the socket of your SSH agent (like the one of Bitwarden or 1Password), if one is running."""
+    socket_path = os.environ.get("SSH_AUTH_SOCK")
+    if not socket_path:
+        return None
+    try:
+        return Path(socket_path) if stat.S_ISSOCK(Path(socket_path).stat().st_mode) else None
+    except OSError:
+        return None
+
+
+def get_ssh_agent_args(ssh_agent: Path | None) -> list[str]:
+    """Get the `docker run` arguments that make your SSH agent available in the container.
+
+    The socket keeps its owner in the container: `root` with Docker Desktop, you on Linux. Its group gives the `odoo`
+    user access.
+    """
+    if not ssh_agent:
+        return []
+    group = "0" if sys.platform != "linux" else str(ssh_agent.stat().st_gid)
+    return [
+        "--volume", f"{ssh_agent}:{SSH_AGENT_SOCKET}",
+        "--env", f"SSH_AUTH_SOCK={SSH_AGENT_SOCKET}",
+        "--group-add", group,
+    ]
 
 
 def get_git_identity() -> dict[str, str]:
@@ -200,19 +240,19 @@ def get_git_identity() -> dict[str, str]:
     return identity
 
 
-def get_container_user() -> str | None:
-    """Get the user to run the container as: yours on Linux, so the files Odoo writes are yours.
+def get_user_ids() -> tuple[int, int] | None:
+    """Get the user and group IDs the image must run with on Linux, so the files Odoo writes are yours.
 
     Docker Desktop on macOS and Windows maps the file ownership by itself.
     """
-    if sys.platform != "linux":
-        return None
-    return f"{os.getuid()}:{os.getgid()}"
+    return (os.getuid(), os.getgid()) if sys.platform == "linux" else None
 
 
 def is_port_free(port: int) -> bool:
     """Check whether a port on your machine is free to publish a container port on."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        # Like a server, ignore the connections of a stopped container that are still closing.
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", port))
         except OSError:

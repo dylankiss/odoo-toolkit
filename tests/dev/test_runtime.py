@@ -1,4 +1,5 @@
 import socket
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -7,11 +8,13 @@ from typer.testing import CliRunner
 from odoo_toolkit.dev import run as dev_run
 from odoo_toolkit.dev.runtime import (
     DEBUGGER_READY,
+    SSH_AGENT_SOCKET,
     RunOptions,
     build_run_command,
     check_mountable,
     find_free_port,
     get_addons_paths,
+    get_ssh_agent,
     is_port_free,
 )
 from odoo_toolkit.main import app
@@ -76,8 +79,8 @@ def test_build_run_command(version_dir: Path) -> None:
         options,
         multiverse_dir=version_dir.parent,
         git_identity={"GIT_AUTHOR_NAME": "Test"},
-        user=None,
         tty=True,
+        ssh_agent=None,
     )
 
     # The ports are only reachable from your machine.
@@ -90,31 +93,55 @@ def test_build_run_command(version_dir: Path) -> None:
     assert "dylankiss/odoo-dev:19.0" in command
     assert "--init" in command
     assert command[command.index("--platform") + 1] == "linux/amd64"
-    # The debugger waits for Visual Studio Code, which waits for the message.
-    script = command[command.index("-c") + 1]
-    assert f'echo "{DEBUGGER_READY} on port 5679"' in script
-    odoo = command[command.index("-c") + 3 :]
-    assert odoo[:6] == ["python3", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client"]
-    assert odoo[6] == str(version_dir / "odoo" / "odoo-bin")
+    assert command[command.index("--name") + 1] == "otk-19.0-8070"
+    assert "io.github.dylankiss.odoo-toolkit.role=run" in command
+    # The debugger says when it listens, which Visual Studio Code waits for, and then runs Odoo.
+    launcher = command[command.index("-c") + 1]
+    assert launcher.index("debugpy.listen(('0.0.0.0', 5678))") < launcher.index(f"{DEBUGGER_READY} on port 5679")
+    odoo = command[command.index("-c") + 2 :]
+    assert odoo[0] == str(version_dir / "odoo" / "odoo-bin")
     assert f"--upgrade-path={version_dir / 'upgrade-util' / 'src'},{version_dir / 'upgrade' / 'migrations'}" in odoo
     assert odoo[-2:] == ["-d", "mydb"]
 
 
-def test_build_run_command_for_a_shell(version_dir: Path) -> None:
-    options = RunOptions(version_dir=version_dir, version=get_versions()["19.0"], port=None, command=["bash"])
-
-    command = build_run_command(options, multiverse_dir=version_dir.parent, git_identity={}, user="1001:1001", tty=False)
+def test_build_run_command_for_a_shell_with_your_ssh_agent(version_dir: Path) -> None:
+    options = RunOptions(
+        version_dir=version_dir, version=get_versions()["19.0"], port=None, command=["bash"], role="shell",
+    )
+    with socket.socket(socket.AF_UNIX) as agent:
+        # Unix sockets have a short maximum path length.
+        agent_path = Path(tempfile.mkdtemp(dir="/tmp")) / "agent.sock"
+        agent.bind(str(agent_path))
+        command = build_run_command(
+            options, multiverse_dir=version_dir.parent, git_identity={}, tty=False, ssh_agent=agent_path,
+        )
 
     assert "--publish" not in command
     assert command[-1] == "bash"
-    assert command[command.index("--user") + 1] == "1001:1001"
+    assert command[command.index("--name") + 1] == "otk-19.0-shell"
     assert "--tty" not in command
+    assert f"{agent_path}:{SSH_AGENT_SOCKET}" in command
+    assert f"SSH_AUTH_SOCK={SSH_AGENT_SOCKET}" in command
+    assert "--group-add" in command
+
+
+def test_get_ssh_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+    assert get_ssh_agent() is None
+    # Not a socket.
+    (tmp_path / "file").write_text("")
+    monkeypatch.setenv("SSH_AUTH_SOCK", str(tmp_path / "file"))
+    assert get_ssh_agent() is None
 
 
 def test_check_mountable() -> None:
     assert check_mountable(Path("/Users/me/code/odoo-mv")) is None
     assert check_mountable(Path("/home/me/odoo-mv")) is None
-    assert check_mountable(Path("/opt/odoo-mv")) is not None
+    # Like the homes of Fedora Silverblue, which hide nothing the container needs.
+    assert check_mountable(Path("/var/home/me/odoo-mv")) is None
+    assert check_mountable(Path("/opt")) is not None
+    assert check_mountable(Path("/home")) is not None
+    assert check_mountable(Path("/")) is not None
     assert check_mountable(Path("/home/odoo/mv")) is not None
 
 
@@ -151,14 +178,16 @@ def test_cli_run(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
     monkeypatch.setattr(dev_run, "_exec", capture)
-    monkeypatch.setattr(dev_run, "ensure_image", no_docker)
-    monkeypatch.setattr(dev_run, "start_services", no_docker)
+    monkeypatch.setattr(dev_run, "_prepare", no_docker)
     monkeypatch.setattr(dev_run, "is_port_free", always_free)
     monkeypatch.chdir(version_dir / "odoo")
 
-    result = CliRunner().invoke(app, ["dev", "run", "--port", "8075", "-x", "enterprise", "--", "-d", "mydb", "-i", "sale"])
+    result = CliRunner().invoke(
+        app, ["dev", "run", "--port", "8075", "-x", "enterprise,enterprize", "--", "-d", "mydb", "-i", "sale"],
+    )
 
     assert result.exit_code == 0, result.output
+    assert "There is no enterprize" in result.output
     assert "addons path: design-themes, odoofin, odoo/addons" in result.output
     assert "127.0.0.1:8075:8069" in executed[0]
     assert executed[0][-4:] == ["-d", "mydb", "-i", "sale"]
