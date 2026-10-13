@@ -7,8 +7,8 @@ from typer import Exit, Option, Typer, confirm
 from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_success
 from odoo_toolkit.git_cli import Git, GitError
 
-from .config import WORKTREE_SOURCE_DIR, ConfigError, find_multiverse_dir, load_config
-from .remotes import CleanupPlan, apply_cleanup, configure_fetching, get_branch_suffix, plan_cleanup
+from .config import WORKTREE_SOURCE_DIR, ConfigError, find_multiverse_dir, get_current_dir, load_config
+from .remotes import CleanupPlan, apply_cleanup, configure_fetching, plan_cleanup
 
 app = Typer()
 
@@ -28,7 +28,7 @@ def cleanup(
         Option(
             "--branch-suffix",
             help="The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults "
-            "to the part of your Git email before the `@`.",
+            "to the one given to `otk mv setup`, or else the part of your Git email before the `@`.",
         ),
     ] = None,
     yes: Annotated[bool, Option("--yes", "-y", help="Don't ask for confirmation.")] = False,
@@ -45,11 +45,10 @@ def cleanup(
     """
     print_command_title(":broom: Clean Up Multiverse Repositories")
 
-    root = find_multiverse_dir(multiverse_dir or Path.cwd())
+    root = find_multiverse_dir(multiverse_dir or get_current_dir())
     if not root:
         print_error("Run this command inside an Odoo Multiverse, or pass its directory with [b]-d[/b].\n")
         raise Exit(1)
-    branch_suffix = branch_suffix or get_branch_suffix()
 
     try:
         known_repos = load_config(root)
@@ -61,19 +60,10 @@ def cleanup(
     repos = {
         bare_dir.parent.name: Git(bare_dir) for bare_dir in sorted((root / WORKTREE_SOURCE_DIR).glob("*/.bare"))
     } | {name: Git(root / name) for name in sorted(known_repos) if (root / name / ".git").is_dir()}
-    plans: dict[str, CleanupPlan] = {}
-    with TransientProgress() as progress:
-        task = progress.add_task("Finding branches to remove", total=len(repos))
-        for name, repo in repos.items():
-            try:
-                configure_fetching(repo, branch_suffix=branch_suffix)
-                plans[name] = plan_cleanup(repo)
-            except GitError as e:
-                print_error(f"Could not inspect [b]{name}[/b]: {e.message}")
-            progress.advance(task)
-
-    plans = {name: plan for name, plan in plans.items() if plan}
+    plans, failed = _plan_cleanups(repos, branch_suffix)
     if not plans:
+        if failed:
+            raise Exit(1)
         print_success("Nothing to clean up.\n")
         return
 
@@ -83,34 +73,69 @@ def cleanup(
     table.add_column("Remote branches", justify="right")
     table.add_column("Size", justify="right")
     for name, plan in plans.items():
-        table.add_row(name, str(len(plan.local_branches)), str(len(plan.remote_refs)), _format_size(repos[name].path))
+        table.add_row(
+            name, str(len(plan.local_branches)), str(len(plan.remote_refs)), _format_bytes(_get_size(repos[name])),
+        )
     print(table, "")
 
     if not yes and not confirm("Remove these branches and reclaim the disk space?"):
-        raise Exit
+        raise Exit(1)
 
     for name, plan in plans.items():
-        repo = repos[name]
-        size_before = _get_size(repo.path)
+        failed = not _apply_cleanup(name, repos[name], plan, branch_suffix) or failed
+    print()
+    if failed:
+        raise Exit(1)
+
+
+def _plan_cleanups(repos: dict[str, Git], branch_suffix: str | None) -> tuple[dict[str, CleanupPlan], bool]:
+    """Find what to clean up in every repository.
+
+    :return: The plans of the repositories with something to clean up, and whether inspecting any repository failed.
+    """
+    plans: dict[str, CleanupPlan] = {}
+    failed = False
+    with TransientProgress() as progress:
+        task = progress.add_task("Finding branches to remove", total=len(repos))
+        for name, repo in repos.items():
+            try:
+                configure_fetching(repo, branch_suffix=branch_suffix)
+                if plan := plan_cleanup(repo):
+                    plans[name] = plan
+            except GitError as e:
+                print_error(f"Could not inspect [b]{name}[/b]: {e.message}")
+                failed = True
+            progress.advance(task)
+    return plans, failed
+
+
+def _apply_cleanup(name: str, repo: Git, plan: CleanupPlan, branch_suffix: str | None) -> bool:
+    """Clean up a repository, and reclaim the disk space.
+
+    :return: Whether it succeeded.
+    """
+    size_before = _get_size(repo)
+    try:
         with TransientProgress() as progress:
             progress.add_task(f"Cleaning up [b]{name}[/b]", total=None)
             apply_cleanup(repo, plan, branch_suffix=branch_suffix)
             repo("gc", "--prune=now", "--quiet")
-        freed = size_before - _get_size(repo.path)
-        print_success(
-            f"[b]{name}[/b]: removed {len(plan.local_branches) + len(plan.remote_refs)} branches, "
-            f"freed {_format_bytes(max(freed, 0))}",
-        )
-    print()
+    except GitError as e:
+        print_error(f"Cleaning up [b]{name}[/b] failed: {e.message}")
+        return False
+    freed = size_before - _get_size(repo)
+    print_success(
+        f"[b]{name}[/b]: removed {len(plan.local_branches) + len(plan.remote_refs)} branches, "
+        f"freed {_format_bytes(max(freed, 0))}",
+    )
+    return True
 
 
-def _get_size(path: Path) -> int:
-    """Get the total size in bytes of the files in a directory."""
-    return sum(file.stat().st_size for file in path.rglob("*") if file.is_file() and not file.is_symlink())
-
-
-def _format_size(path: Path) -> str:
-    return _format_bytes(_get_size(path))
+def _get_size(repo: Git) -> int:
+    """Get the size in bytes of a repository's Git objects, which is what garbage collection reclaims."""
+    stats = dict(line.split(": ", 1) for line in repo("count-objects", "--verbose").splitlines())
+    # Git reports the sizes in KiB.
+    return (int(stats.get("size", "0")) + int(stats.get("size-pack", "0"))) * 1024
 
 
 def _format_bytes(size: float) -> str:

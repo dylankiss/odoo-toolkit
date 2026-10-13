@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -29,11 +28,13 @@ from .config import (
     CONFIG_FILE,
     DEFAULT_REPOS,
     ODOO_COM,
+    VERSION_PATTERN,
     WORKTREE_SOURCE_DIR,
     ConfigError,
     RepoKind,
     RepoSpec,
     get_configured_repos,
+    get_current_dir,
     get_linked_repos,
     get_runs_on,
     load_config,
@@ -45,7 +46,10 @@ from .repos import (
     RepoResult,
     checkout_branch,
     fetch_branch,
+    get_known_default_branch,
+    get_remote_default_branch,
     print_result_table,
+    remote_has_branch,
     run_safely,
 )
 
@@ -77,8 +81,8 @@ def setup(
         Option(
             "--branches",
             "-b",
-            help="The Odoo versions to set up, like `19.0` or `saas-19.2`. Sets up every supported version if none "
-            "are specified.",
+            help="The Odoo versions to set up, like `19.0` or `saas-19.2`. Defaults to the ones already set up, or "
+            "every supported version for a new multiverse.",
         ),
     ] = EMPTY_LIST,
     repositories: Annotated[
@@ -92,9 +96,9 @@ def setup(
         ),
     ] = EMPTY_LIST,
     multiverse_dir: Annotated[
-        Path,
-        Option("--multiverse-dir", "-d", help="The directory to set up the multiverse in."),
-    ] = Path.cwd(),  # noqa: B008
+        Path | None,
+        Option("--multiverse-dir", "-d", help="The directory to set up the multiverse in. Defaults to this directory."),
+    ] = None,
     reset_config: Annotated[
         bool,
         Option(
@@ -110,18 +114,11 @@ def setup(
         str | None,
         Option(
             "--branch-suffix",
-            help="The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults "
-            "to the part of your Git email before the `@`.",
+            help="The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. It's "
+            "remembered for later commands. Defaults to the remembered one, or else the part of your Git email before "
+            "the `@`.",
         ),
     ] = None,
-    maintenance: Annotated[
-        bool,
-        Option(
-            "--maintenance/--no-maintenance",
-            help="Register the repositories for Git's background maintenance (`git maintenance start`), which keeps "
-            "them fast and prefetches new commits.",
-        ),
-    ] = True,
 ) -> None:
     """Set up an :ringed_planet: Odoo Multiverse environment, having different versions checked out at the same time.
 
@@ -153,24 +150,24 @@ def setup(
         raise Exit(1)
 
     versions = get_versions()
-    branches = normalize_list_option(branches) or list(versions)
+    multiverse_dir = (multiverse_dir or get_current_dir()).expanduser().resolve()
+    branches = normalize_list_option(branches) or get_existing_versions(multiverse_dir) or list(versions)
     if unsupported := [branch for branch in branches if branch not in versions]:
         print_warning(
             f"Not supported by Runbot anymore: [b]{'[/b], [b]'.join(unsupported)}[/b]. "
             "Their Python environments use uv's default Python version.\n",
         )
-    multiverse_dir = multiverse_dir.expanduser().resolve()
     multiverse_dir.mkdir(parents=True, exist_ok=True)
     print(f"Multiverse directory: [u]{multiverse_dir}[/u]\n")
     try:
         known_repos = load_config(multiverse_dir)
+        repos = [
+            resolve_repo(name, known_repos, multiverse_dir)
+            for name in normalize_list_option(repositories) or _get_default_repos(multiverse_dir, known_repos)
+        ]
     except ConfigError as e:
         print_error(f"{e}\n")
         raise Exit(1) from e
-    repos = [
-        resolve_repo(name, known_repos)
-        for name in normalize_list_option(repositories) or _get_default_repos(multiverse_dir, known_repos)
-    ]
     versioned_repos = [repo for repo in repos if repo.kind == RepoKind.VERSIONED]
     _copy_root_config(multiverse_dir, reset_config=reset_config)
 
@@ -181,8 +178,6 @@ def setup(
     print_header(":honey_pot: Clone Repositories")
     clone_results = _clone_repos(multiverse_dir, repos, branch_suffix=branch_suffix)
     cloned = [repo for repo in repos if repo.name in {r.name for r in clone_results if r.outcome != Outcome.FAILED}]
-    if maintenance:
-        clone_results += _start_maintenance([_get_git_dir(multiverse_dir, repo) for repo in cloned])
     links, link_results = _plan_links(multiverse_dir, cloned, branches)
     print_result_table(clone_results + link_results)
 
@@ -218,11 +213,13 @@ def _get_default_repos(multiverse_dir: Path, known_repos: dict[str, RepoSpec]) -
     return list(dict.fromkeys([*base, *get_configured_repos(multiverse_dir)]))
 
 
-def _get_git_dir(multiverse_dir: Path, repo: RepoSpec) -> Path:
-    """Get the directory of a repository's Git data: its bare repository, or its clone."""
-    if repo.kind == RepoKind.VERSIONED:
-        return multiverse_dir / WORKTREE_SOURCE_DIR / repo.name / ".bare"
-    return multiverse_dir / repo.name
+def get_existing_versions(multiverse_dir: Path) -> list[str]:
+    """Get the versions already set up in a multiverse, oldest first."""
+    if not multiverse_dir.is_dir():
+        return []
+    names = [path.name for path in multiverse_dir.iterdir() if path.is_dir() and VERSION_PATTERN.fullmatch(path.name)]
+    supported = list(get_versions())
+    return sorted(names, key=lambda name: (supported.index(name) if name in supported else len(supported), name))
 
 
 def _copy_root_config(multiverse_dir: Path, *, reset_config: bool) -> None:
@@ -287,7 +284,7 @@ def clone_bare_repo(
     # Allow running Git commands from the repository directory itself.
     if not (repo_dir / ".git").exists():
         (repo_dir / ".git").write_text("gitdir: ./.bare\n", encoding="utf-8")
-    # Forget worktrees whose directories were deleted.
+    # Forget the worktrees whose directories were deleted.
     bare_repo("worktree", "prune")
 
     if cloned:
@@ -350,17 +347,15 @@ def follow_default_branch(repo: Git, name: str) -> RepoResult:
     :param name: The repository name, to report the result under.
     :return: The result.
     """
-    previous = _get_known_default_branch(repo)
+    previous = get_known_default_branch(repo)
     current = get_remote_default_branch(repo)
     branch = repo.current_branch()
     if current and current != previous:
         fetch_branch(repo, "origin", current)
         fetch_on_demand(repo, "origin", current)
         repo("remote", "set-head", "origin", current)
-    if not current or branch == current or previous is None:
-        return RepoResult(name, Outcome.SKIPPED, f"already cloned, on [b]{branch}[/b]")
-    if previous == current:
-        return RepoResult(name, Outcome.SKIPPED, f"already cloned, on [b]{branch}[/b]")
+    if not current or previous in {None, current} or branch == current:
+        return RepoResult(name, Outcome.SKIPPED, f"already cloned, on [b]{branch or 'a detached HEAD'}[/b]")
     if branch != previous:
         return RepoResult(
             name, Outcome.WARNING, f"the default branch is now [b]{current}[/b], but you're on [b]{branch}[/b]",
@@ -373,42 +368,6 @@ def follow_default_branch(repo: Git, name: str) -> RepoResult:
         )
     checkout_branch(repo, "origin", current)
     return RepoResult(name, Outcome.UPDATED, f"switched to the new default branch [b]{current}[/b]")
-
-
-def _get_known_default_branch(repo: Git) -> str | None:
-    """Get the default branch the clone knows, from when it was cloned or last followed."""
-    try:
-        return repo("symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/")
-    except GitError:
-        return None
-
-
-def get_remote_default_branch(repo: Git) -> str | None:
-    """Get the current default branch on GitHub."""
-    try:
-        output = repo("ls-remote", "--symref", "origin", "HEAD")
-    except GitError:
-        return None
-    match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", output, re.MULTILINE)
-    return match.group(1) if match else None
-
-
-def _start_maintenance(git_dirs: list[Path]) -> list[RepoResult]:
-    """Register the repositories for Git's background maintenance.
-
-    Git then regularly prefetches new commits, updates its indexes and repacks the repository in the background, which
-    keeps fetching and history commands fast.
-    """
-    results: list[RepoResult] = []
-    for git_dir in git_dirs:
-        if not git_dir.is_dir():
-            continue
-        try:
-            Git(git_dir)("maintenance", "start")
-        except GitError as e:
-            name = git_dir.parent.name if git_dir.name == ".bare" else git_dir.name
-            results.append(RepoResult(f"{name} maintenance", Outcome.WARNING, e.message))
-    return results
 
 
 def _plan_links(
@@ -438,8 +397,7 @@ def _plan_links(
                     else f"can't tell which Odoo version it runs on: set [b]runs_on[/b] in [b]{CONFIG_FILE}[/b]"
                 )
                 problems.append(RepoResult(repo.name, Outcome.WARNING, reason))
-                continue
-            if runs_on not in links:
+            elif runs_on not in links:
                 problems.append(
                     RepoResult(
                         repo.name,
@@ -447,10 +405,25 @@ def _plan_links(
                         f"runs on [b]{runs_on}[/b], which isn't set up: add [b]-b {runs_on}[/b] to use it",
                     ),
                 )
-            for version in (runs_on, *repo.also_in):
-                if version in links:
-                    links[version].append(repo.name)
+            wanted = {version for version in (runs_on, *repo.also_in) if version}
+            for version in wanted & set(links):
+                links[version].append(repo.name)
+            # The version it runs on changes over time, like when odoo.com moves to a new version.
+            if runs_on and (stale := sorted(set(_get_versions_linking(multiverse_dir, repo.name)) - wanted)):
+                problems.append(
+                    RepoResult(
+                        repo.name,
+                        Outcome.WARNING,
+                        f"now runs on [b]{runs_on}[/b], but is still linked into [b]{'[/b], [b]'.join(stale)}[/b]: run "
+                        f"[b]otk mv unlink {repo.name}[/b] there if you don't need it anymore",
+                    ),
+                )
     return links, problems
+
+
+def _get_versions_linking(multiverse_dir: Path, name: str) -> list[str]:
+    """Get the version directories a repository is linked into."""
+    return [path.name for path in multiverse_dir.iterdir() if (path / name).is_symlink()]
 
 
 # Worktrees
@@ -506,12 +479,9 @@ def add_worktree(bare_dir: Path, worktree_dir: Path, branch: str) -> RepoResult:
         return RepoResult(name, Outcome.FAILED, f"[u]{worktree_dir}[/u] exists but is not a Git worktree")
 
     bare_repo = Git(bare_dir)
-    try:
-        fetch_branch(bare_repo, "origin", branch)
-    except GitError as e:
-        if "couldn't find remote ref" in e.message:
-            return RepoResult(name, Outcome.SKIPPED, f"no [b]{branch}[/b] branch in this repository")
-        raise
+    if not remote_has_branch(bare_repo, "origin", branch):
+        return RepoResult(name, Outcome.SKIPPED, f"no [b]{branch}[/b] branch in this repository")
+    fetch_branch(bare_repo, "origin", branch)
 
     fetch_on_demand(bare_repo, "origin", branch)
     upstream = f"origin/{branch}"
@@ -595,8 +565,7 @@ def _configure_versions(
 def link_repos(version_dir: Path, names: list[str]) -> RepoResult:
     """Link shared and pinned repositories into a version directory.
 
-    The links are relative, so the multiverse directory can be moved. Existing links are kept, including the ones
-    added with `otk mv link`.
+    Existing links are kept, including the ones added with `otk mv link`.
 
     :param version_dir: The version directory.
     :param names: The repositories to link, which are cloned in the multiverse directory.
@@ -764,7 +733,12 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
         )
         # Reuse the Community dependencies instead of installing them twice.
         shutil.copyfile(com_dir / "package-lock.json", ent_dir / "package-lock.json")
-        shutil.copytree(com_dir / "node_modules", ent_dir / "node_modules", dirs_exist_ok=True, symlinks=True)
+        node_modules = ent_dir / "node_modules"
+        if node_modules.is_dir() and not node_modules.is_symlink():
+            # Earlier setups copied them.
+            shutil.rmtree(node_modules)
+        if not node_modules.is_symlink():
+            node_modules.symlink_to(Path(os.path.relpath(com_dir, ent_dir)) / "node_modules", target_is_directory=True)
     return RepoResult("javascript", Outcome.UPDATED, "ESLint and type checking set up")
 
 
@@ -796,9 +770,10 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
         vscode_dir / "extensions.json": _read_json(source_dir / "extensions.json"),
     }
     written = [path.name for path, content in files.items() if _write_json(path, content, overwrite=reset)]
+    # An existing settings file still needs the repositories linked since.
+    update_scanned_repos(version_dir)
 
     if not written:
-        update_scanned_repos(version_dir)
         return RepoResult("vscode", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)")
     return RepoResult("vscode", Outcome.UPDATED, f"wrote [b]{'[/b], [b]'.join(written)}[/b]")
 

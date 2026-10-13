@@ -52,7 +52,7 @@ def unlink(
 
 
 def _get_version_dir() -> Path:
-    version_dir = find_version_dir(Path.cwd())
+    version_dir = find_version_dir()
     if not version_dir:
         print_error("Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo-mv/19.0[/u]).\n")
         raise Exit(1)

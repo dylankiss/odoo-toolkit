@@ -20,10 +20,14 @@ def test_configure_fetching(bare: Git) -> None:
     bare("config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
     bare("config", "--replace-all", "remote.dev.fetch", "+refs/heads/*:refs/remotes/dev/*")
     bare("config", "--add", "remote.dev.fetch", "+refs/heads/gone:refs/remotes/dev/gone")
-    # A local branch tracking someone else's `dev` branch.
-    bare("branch", "kept", "master")
-    bare("config", "branch.kept.remote", "dev")
-    bare("config", "branch.kept.merge", "refs/heads/feature/kept")
+    # A local branch tracking someone else's `dev` branch, and one tracking a branch that was deleted on GitHub.
+    for branch, upstream in (("kept", "fix/master"), ("deleted", "fix/deleted")):
+        bare("branch", branch, "master")
+        bare("config", f"branch.{branch}.remote", "dev")
+        bare("config", f"branch.{branch}.merge", f"refs/heads/{upstream}")
+    # The settings of a branch deleted without Git's `branch` command.
+    bare("config", "branch.removed.remote", "dev")
+    bare("config", "branch.removed.merge", "refs/heads/19.0-fix-abc")
 
     assert configure_fetching(bare, branch_suffix="abcd")
 
@@ -35,7 +39,7 @@ def test_configure_fetching(bare: Git) -> None:
     # Your own branches, and the branches local branches track.
     assert get_fetch_refspecs(bare, "dev") == [
         "+refs/heads/*-abcd:refs/remotes/dev/*-abcd",
-        "+refs/heads/feature/kept:refs/remotes/dev/feature/kept",
+        "+refs/heads/fix/master:refs/remotes/dev/fix/master",
     ]
     assert bare("config", "core.fsmonitor") == "true"
     assert bare("config", "fetch.prune") == "true"
@@ -47,7 +51,7 @@ def test_switch_to_other_dev_branch_keeps_fetching_it(multiverse: Path, bare: Gi
     worktree = multiverse / "19.0" / "odoo"
     assert "+refs/heads/19.0-fix-abc:refs/remotes/dev/19.0-fix-abc" not in get_fetch_refspecs(bare, "dev")
 
-    switch_repo(worktree, branch="19.0-fix-abc", remote=None, version="19.0")
+    switch_repo(worktree, branch="19.0-fix-abc", version="19.0")
 
     assert "+refs/heads/19.0-fix-abc:refs/remotes/dev/19.0-fix-abc" in get_fetch_refspecs(bare, "dev")
     commit(worktree, "work.txt")
@@ -94,3 +98,29 @@ def test_cli_cleanup(multiverse: Path, bare: Git, monkeypatch: pytest.MonkeyPatc
 def test_cli_cleanup_outside_multiverse_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     assert CliRunner().invoke(app, ["mv", "cleanup", "--yes"]).exit_code == 1
+
+
+def test_cleanup_forgets_the_branches_it_deletes(bare: Git) -> None:
+    bare("branch", "mirror", "origin/19.0")
+    bare("config", "branch.mirror.remote", "dev")
+    bare("config", "branch.mirror.merge", "refs/heads/fix/master")
+
+    apply_cleanup(bare, plan_cleanup(bare), branch_suffix="test")
+
+    assert not bare.has_branch("mirror")
+    assert "mirror" not in bare("config", "--list")
+    assert "fix/master" not in "\n".join(get_fetch_refspecs(bare, "dev"))
+
+
+def test_cleanup_keeps_branches_only_pushed_to_branches_it_removes(multiverse: Path, bare: Git) -> None:
+    worktree = multiverse / "19.0" / "odoo"
+    git(worktree, "checkout", "-q", "-b", "pushed-once")
+    work = commit(worktree, "work.txt")
+    git(worktree, "checkout", "-q", "19.0")
+    # A copy fetched when everything was fetched, of a branch deleted on GitHub since.
+    bare("update-ref", "refs/remotes/dev/pushed-once", work)
+
+    plan = plan_cleanup(bare)
+
+    assert plan.remote_refs == ["refs/remotes/dev/pushed-once"]
+    assert "pushed-once" not in plan.local_branches

@@ -85,16 +85,18 @@ def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> No
     assert git(bare, "config", "--get-all", "remote.origin.fetch").splitlines() == [
         "+refs/heads/master:refs/remotes/origin/master",
     ]
-    # No `dev` branch is fetched without a branch suffix.
-    assert not git(bare, "config", "--get-all", "remote.dev.fetch", check=False)
+    # Without a branch suffix, your branches are the ones ending with the start of your Git email.
+    assert git(bare, "config", "--get-all", "remote.dev.fetch") == "+refs/heads/*-test:refs/remotes/dev/*-test"
     # Only the default branch is cloned as a local branch.
     assert git(bare, "for-each-ref", "--format=%(refname)", "refs/heads") == "refs/heads/master"
     assert git(bare, "remote", "get-url", "dev") == f"file://{remotes}/odoo-dev/odoo.git"
     assert git(bare, "remote", "get-url", "--push", "origin") == "NO_PUSH_TRY_DEV_REPO"
     assert git(bare, "config", "remote.origin.partialclonefilter") == "blob:none"
     assert (repo_dir / ".git").read_text() == "gitdir: ./.bare\n"
-    # Running it again doesn't clone again.
+    # Running it again doesn't clone again, and a branch suffix given once is remembered.
+    assert mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir, branch_suffix="abcd").outcome == Outcome.UPDATED
     assert mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir).outcome == Outcome.SKIPPED
+    assert git(bare, "config", "--get-all", "remote.dev.fetch") == "+refs/heads/*-abcd:refs/remotes/dev/*-abcd"
 
 
 @pytest.mark.usefixtures("remotes")
@@ -282,3 +284,12 @@ def test_follow_default_branch_leaves_your_work_alone(tmp_path: Path, remotes: P
     assert result.outcome == Outcome.WARNING
     assert "uncommitted changes" in result.message
     assert repo.current_branch() == "18.0"
+
+
+def test_existing_versions_are_the_default(tmp_path: Path) -> None:
+    for name in ("master", "19.0", "18.0", "not-a-version"):
+        (tmp_path / name).mkdir()
+
+    assert mv_setup.get_existing_versions(tmp_path) == ["18.0", "19.0", "master"]
+    assert mv_setup.get_existing_versions(tmp_path / "new") == []
+

@@ -12,7 +12,7 @@ from odoo_toolkit.mv.repos import (
     get_other_worktree_using_branch,
     remote_has_branch,
 )
-from odoo_toolkit.mv.reset import reset_repo
+from odoo_toolkit.mv.reset import check_repo, reset_repo
 from odoo_toolkit.mv.switch import switch_repo
 from tests.mv.conftest import commit, git
 
@@ -46,6 +46,7 @@ def test_reset_stashes_with_label_and_fast_forwards(multiverse: Path, remotes: d
     new_head = commit(remotes["seed"], "new.txt")
     git(remotes["seed"], "push", "-q", "origin", "19.0")
 
+    assert check_repo(worktree, "19.0").outcome == Outcome.UPDATED
     result = reset_repo(worktree, branch="19.0", version="19.0")
 
     assert result.outcome == Outcome.UPDATED
@@ -62,6 +63,9 @@ def test_reset_discards_local_commits_and_reports_them(multiverse: Path, remotes
     remote_head = commit(remotes["seed"], "remote.txt")
     git(remotes["seed"], "push", "-q", "origin", "19.0")
 
+    check = check_repo(worktree, "19.0")
+    assert check.outcome == Outcome.WARNING
+    assert check.message.startswith("1 commit(s) on [b]19.0[/b]")
     result = reset_repo(worktree, branch="19.0", version="19.0")
 
     assert result.outcome == Outcome.WARNING
@@ -102,7 +106,7 @@ def test_reset_removes_leftover_module_folders_only(multiverse: Path) -> None:
 def test_switch_to_dev_branch_tracks_it(multiverse: Path) -> None:
     worktree = multiverse / "19.0" / "odoo"
 
-    result = switch_repo(worktree, branch="19.0-fix-abc", remote=None, version="19.0")
+    result = switch_repo(worktree, branch="19.0-fix-abc", version="19.0")
 
     assert result.outcome == Outcome.UPDATED
     assert result.branch_found
@@ -114,7 +118,7 @@ def test_switch_to_missing_branch_keeps_current_branch(multiverse: Path) -> None
     worktree = multiverse / "19.0" / "odoo"
     (worktree / "base.txt").write_text("uncommitted")
 
-    result = switch_repo(worktree, branch="does-not-exist", remote=None, version="19.0")
+    result = switch_repo(worktree, branch="does-not-exist", version="19.0")
 
     assert result.outcome == Outcome.SKIPPED
     assert not result.branch_found
@@ -150,9 +154,86 @@ def test_switch_to_branch_used_by_other_worktree_fails_without_stashing(multiver
     (worktree / "base.txt").write_text("uncommitted")
     assert get_other_worktree_using_branch(Git(worktree), "master") == (multiverse / "master" / "odoo").resolve()
 
-    result = switch_repo(worktree, branch="master", remote=None, version="19.0")
+    result = switch_repo(worktree, branch="master", version="19.0")
 
     assert result.outcome == Outcome.FAILED
     assert "is checked out in" in result.message
     assert result.stash is None
     assert (worktree / "base.txt").read_text() == "uncommitted"
+
+
+def test_switch_back_to_a_local_only_branch(multiverse: Path) -> None:
+    worktree = multiverse / "19.0" / "odoo"
+    git(worktree, "checkout", "-q", "-b", "my-experiment")
+    git(worktree, "checkout", "-q", "19.0")
+
+    result = switch_repo(worktree, branch="my-experiment", version="19.0")
+
+    assert result.outcome == Outcome.WARNING
+    assert "only exists locally" in result.message
+    assert git(worktree, "rev-parse", "--abbrev-ref", "HEAD") == "my-experiment"
+
+
+def test_branch_deleted_on_github_stops_being_fetched(multiverse: Path, remotes: dict[str, Path]) -> None:
+    worktree = multiverse / "19.0" / "odoo"
+    switch_repo(worktree, branch="19.0-fix-abc", version="19.0")
+    # Merged and deleted on GitHub.
+    git(remotes["seed"], "push", "-q", str(remotes["dev"]), "--delete", "19.0-fix-abc")
+
+    result = switch_repo(worktree, branch="does-not-exist", version="19.0")
+
+    assert result.outcome == Outcome.SKIPPED
+    assert "was deleted on GitHub" in result.message
+    # Fetching a deleted branch would fail the whole fetch.
+    git(worktree, "fetch", "-q", "dev")
+
+
+def test_switch_and_reset_refuse_during_a_merge(multiverse: Path) -> None:
+    worktree = multiverse / "19.0" / "odoo"
+    head = git(worktree, "rev-parse", "HEAD")
+    Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "MERGE_HEAD")).write_text(head)
+
+    assert "a merge is in progress" in switch_repo(worktree, branch="master", version="19.0").message
+    assert check_repo(worktree, "19.0").outcome == Outcome.FAILED
+
+
+def test_fast_forward_blocked_by_uncommitted_changes_says_so(multiverse: Path, remotes: dict[str, Path]) -> None:
+    worktree = multiverse / "19.0" / "odoo"
+    git(remotes["seed"], "checkout", "-q", "-b", "19.0", "origin/19.0")
+    commit(remotes["seed"], "base.txt", "changed upstream")
+    git(remotes["seed"], "push", "-q", "origin", "19.0")
+    (worktree / "base.txt").write_text("changed locally")
+
+    result = switch_repo(worktree, branch="19.0", version="19.0")
+
+    assert result.outcome == Outcome.WARNING
+    assert "uncommitted changes" in result.message
+    assert "diverged" not in result.message
+
+
+def test_cli_reset_asks_before_discarding_local_commits(multiverse: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    worktree = multiverse / "19.0" / "odoo"
+    local_head = commit(worktree, "local.txt")
+    (worktree / "base.txt").write_text("uncommitted")
+    monkeypatch.chdir(worktree)
+
+    result = CliRunner().invoke(app, ["mv", "reset"], input="n\n")
+    assert result.exit_code == 1, result.output
+    assert "1 commit(s) on 19.0" in result.output
+    assert git(worktree, "rev-parse", "HEAD") == local_head
+
+    result = CliRunner().invoke(app, ["mv", "reset"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert git(worktree, "rev-parse", "HEAD") != local_head
+    # The exact command to restore the stashed changes.
+    assert f"git -C {multiverse / '19.0' / 'odoo'} stash pop stash@{{0}}" in result.output.replace("\n", "")
+
+
+def test_commands_work_inside_a_linked_repository(multiverse: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (multiverse / "upgrade").mkdir()
+    (multiverse / "19.0" / "upgrade").symlink_to(Path("..") / "upgrade", target_is_directory=True)
+    # The operating system only knows where the link points to, the shell knows where you are.
+    monkeypatch.chdir(multiverse / "upgrade")
+    monkeypatch.setenv("PWD", str(multiverse / "19.0" / "upgrade"))
+
+    assert find_version_dir() == multiverse / "19.0"

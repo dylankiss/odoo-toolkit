@@ -11,6 +11,7 @@
 ```
 """
 
+import os
 import re
 import tomllib
 from dataclasses import dataclass, field, replace
@@ -174,45 +175,65 @@ def _apply_overrides(spec: RepoSpec, values: dict[str, Any], config_file: Path) 
     )
 
 
-def resolve_repo(argument: str, specs: dict[str, RepoSpec]) -> RepoSpec:
+def resolve_repo(argument: str, specs: dict[str, RepoSpec], multiverse_dir: Path) -> RepoSpec:
     """Get the repository for a command line argument, like `odoo`, `i18n-apps` or `odoo-ps/psbe-internal`.
 
-    What isn't known about a repository is detected: it's versioned if it has branches for several Odoo versions, and
-    shared otherwise, and its `odoo-dev` fork is used if you can access it. Pinned and standalone repositories must
-    be configured in `multiverse.toml`.
+    A repository that's already set up keeps its layout and owner. What isn't known about a new repository is detected:
+    it's versioned if it has branches for several Odoo versions, and shared otherwise, and its `odoo-dev` fork is used
+    if you can access it. Pinned and standalone repositories must be configured in `multiverse.toml`.
 
     :param argument: The repository name, optionally prefixed with its GitHub owner.
     :param specs: The known repositories.
+    :param multiverse_dir: The multiverse directory, to find out how repositories that are already set up are laid out.
+    :raises ConfigError: If a new repository's branches can't be listed, to detect its layout.
     :return: The repository.
     """
     owner, _, name = argument.rpartition("/")
     spec = specs.get(name) or RepoSpec(name, kind=None, dev_remote=None)
+    bare_dir = multiverse_dir / WORKTREE_SOURCE_DIR / name / ".bare"
+    clone_dir = multiverse_dir / name
+    existing = Git(bare_dir) if bare_dir.is_dir() else Git(clone_dir) if (clone_dir / ".git").is_dir() else None
     if owner:
         spec = replace(spec, owner=owner)
+    elif existing and (existing_owner := get_remote_owner(existing.remote_url("origin"))):
+        spec = replace(spec, owner=existing_owner)
+    if spec.kind is None and existing:
+        spec = replace(spec, kind=RepoKind.VERSIONED if bare_dir.is_dir() else RepoKind.SHARED)
     if spec.kind is None:
-        branches = [line.rpartition("refs/heads/")[2] for line in _ls_remote("--heads", spec.url).splitlines()]
+        try:
+            output = _ls_remote("--heads", spec.url)
+        except GitError as e:
+            msg = f"Can't list the branches of {spec.url} to tell how to set it up: {e.message}"
+            raise ConfigError(msg) from e
+        branches = [line.rpartition("refs/heads/")[2] for line in output.splitlines()]
         version_branches = [branch for branch in branches if VERSION_PATTERN.fullmatch(branch)]
         spec = replace(spec, kind=RepoKind.VERSIONED if len(version_branches) > 1 else RepoKind.SHARED)
     if spec.dev_remote is None:
-        # The fork only exists for some repositories, and you may not have access to it.
-        spec = replace(spec, dev_remote=_remote_exists(spec.dev_url()))
+        if existing:
+            spec = replace(spec, dev_remote="dev" in existing.remotes())
+        else:
+            # The fork only exists for some repositories, and you may not have access to it.
+            try:
+                _ls_remote(spec.dev_url(), "HEAD")
+            except GitError:
+                spec = replace(spec, dev_remote=False)
+            else:
+                spec = replace(spec, dev_remote=True)
     return spec
 
 
 def _ls_remote(*args: str) -> str:
-    try:
-        return Git(Path.cwd())("ls-remote", *args)
-    except GitError:
-        return ""
+    """List the references of a remote repository given by its URL.
+
+    :raises GitError: If the repository doesn't exist or can't be reached.
+    """
+    return Git(Path.home())("ls-remote", *args)
 
 
-def _remote_exists(url: str) -> bool:
-    """Check whether a remote repository exists and is accessible."""
-    try:
-        Git(Path.cwd())("ls-remote", url, "HEAD")
-    except GitError:
-        return False
-    return True
+def get_remote_owner(url: str) -> str | None:
+    """Get the owner of a remote's repository, like `odoo-dev` for `git@github.com:odoo-dev/odoo.git`."""
+    match = re.search(r"[:/]([^/:]+)/[^/:]+?(?:\.git)?/?$", url)
+    return match.group(1) if match else None
 
 
 def get_runs_on(spec: RepoSpec, repo_dir: Path, branch: str | None) -> str | None:
@@ -266,19 +287,34 @@ def detect_runs_on(repo_dir: Path, branch: str | None) -> str | None:
     return max(versions, key=lambda version: versions[version]) if versions else None
 
 
+def get_current_dir() -> Path:
+    """Get the current directory as you see it in your terminal, without resolving links.
+
+    Inside a linked repository, like `19.0/upgrade`, that's still inside the version directory, while the operating
+    system only knows the directory the link points to.
+    """
+    logical = os.environ.get("PWD")
+    if logical and Path(logical).is_absolute() and Path(logical).exists() and Path(logical).samefile(Path.cwd()):
+        return Path(logical)
+    return Path.cwd()
+
+
 def find_multiverse_dir(start: Path) -> Path | None:
     """Find the multiverse directory containing a path, recognized by its `.worktree-source` directory."""
-    start = start.expanduser().resolve()
+    # Not `resolve()`, which would follow links out of the version directory.
+    start = Path(os.path.abspath(start.expanduser()))  # noqa: PTH100
     return next((d for d in (start, *start.parents) if (d / WORKTREE_SOURCE_DIR).is_dir()), None)
 
 
-def find_version_dir(start: Path) -> Path | None:
+def find_version_dir(start: Path | None = None) -> Path | None:
     """Find the version directory (like `19.0`) containing a path.
 
-    :param start: The path to start searching from, usually the current working directory.
+    Links aren't resolved, so a linked repository inside a version directory is part of it.
+
+    :param start: The path to start searching from, or None for the current directory.
     :return: The version directory, or None if the path is not inside one.
     """
-    start = start.expanduser().resolve()
+    start = Path(os.path.abspath((start or get_current_dir()).expanduser()))  # noqa: PTH100
     for directory in (start, *start.parents):
         # The other repositories sit next to the version directories, but are repositories themselves.
         if (

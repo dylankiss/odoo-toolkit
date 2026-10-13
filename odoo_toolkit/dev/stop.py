@@ -1,5 +1,4 @@
 import subprocess
-from pathlib import Path
 from typing import Annotated
 
 from typer import Option, Typer
@@ -24,7 +23,7 @@ def stop(
     them. Your databases and filestores stay, so you can continue where you left off.
     """
     print_command_title(":stop_sign: Stop Odoo")
-    version_dir = find_version_dir(Path.cwd())
+    version_dir = find_version_dir()
     version = None if include_services or not version_dir else version_dir.name
     if containers := get_run_containers(version):
         subprocess.run(["docker", "stop", *containers], capture_output=True, check=False)

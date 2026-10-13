@@ -39,6 +39,16 @@ class RepoResult:
     branch_found: bool = False
 
 
+# The files Git keeps while an operation that needs your attention is in progress.
+IN_PROGRESS = {
+    "rebase-merge": "rebase",
+    "rebase-apply": "rebase",
+    "MERGE_HEAD": "merge",
+    "CHERRY_PICK_HEAD": "cherry-pick",
+    "REVERT_HEAD": "revert",
+}
+
+
 def preauthenticate_ssh(repo_dirs: Iterable[Path]) -> None:
     """Make one lightweight remote call before running Git operations in parallel.
 
@@ -47,10 +57,22 @@ def preauthenticate_ssh(repo_dirs: Iterable[Path]) -> None:
 
     :param repo_dirs: The repositories that will be accessed. Only the first one is used.
     """
-    for repo_dir in repo_dirs:
+    if repo_dir := next(iter(repo_dirs), None):
         with contextlib.suppress(GitError):
             Git(repo_dir)("ls-remote", "origin", "HEAD")
-        return
+
+
+def get_operation_in_progress(repo: Git) -> str | None:
+    """Get the operation in progress in a working tree, like `rebase` or `merge`, which must be finished first."""
+    for path, operation in IN_PROGRESS.items():
+        if Path(repo("rev-parse", "--path-format=absolute", "--git-path", path)).exists():
+            return operation
+    return None
+
+
+def branch_refspec(remote: str, branch: str) -> str:
+    """Get the refspec that fetches one branch (or branch pattern) of a remote into its remote-tracking branch."""
+    return f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}"
 
 
 def remote_has_branch(repo: Git, remote: str, branch: str) -> bool:
@@ -67,15 +89,30 @@ def remote_has_branch(repo: Git, remote: str, branch: str) -> bool:
     return True
 
 
-def get_default_branch(repo: Git, remote: str = "origin") -> str:
-    """Get the default branch of a remote, falling back to `master`."""
+def get_known_default_branch(repo: Git, remote: str = "origin") -> str | None:
+    """Get the default branch of a remote as the repository knows it, without asking GitHub."""
     with contextlib.suppress(GitError):
         return repo("symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD").removeprefix(f"{remote}/")
-    with contextlib.suppress(GitError):
-        match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", repo("ls-remote", "--symref", remote, "HEAD"), re.MULTILINE)
-        if match:
-            return match.group(1)
-    return "master"
+    # A bare clone has no remote-tracking branches, but its own HEAD is the default branch.
+    if repo("rev-parse", "--is-bare-repository") == "true":
+        with contextlib.suppress(GitError):
+            return repo("symbolic-ref", "--short", "HEAD")
+    return None
+
+
+def get_remote_default_branch(repo: Git, remote: str = "origin") -> str | None:
+    """Get the current default branch of a remote on GitHub, or None if it can't be reached."""
+    try:
+        output = repo("ls-remote", "--symref", remote, "HEAD")
+    except GitError:
+        return None
+    match = re.search(r"^ref: refs/heads/(\S+)\s+HEAD$", output, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def get_default_branch(repo: Git, remote: str = "origin") -> str:
+    """Get the default branch of a remote, falling back to `master`."""
+    return get_known_default_branch(repo, remote) or get_remote_default_branch(repo, remote) or "master"
 
 
 def get_other_worktree_using_branch(repo: Git, branch: str) -> Path | None:
@@ -109,7 +146,15 @@ def stash_if_dirty(repo: Git, label: str) -> str | None:
 
 def fetch_branch(repo: Git, remote: str, branch: str) -> None:
     """Fetch a single branch into its remote-tracking ref."""
-    repo("fetch", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}")
+    repo("fetch", remote, branch_refspec(remote, branch))
+
+
+def count_local_commits(repo: Git, branch: str, upstream: str) -> int:
+    """Count the commits of a local branch that its upstream doesn't have, or 0 if either doesn't exist."""
+    try:
+        return int(repo("rev-list", "--count", f"{upstream}..refs/heads/{branch}"))
+    except GitError:
+        return 0
 
 
 def checkout_branch(repo: Git, remote: str, branch: str) -> bool:
@@ -123,19 +168,6 @@ def checkout_branch(repo: Git, remote: str, branch: str) -> bool:
     if repo.current_branch() != branch:
         repo("checkout", branch)
     return False
-
-
-def checkout_and_fast_forward(repo: Git, remote: str, branch: str) -> tuple[Outcome, str]:
-    """Check out a branch, creating it to track the remote branch if needed, and fast-forward it.
-
-    Local commits are never discarded: if the local branch has diverged from the remote one, it is left as is.
-
-    :return: The outcome and a message describing what happened.
-    """
-    upstream = f"{remote}/{branch}"
-    if checkout_branch(repo, remote, branch):
-        return Outcome.UPDATED, f"checked out [b]{upstream}[/b] ({repo.head()[:8]})"
-    return fast_forward(repo, upstream)
 
 
 def checkout_and_hard_reset(repo: Git, remote: str, branch: str) -> tuple[Outcome, str]:
@@ -200,14 +232,30 @@ def fast_forward(repo: Git, upstream: str) -> tuple[Outcome, str]:
     try:
         repo("merge", "--ff-only", upstream)
     except GitError:
+        if int(repo("rev-list", "--count", f"{upstream}..HEAD")):
+            return Outcome.WARNING, (
+                f"[b]{branch}[/b] has diverged from [b]{upstream}[/b], left it as is. "
+                "Rebase or reset it yourself if you want to drop your local commits."
+            )
         return Outcome.WARNING, (
-            f"[b]{branch}[/b] has diverged from [b]{upstream}[/b], left it as is. "
-            "Rebase or reset it yourself if you want to drop your local commits."
+            f"[b]{branch}[/b] can't be fast-forwarded to [b]{upstream}[/b], because your uncommitted changes touch the "
+            "same files. Commit or stash them, and run the command again."
         )
     after = repo.head()
     if before == after:
         return Outcome.UPDATED, f"[b]{branch}[/b] is up to date with [b]{upstream}[/b] ({after[:8]})"
     return Outcome.UPDATED, f"[b]{branch}[/b] fast-forwarded to [b]{upstream}[/b] ({before[:8]} → {after[:8]})"
+
+
+def find_stash(repo: Git, label: str) -> str | None:
+    """Find the stash with the given label, like `stash@{2}`. Stashes shift when new ones are added."""
+    with contextlib.suppress(GitError):
+        for line in repo("stash", "list", "--format=%gd %gs").splitlines():
+            ref, _, subject = line.partition(" ")
+            # Git prefixes the label with the branch, like `On 19.0: otk: ...`.
+            if subject.endswith(f": {label}"):
+                return ref
+    return None
 
 
 def run_on_repos(
@@ -268,20 +316,19 @@ def print_result_table(results: list[RepoResult]) -> None:
 
 
 def print_results(results: list[RepoResult], version_dir: Path) -> bool:
-    """Print a summary table of the results, followed by any stashed changes.
+    """Print a summary table of the results, followed by any stashed changes and how to restore them.
 
     :return: True if every operation succeeded or was skipped, False if any failed.
     """
     print_result_table(results)
 
     if stashed := [result for result in results if result.stash]:
-        print_warning("Uncommitted changes were stashed:")
+        print_warning("Uncommitted changes were stashed. Restore them with:")
         for result in stashed:
-            print(f"  [b]{result.name}[/b]: {result.stash}")
-        print(
-            f"  Restore them with [b]git -C {version_dir}/<repo> stash pop stash@{{N}}[/b], "
-            "finding [b]N[/b] with [b]git stash list[/b].\n",
-        )
+            repo_dir = version_dir / result.name
+            ref = find_stash(Git(repo_dir), result.stash or "") or "stash@{0}"
+            print(f"  [b]git -C {repo_dir} stash pop {ref}[/b]  [d]# {result.stash}[/d]", highlight=False)
+        print()
 
     failed = [result for result in results if result.outcome == Outcome.FAILED]
     if failed:

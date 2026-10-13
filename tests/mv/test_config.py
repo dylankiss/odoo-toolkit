@@ -13,12 +13,12 @@ from odoo_toolkit.mv.config import (
     RepoKind,
     detect_runs_on,
     find_version_dir,
+    get_remote_owner,
     get_repo_dirs,
     get_runs_on,
     load_config,
     resolve_repo,
 )
-from odoo_toolkit.mv.switch import get_remote_owner
 from tests.mv.conftest import git
 
 
@@ -72,25 +72,34 @@ def test_resolve_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     specs = load_config(tmp_path)
 
     # Versioned, because it has branches for several versions, even if none of them is the one being set up.
-    assert resolve_repo("odoo-ps/old-versions", specs).kind == RepoKind.VERSIONED
+    assert resolve_repo("odoo-ps/old-versions", specs, tmp_path).kind == RepoKind.VERSIONED
     # Shared, because it has only one version branch.
-    assert resolve_repo("odoo-ps/one-version", specs).kind == RepoKind.SHARED
+    assert resolve_repo("odoo-ps/one-version", specs, tmp_path).kind == RepoKind.SHARED
     # Versioned, because it has branches for several versions.
-    versioned = resolve_repo("odoo-ps/psbe-internal", specs)
+    versioned = resolve_repo("odoo-ps/psbe-internal", specs, tmp_path)
     assert (versioned.kind, versioned.owner, versioned.dev_remote) == (RepoKind.VERSIONED, "odoo-ps", False)
     # Shared, with the `odoo-dev` fork detected.
-    shared = resolve_repo("tools", specs)
+    shared = resolve_repo("tools", specs, tmp_path)
     assert (shared.kind, shared.owner, shared.dev_remote) == (RepoKind.SHARED, "odoo", True)
     # What isn't configured in `multiverse.toml` is detected as well.
     (tmp_path / "multiverse.toml").write_text('[repos.psbe-internal]\nowner = "odoo-ps"\n\n[repos.tools]\n')
     specs = load_config(tmp_path)
     assert specs["tools"].kind is None
-    assert resolve_repo("psbe-internal", specs).kind == RepoKind.VERSIONED
-    configured = resolve_repo("tools", specs)
+    assert resolve_repo("psbe-internal", specs, tmp_path).kind == RepoKind.VERSIONED
+    configured = resolve_repo("tools", specs, tmp_path)
     assert (configured.kind, configured.dev_remote) == (RepoKind.SHARED, True)
     # Known repositories keep their defaults, with another owner if given.
-    assert resolve_repo("odoo", specs) == specs["odoo"]
-    assert resolve_repo("my-fork/odoo", specs).owner == "my-fork"
+    assert resolve_repo("odoo", specs, tmp_path) == specs["odoo"]
+    assert resolve_repo("my-fork/odoo", specs, tmp_path).owner == "my-fork"
+    # A repository that can't be listed can't be detected.
+    with pytest.raises(ConfigError, match="Can't list the branches"):
+        resolve_repo("odoo-ps/missing", specs, tmp_path)
+    # A repository that's already set up keeps its layout and owner, without asking GitHub.
+    bare = tmp_path / ".worktree-source" / "other" / ".bare"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    git(bare, "remote", "add", "origin", "git@github.com:odoo-ps/other.git")
+    existing = resolve_repo("other", specs, tmp_path)
+    assert (existing.kind, existing.owner, existing.dev_remote) == (RepoKind.VERSIONED, "odoo-ps", False)
 
 
 def test_get_runs_on_odoo_com(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

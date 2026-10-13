@@ -642,7 +642,7 @@ The easiest way to set this up is by creating a directory for your multiverse se
 > [!IMPORTANT]
 > Make sure you have set up your GitHub SSH key beforehand in order to clone the repositories, and installed [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and `npm`.
 
-You can run the command as many times as you want. It only adds what's missing, and never touches your own files. Pass `--reset-config` to recreate the Python environments and overwrite the configuration files.
+You can run the command as many times as you want. It only adds what's missing, and never touches your own files. Pass `--reset-config` to recreate the Python environments and overwrite the configuration files. Without `-b` or `-r`, it updates the versions and repositories that are already set up.
 
 ### Repositories
 
@@ -655,7 +655,7 @@ Every repository is one of four kinds:
 | **Pinned** | `odoofin`, `iap-apps`, `internal` | One clone in the multiverse directory, on its default branch, linked into the version directory of the Odoo version it runs on. |
 | **Standalone** | `mobile` | One clone in the multiverse directory, on its default branch, not linked into any version directory. |
 
-You can set up any repository, also from another GitHub owner (like `-r odoo-ps/psbe-internal`). For repositories that aren't known Odoo repositories, whatever isn't configured in `multiverse.toml` is detected: they're versioned if they have branches for several Odoo versions (like `18.0` and `19.0`), and shared otherwise, and their `odoo-dev` fork is added as the `dev` remote if you have access to it. Pinned and standalone repositories need their `kind` in `multiverse.toml`.
+You can set up any repository, also from another GitHub owner (like `-r odoo-ps/psbe-internal`). A repository that's already set up keeps its kind and owner. For new repositories that aren't known Odoo repositories, whatever isn't configured in `multiverse.toml` is detected: they're versioned if they have branches for several Odoo versions (like `18.0` and `19.0`), and shared otherwise, and their `odoo-dev` fork is added as the `dev` remote if you have access to it. Pinned and standalone repositories need their `kind` in `multiverse.toml`.
 
 Shared, pinned and standalone repositories follow their default branch on GitHub: when it changes, the next setup switches to it, unless you're on another branch or have uncommitted changes.
 
@@ -682,9 +682,7 @@ The command will basically do the following:
 
 1. Clone the versioned repositories as [bare repositories](https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-code--barecode) to a `.worktree-source/<repository>` folder. The clones are partial (`--filter=blob:none`): file contents are only downloaded when a version needs them. We add the remote `origin` (`git@github.com:odoo/<repository>.git`) for all repositories, and the remote `dev` (`git@github.com:odoo-dev/<repository>.git`) for the ones that have a fork there. Pushing to `origin` is disabled when there is a `dev` remote.
 
-   To keep the repositories small and fast, every remote only fetches the branches your local branches track: the versions you set up, and the branches you switched to with [`otk mv switch`](#otk-mv-switch). On top of that, `origin` fetches its default branch, and `dev` fetches your own branches: the ones ending with `-<branch suffix>`, which defaults to the part of your Git email before the `@`. Other branches, like the `staging.*` and `tmp.*` branches or other people's branches, are only fetched on demand. Existing repositories are configured the same way; run [`otk mv cleanup`](#otk-mv-cleanup) to remove the branches they don't need anymore.
-
-   The repositories are also registered for Git's [background maintenance](https://git-scm.com/docs/git-maintenance) (unless you pass `--no-maintenance`), which prefetches new commits and keeps Git fast.
+   To keep the repositories small and fast, every remote only fetches the branches your local branches track: the versions you set up, and the branches you switched to with [`otk mv switch`](#otk-mv-switch), as long as they exist on GitHub. On top of that, `origin` fetches its default branch, and `dev` fetches your own branches: the ones ending with `-<branch suffix>`, which defaults to the part of your Git email before the `@` (a suffix given with `--branch-suffix` is remembered). Other branches, like the `staging.*` and `tmp.*` branches or other people's branches, are only fetched on demand. Existing repositories are configured the same way; run [`otk mv cleanup`](#otk-mv-cleanup) to remove the branches they don't need anymore.
 
 2. Clone the other repositories to the root of your multiverse directory, on their default branch.
 
@@ -741,13 +739,12 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 
 ### Options
 
-* `-b, --branches TEXT`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Sets up every supported version if none are specified.
+* `-b, --branches TEXT`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Defaults to the ones already set up, or every supported version for a new multiverse.
 * `-r, --repositories TEXT`: The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. Defaults to the ones already set up, or `odoo`, `enterprise`, `design-themes`, `upgrade` and `upgrade-util` for a new multiverse, plus the ones in `multiverse.toml`.
-* `-d, --multiverse-dir PATH`: The directory to set up the multiverse in.  [default: `<current working directory>`]
+* `-d, --multiverse-dir PATH`: The directory to set up the multiverse in. Defaults to this directory.
 * `--reset-config`: Recreate the Python virtual environments and overwrite the configuration files of every version.
 * `--vscode / --no-vscode`: Write the Visual Studio Code configuration in each version directory.  [default: `--vscode`]
-* `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults to the part of your Git email before the `@`.
-* `--maintenance / --no-maintenance`: Register the repositories for Git's background maintenance (`git maintenance start`), which keeps them fast and prefetches new commits.  [default: `--maintenance`]
+* `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. It's remembered for later commands. Defaults to the remembered one, or else the part of your Git email before the `@`.
 * `--help`: Show this message and exit.
 
 ## `otk mv reset`
@@ -756,7 +753,7 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 
 Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every versioned repository is checked out on the version's branch and reset to the latest state on `origin`, so you start with a clean slate.
 
-Uncommitted changes are stashed with a label telling where they came from (like `otk: 19.0/odoo before reset to 19.0`), so you can restore them later. Local commits on the version's branch are discarded, but reported with the commit to recover them from. Leftover `__pycache__` folders of deleted or moved modules are removed as well.
+Uncommitted changes are stashed with a label telling where they came from (like `otk: 19.0/odoo before reset to 19.0`), and the command to restore them is shown afterwards. Commits on the version's branch that only exist on your machine are listed first, and only discarded if you confirm. They're reported with the commit to recover them from. Leftover `__pycache__` folders of deleted or moved modules are removed as well.
 
 ### Usage
 
@@ -767,6 +764,7 @@ $ otk mv reset [OPTIONS]
 ### Options
 
 * `--all`: Reset all repositories in the version directory, including the linked ones (like `upgrade` or `odoofin`), which are reset to their default branch. Other versions use them too, so this affects them as well.
+* `-y, --yes`: Don't ask before discarding commits that only exist on your machine.
 * `--help`: Show this message and exit.
 
 
@@ -774,7 +772,7 @@ $ otk mv reset [OPTIONS]
 
 **Switch branches inside an Odoo Multiverse version directory.**
 
-Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every repository that has the given branch on one of its remotes is switched to it and fast-forwarded. The other repositories stay on their current branch, which is fast-forwarded to its upstream.
+Run this command anywhere inside one of the multiverse version directories (like `19.0`). Every repository that has the given branch on one of its remotes (`origin` first) or locally is switched to it and fast-forwarded. The other repositories stay on their current branch, which is fast-forwarded to its upstream.
 
 A common use-case is to switch to a specific task's branches. Branches the remotes don't fetch by default, like your colleagues' `dev` branches, are fetched on demand, and keep being fetched from then on.
 
@@ -796,7 +794,6 @@ $ otk mv switch odoo-dev:master-fix-xyz
 
 ### Options
 
-* `-r, --remote TEXT`: Only look for the branch on this remote, like `dev` or `origin`.
 * `--all`: Switch all repositories in the version directory, including the linked ones (like `upgrade` or `odoofin`). Other versions use them too, so this affects them as well.
 * `--help`: Show this message and exit.
 
@@ -850,6 +847,6 @@ $ otk mv cleanup [OPTIONS]
 ### Options
 
 * `-d, --multiverse-dir PATH`: The multiverse directory. Defaults to the one containing the current directory.
-* `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults to the part of your Git email before the `@`.
+* `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults to the one given to `otk mv setup`, or else the part of your Git email before the `@`.
 * `-y, --yes`: Don't ask for confirmation.
 * `--help`: Show this message and exit.

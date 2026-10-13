@@ -584,7 +584,7 @@ def _find_container(*, local: bool) -> _Container | None:
     :raises Exit: If the multiverse can't be mounted in a container.
     :return: Where to run the servers, or None to run them on this machine.
     """
-    if local or not (version_dir := find_version_dir(Path.cwd())):
+    if local or not (version_dir := find_version_dir()):
         return None
     if not (version := get_versions().get(version_dir.name)):
         print_warning(f"Odoo [b]{version_dir.name}[/b] has no Docker image, so the servers run on this machine.\n")
