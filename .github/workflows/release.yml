@@ -1,0 +1,37 @@
+name: Release
+
+# Publishes the package to PyPI when a version tag (like `v4.0.0`) is pushed.
+#
+# Uses PyPI's trusted publishing, so no token is stored: the `odoo-toolkit` project on PyPI trusts this workflow, in the
+# `pypi` environment, of this repository.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/odoo-toolkit/
+    permissions:
+      # Proves to PyPI that this workflow is the one it trusts.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: Check that the tag is the package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="v$(uv version --short)"
+          if [ "$version" != "$TAG" ]; then
+            echo "The tag $TAG doesn't match the package version $version." >&2
+            exit 1
+          fi
+      - run: uv run pytest -q tests
+      - run: uv build
+      - run: uv publish
