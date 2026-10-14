@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -63,8 +64,11 @@ MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
 VERSION_REQUIREMENTS = [
     Path("odoo/requirements.txt"),
     Path("documentation/requirements.txt"),
-    Path("documentation/tests/requirements.txt"),
 ]
+# Constraints for building old packages from source, like the Cython version some need.
+BUILD_CONSTRAINTS_FILE = MULTIVERSE_CONFIG_DIR / "build-constraints.txt"
+# Matches the package name at the start of a requirement, like `Pillow` in `Pillow==10.2.0 ; python_version >= '3.12'`.
+REQUIREMENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 # Files copied into the Community and Enterprise repositories to enable the JavaScript tooling.
 JS_TOOLING_FILES = {
     "_eslintignore": ".eslintignore",
@@ -656,15 +660,21 @@ def setup_python_env(version_dir: Path, *, python: str | None, requirements: lis
 def install_requirements(python: Path, requirement_files: list[Path]) -> list[str]:
     """Install requirement files into a virtual environment, skipping the requirements that fail to install.
 
+    The requirements are installed with uv. The ones it can't install are tried with pip as well, which is more lenient
+    with old source archives, like the malformed one of `PyPDF2==1.26.0`.
+
     :param python: The Python interpreter of the virtual environment.
     :param requirement_files: The requirement files to install.
     :return: The requirements that failed to install.
     """
-    if not requirement_files:
+    requirements = parse_requirements(requirement_files)
+    if not requirements:
         return []
-    install_cmd = ["uv", "pip", "install", "--quiet", "--python", str(python)]
+    install_cmd = [
+        "uv", "pip", "install", "--quiet", "--python", str(python), "--build-constraint", str(BUILD_CONSTRAINTS_FILE),
+    ]
     try:
-        _run([*install_cmd, *(arg for path in requirement_files for arg in ("-r", str(path)))])
+        _run([*install_cmd, *requirements])
     except CalledProcessError:
         pass
     else:
@@ -672,26 +682,39 @@ def install_requirements(python: Path, requirement_files: list[Path]) -> list[st
 
     # Installing everything at once failed, so find out which requirements are to blame.
     failed: list[str] = []
-    for requirement in parse_requirements(requirement_files):
+    for requirement in requirements:
         try:
             _run([*install_cmd, requirement])
         except CalledProcessError:
-            failed.append(requirement.split(";")[0].strip())
+            try:
+                _run([str(python), "-m", "pip", "install", "--quiet", requirement])
+            except CalledProcessError:
+                failed.append(requirement.split(";")[0].strip())
     return failed
 
 
 def parse_requirements(requirement_files: list[Path]) -> list[str]:
     """Get the requirements in requirement files, without comments, options and duplicates.
 
-    :param requirement_files: The requirement files to read.
+    The first file requiring a package decides its version, so Odoo's own pins win over the ones of the other files.
+
+    :param requirement_files: The requirement files to read, the most important first.
     :return: The requirements, including their version specifiers and environment markers.
     """
     requirements: dict[str, None] = {}
+    claimed: set[str] = set()
     for path in requirement_files:
+        names: set[str] = set()
         for line in path.read_text(encoding="utf-8").splitlines():
             requirement = line.split(" #")[0].strip()
-            if requirement and not requirement.startswith(("#", "-")):
+            if not requirement or requirement.startswith(("#", "-")):
+                continue
+            match = REQUIREMENT_NAME_PATTERN.match(requirement)
+            name = re.sub(r"[-_.]+", "-", match.group(0)).lower() if match else requirement
+            if name not in claimed:
                 requirements[requirement] = None
+                names.add(name)
+        claimed |= names
     return list(requirements)
 
 

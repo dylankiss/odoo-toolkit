@@ -1,0 +1,5 @@
+# Constraints for building packages from source in the versions' Python environments.
+
+# Odoo 17.0 pins gevent 21.8.0 for Python 3.10, which has no wheel for Apple Silicon. Building it needs a Cython 3
+# pre-release: the alphas it was made for are gone from PyPI, and the final Cython 3 can't compile it.
+cython==3.0.0b1 ; python_version == "3.10"

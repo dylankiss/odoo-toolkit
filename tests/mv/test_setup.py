@@ -188,7 +188,8 @@ def test_parse_requirements(tmp_path: Path) -> None:
         "\n",
     )
     extra = tmp_path / "extra.txt"
-    extra.write_text("requests\ndebugpy\n")
+    # Odoo's pins of a package win over the ones of later files, also written differently.
+    extra.write_text("requests==2.0\ndebugpy\nbabel==2.9.1\n")
 
     assert mv_setup.parse_requirements([odoo, extra]) == [
         "Babel==2.10.3 ; python_version < '3.11'",
@@ -307,3 +308,24 @@ def test_existing_versions_are_the_default(tmp_path: Path) -> None:
     assert mv_setup.get_existing_versions(tmp_path) == ["18.0", "19.0", "master"]
     assert mv_setup.get_existing_versions(tmp_path / "new") == []
 
+
+
+def test_install_requirements_tries_pip_for_what_uv_can_not_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("good\nold-archive\nbroken\n")
+    installed: list[tuple[str, str]] = []
+
+    def run(cmd: list[str], cwd: Path | None = None) -> None:  # noqa: ARG001
+        tool, requirement = cmd[0], cmd[-1]
+        at_once = "good" in cmd and requirement != "good"
+        # Installing everything at once fails, uv can't read the old archive, and nothing can install the broken one.
+        if at_once or requirement == "broken" or (tool == "uv" and requirement == "old-archive"):
+            raise subprocess.CalledProcessError(1, cmd)
+        installed.append((Path(tool).name, requirement))
+
+    monkeypatch.setattr(mv_setup, "_run", run)
+
+    assert mv_setup.install_requirements(tmp_path / "python", [requirements]) == ["broken"]
+    assert installed == [("uv", "good"), ("python", "old-archive")]
