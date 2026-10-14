@@ -642,6 +642,9 @@ runs_on = "20.0"         # Optional: the Odoo version it runs on if it can't be 
 [repos.odoofin]
 also_in = ["19.0"]       # Always link it into these versions as well
 
+[repos.runbot]
+versions = ["17.0", "19.0"]   # Only add worktrees of a versioned repository in these versions
+
 [repos.psbe-internal]
 owner = "odoo-ps"        # The GitHub owner, if not `odoo`
 dev_remote = false       # Whether it has a fork on `odoo-dev`

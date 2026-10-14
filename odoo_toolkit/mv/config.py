@@ -65,6 +65,8 @@ class RepoSpec:
     runs_on: str | None = None
     # The version directories a pinned repository is always linked into, on top of the one it runs on.
     also_in: tuple[str, ...] = field(default_factory=tuple[str, ...])
+    # The only versions a versioned repository gets a worktree in, or None for every version having its branch.
+    versions: tuple[str, ...] | None = None
 
     @property
     def url(self) -> str:
@@ -114,6 +116,9 @@ def load_config(multiverse_dir: Path) -> dict[str, RepoSpec]:
 
     [repos.odoofin]
     also_in = ["19.0"]
+
+    [repos.runbot]
+    versions = ["17.0", "19.0"]
     ```
 
     :param multiverse_dir: The multiverse directory.
@@ -154,7 +159,7 @@ def get_configured_repos(multiverse_dir: Path) -> list[str]:
 
 
 def _apply_overrides(spec: RepoSpec, values: dict[str, Any], config_file: Path) -> RepoSpec:
-    allowed = {"owner": str, "kind": str, "dev_remote": bool, "runs_on": str, "also_in": list}
+    allowed = {"owner": str, "kind": str, "dev_remote": bool, "runs_on": str, "also_in": list, "versions": list}
     for key, value in values.items():
         if key not in allowed or not isinstance(value, allowed[key]):
             msg = (
@@ -172,6 +177,7 @@ def _apply_overrides(spec: RepoSpec, values: dict[str, Any], config_file: Path) 
         dev_remote=values.get("dev_remote", spec.dev_remote),
         runs_on=values.get("runs_on", spec.runs_on),
         also_in=tuple(str(version) for version in values.get("also_in", spec.also_in)),
+        versions=tuple(str(version) for version in values["versions"]) if "versions" in values else spec.versions,
     )
 
 

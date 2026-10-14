@@ -439,6 +439,9 @@ def _add_worktrees(multiverse_dir: Path, branches: list[str], repos: list[RepoSp
     def add_for_repo(repo: RepoSpec, task: TaskID) -> list[RepoResult]:
         results: list[RepoResult] = []
         for branch in branches:
+            if repo.versions is not None and branch not in repo.versions:
+                progress.advance(task)
+                continue
             results.append(
                 run_safely(
                     f"{branch}/{repo.name}",

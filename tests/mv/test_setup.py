@@ -224,6 +224,20 @@ def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("remotes")
+def test_cli_setup_only_adds_worktrees_in_the_configured_versions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_slow_steps(monkeypatch)
+    root = tmp_path / "mv"
+    root.mkdir()
+    (root / "multiverse.toml").write_text('[repos.odoo]\nversions = ["19.0"]\n')
+
+    result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,master", "-r", "odoo"])
+
+    assert result.exit_code == 0, result.output
+    assert (root / "19.0" / "odoo" / ".git").is_file()
+    assert not (root / "master" / "odoo").exists()
+
+
+@pytest.mark.usefixtures("remotes")
 def test_cli_setup_links_pinned_repos_into_the_version_they_run_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
