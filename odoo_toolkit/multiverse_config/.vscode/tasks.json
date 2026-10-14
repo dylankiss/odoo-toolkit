@@ -3,10 +3,10 @@
     "tasks": [
         {
             "label": "otk: run Odoo with the debugger",
-            "detail": "Pass Odoo options in the `args`, like \"-d\", \"mydb\".",
+            "detail": "Uses a database named after the version, like 19.0. Add Odoo options after it, like \"-i\", \"sale\".",
             "type": "shell",
             "command": "otk",
-            "args": ["dev", "run", "--debug", "--"],
+            "args": ["dev", "run", "--debug", "--", "-d", "${workspaceFolderBasename}"],
             "isBackground": true,
             "problemMatcher": {
                 "owner": "otk",
@@ -24,7 +24,7 @@
             "label": "otk: run Odoo",
             "type": "shell",
             "command": "otk",
-            "args": ["dev", "run", "--"],
+            "args": ["dev", "run", "--", "-d", "${workspaceFolderBasename}"],
             "isBackground": true,
             "problemMatcher": []
         },
