@@ -33,6 +33,8 @@ VERSION_PATTERN = re.compile(r"master|saas-\d+\.\d+|\d+\.\d+")
 # Matches the Odoo version at the start of a module version, like `20.0` in `20.0.1.0`, or `saas~19.3` in
 # `saas~19.3.1.0`.
 MANIFEST_VERSION_PATTERN = re.compile(r"""["']version["']\s*:\s*["']((?:saas~)?\d+\.\d+)\.\d""")
+# The error shown by the commands that only work inside a version directory.
+NOT_IN_VERSION_DIR = "Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo/19.0[/u]).\n"
 # The `runs_on` value of repositories that run on the version odoo.com runs on.
 ODOO_COM = "odoo.com"
 ODOO_COM_VERSION_URL = "https://www.odoo.com/web/webclient/version_info"

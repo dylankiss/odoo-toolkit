@@ -785,7 +785,7 @@ $ otk mv link REPO
 ```
 e.g.
 ```console
-$ cd ~/code/odoo-mv/19.0 && otk mv link odoofin
+$ cd ~/code/odoo/19.0 && otk mv link odoofin
 ```
 
 

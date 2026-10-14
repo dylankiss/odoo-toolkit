@@ -5,7 +5,7 @@ from typer import Argument, Exit, Typer
 
 from odoo_toolkit.common import print_command_title, print_error, print_success
 
-from .config import find_version_dir, get_linked_repos
+from .config import NOT_IN_VERSION_DIR, find_version_dir, get_linked_repos
 from .setup import link_repo, update_scanned_repos
 
 app = Typer()
@@ -54,6 +54,6 @@ def unlink(
 def _get_version_dir() -> Path:
     version_dir = find_version_dir()
     if not version_dir:
-        print_error("Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo-mv/19.0[/u]).\n")
+        print_error(NOT_IN_VERSION_DIR)
         raise Exit(1)
     return version_dir

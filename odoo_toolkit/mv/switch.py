@@ -6,7 +6,7 @@ from typer import Argument, Exit, Option, Typer
 from odoo_toolkit.common import print, print_command_title, print_error
 from odoo_toolkit.git_cli import Git, GitError
 
-from .config import find_version_dir, get_remote_owner, get_repo_dirs
+from .config import NOT_IN_VERSION_DIR, find_version_dir, get_remote_owner, get_repo_dirs
 from .remotes import fetch_on_demand, refresh_fetching
 from .repos import (
     Outcome,
@@ -62,7 +62,7 @@ def switch(
 
     version_dir = find_version_dir()
     if not version_dir:
-        print_error("Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo-mv/19.0[/u]).\n")
+        print_error(NOT_IN_VERSION_DIR)
         raise Exit(1)
 
     repo_dirs = get_repo_dirs(version_dir, include_linked=include_linked)

@@ -6,7 +6,7 @@ from pathlib import Path
 from typer import Exit
 
 from odoo_toolkit.common import TransientProgress, print, print_error, print_warning
-from odoo_toolkit.mv.config import find_version_dir
+from odoo_toolkit.mv.config import NOT_IN_VERSION_DIR, find_version_dir
 from odoo_toolkit.versions import OdooVersion, get_versions
 
 from .images import (
@@ -34,7 +34,7 @@ def get_version_dir() -> tuple[Path, OdooVersion]:
     """
     version_dir = find_version_dir()
     if not version_dir:
-        print_error("Run this command inside an Odoo Multiverse version directory (like [u]~/code/odoo-mv/19.0[/u]).\n")
+        print_error(NOT_IN_VERSION_DIR)
         raise Exit(1)
     version = get_versions().get(version_dir.name)
     if not version:
