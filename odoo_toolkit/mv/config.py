@@ -353,13 +353,22 @@ def get_repo_dirs(version_dir: Path, *, include_linked: bool) -> list[Path]:
     """Get the repositories inside a version directory.
 
     :param version_dir: The version directory.
-    :param include_linked: Whether to include the linked shared and pinned repositories, which other versions use too.
-    :return: The repository directories: first the worktrees, then the linked repositories.
+    :param include_linked: Whether to include the shared and pinned repositories, which aren't on the version's branch.
+    :return: The repository directories: first the worktrees, then the shared and pinned repositories.
     """
     repo_dirs = sorted(path for path in version_dir.iterdir() if (path / ".git").exists())
-    worktrees = [path for path in repo_dirs if not path.is_symlink()]
-    linked = [path for path in repo_dirs if path.is_symlink()]
+    worktrees = [path for path in repo_dirs if is_worktree(path)]
+    linked = [path for path in repo_dirs if not is_worktree(path)]
     return worktrees + (linked if include_linked else [])
+
+
+def is_worktree(repo_dir: Path) -> bool:
+    """Check whether a repository in a version directory is a worktree of a versioned repository.
+
+    The other ones are shared repositories linked into it, and pinned repositories, which live in the version they run
+    on and are linked into the other ones.
+    """
+    return not repo_dir.is_symlink() and (repo_dir / ".git").is_file()
 
 
 def get_linked_repos(version_dir: Path) -> list[str]:

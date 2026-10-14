@@ -6,7 +6,7 @@ from typer import Exit, Option, Typer, confirm
 from odoo_toolkit.common import print, print_command_title, print_error, print_warning
 from odoo_toolkit.git_cli import Git
 
-from .config import NOT_IN_VERSION_DIR, find_version_dir, get_repo_dirs
+from .config import NOT_IN_VERSION_DIR, find_version_dir, get_repo_dirs, is_worktree
 from .remotes import refresh_fetching
 from .repos import (
     Outcome,
@@ -65,7 +65,7 @@ def reset(
     preauthenticate_ssh(repo_dirs)
     # Linked repositories are reset to their default branch, worktrees to the version's branch.
     branches = {
-        repo_dir: get_default_branch(Git(repo_dir)) if repo_dir.is_symlink() else version_dir.name
+        repo_dir: version_dir.name if is_worktree(repo_dir) else get_default_branch(Git(repo_dir))
         for repo_dir in repo_dirs
     }
     checks = run_on_repos(repo_dirs, lambda repo_dir: check_repo(repo_dir, branches[repo_dir]), "Fetching")

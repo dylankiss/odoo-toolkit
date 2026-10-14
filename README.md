@@ -596,7 +596,7 @@ The following commands allow you to set up and Odoo Multiverse environment and p
 
 > [!WARNING]
 > **Upgrading from 3.x:** version 4.0 changes how the multiverse is laid out and fetched. The easiest way to upgrade is to set up a new multiverse. If you keep your existing one:
-> - `odoofin` is now a pinned repository: it's only linked into the version it runs on. Use `otk mv link odoofin` to link it elsewhere.
+> - `odoofin` is now a pinned repository: it moves into the version it runs on. Use `otk mv link odoofin` to link it elsewhere.
 > - The repositories only fetch the branches you use from now on. Run `otk mv cleanup` to remove the others and reclaim disk space.
 > - `otk dev start` is now `otk dev run`, which runs Odoo directly instead of opening a shell (use `otk dev shell` for that). It uses PostgreSQL 18 with new, empty databases. Stop the old containers with `docker compose --project-name odoo-dev down`.
 
@@ -623,14 +623,14 @@ Every repository is one of four kinds:
 |---|---|---|
 | **Versioned** | `odoo`, `enterprise`, `design-themes`, `documentation`, `industry`, `o-spreadsheet` | A worktree in every version directory, on the version's branch. |
 | **Shared** | `upgrade`, `upgrade-util` | One clone in the multiverse directory, on its default branch, linked into every version directory. |
-| **Pinned** | `odoofin`, `iap-apps`, `internal` | One clone in the multiverse directory, on its default branch, linked into the version directory of the Odoo version it runs on. |
+| **Pinned** | `odoofin`, `iap-apps`, `internal` | One clone in the version directory of the Odoo version it runs on, on its default branch, linked from the multiverse directory. |
 | **Standalone** | `mobile` | One clone in the multiverse directory, on its default branch, not linked into any version directory. |
 
 You can set up any repository, also from another GitHub owner (like `-r odoo-ps/psbe-internal`). A repository that's already set up keeps its kind and owner. For new repositories that aren't known Odoo repositories, whatever isn't configured in `multiverse.toml` is detected: they're versioned if they have branches for several Odoo versions (like `18.0` and `19.0`), and shared otherwise, and their `odoo-dev` fork is added as the `dev` remote if you have access to it. Pinned and standalone repositories need their `kind` in `multiverse.toml`.
 
 Shared, pinned and standalone repositories follow their default branch on GitHub: when it changes, the next setup switches to it, unless you're on another branch or have uncommitted changes.
 
-A pinned repository runs on the Odoo version of its default branch (like `18.0`), or, if that's not a version, on the version of its modules' manifests (like `20.0` for `20.0.1.0`). `internal` runs on the version odoo.com runs on, which is looked up on odoo.com every time you run the setup. Use [`otk mv link`](#otk-mv-link) to also link it into another version while you work on code that interacts with it.
+A pinned repository runs on the Odoo version of its default branch (like `18.0`), or, if that's not a version, on the version of its modules' manifests (like `20.0` for `20.0.1.0`). `internal` runs on the version odoo.com runs on, which is looked up on odoo.com every time you run the setup. It lives in that version's directory, and is linked from the multiverse directory, so it's reachable at the same place as the other repositories. Use [`otk mv link`](#otk-mv-link) to also link it into another version while you work on code that interacts with it.
 
 Describe pinned repositories and exceptions in a `multiverse.toml` file in the multiverse directory. Its repositories are set up by default:
 
@@ -658,11 +658,11 @@ The command will basically do the following:
 
    To keep the repositories small and fast, every remote only fetches the branches your local branches track: the versions you set up, and the branches you switched to with [`otk mv switch`](#otk-mv-switch), as long as they exist on GitHub. On top of that, `origin` fetches its default branch, and `dev` fetches your own branches: the ones ending with `-<branch suffix>`, which defaults to the part of your Git email before the `@` (a suffix given with `--branch-suffix` is remembered). Other branches, like the `staging.*` and `tmp.*` branches or other people's branches, are only fetched on demand. Existing repositories are configured the same way; run [`otk mv cleanup`](#otk-mv-cleanup) to remove the branches they don't need anymore.
 
-2. Clone the other repositories to the root of your multiverse directory, on their default branch.
+2. Clone the other repositories to the root of your multiverse directory, on their default branch. Pinned repositories then move into the version directory they run on, with a link at the root, so editors and language servers (like the Odoo one) see a regular folder. When the version a pinned repository runs on changes, the next setup moves it.
 
 3. Create a directory per version, and add a worktree of every versioned repository in it, tracking the version's branch on `origin`.
 
-4. Link each shared repository into each version directory, and each pinned repository into the version directory it runs on (using relative links).
+4. Link each shared repository into each version directory, and each pinned repository into the versions in its `also_in` setting (using relative links).
 
 5. Set up a Python virtual environment in the `.venv` directory of each version with [`uv`](https://docs.astral.sh/uv/), using the same Python version as [Runbot](https://runbot.odoo.com/runbot/versions). It contains all requirements of `odoo`, `documentation` and the linked pinned repositories, and the recommended ones in [`requirements.txt`](odoo_toolkit/multiverse_config/requirements.txt). Requirements that fail to build on your machine are reported, but don't fail the setup, since Odoo runs in Docker.
    *You can use this environment from the version directory using `source .venv/bin/activate`.*
@@ -776,7 +776,7 @@ $ otk mv switch odoo-dev:master-fix-xyz
 
 **Link a shared or pinned repository into the current Odoo Multiverse version directory.**
 
-Pinned repositories are only linked into the version they run on. Link them into another version when you work on code that interacts with them, and unlink them again with [`otk mv unlink`](#otk-mv-unlink) when you're done. To always link a pinned repository into a version, add the version to its `also_in` setting in `multiverse.toml`.
+Pinned repositories live in the version they run on. Link them into another version when you work on code that interacts with them, and unlink them again with [`otk mv unlink`](#otk-mv-unlink) when you're done. To always link a pinned repository into a version, add the version to its `also_in` setting in `multiverse.toml`.
 
 ### Usage
 
@@ -785,7 +785,7 @@ $ otk mv link REPO
 ```
 e.g.
 ```console
-$ cd ~/code/odoo/19.0 && otk mv link odoofin
+$ cd ~/code/odoo/18.0 && otk mv link odoofin
 ```
 
 

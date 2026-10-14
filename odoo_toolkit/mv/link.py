@@ -17,7 +17,7 @@ def link(
 ) -> None:
     """Link :link: a shared or pinned repository into the current Odoo Multiverse version directory.
 
-    Pinned repositories are only linked into the version they run on. Link them into another version when you work on
+    Pinned repositories live in the version they run on. Link them into another version when you work on
     code that interacts with them, and unlink them again with `otk mv unlink` when you're done. To always link a pinned
     repository into a version, add the version to its `also_in` setting in `multiverse.toml`.
     """
@@ -29,6 +29,9 @@ def link(
     if not link_repo(version_dir, repo):
         print_error(f"[u]{version_dir / repo}[/u] already exists as a regular folder.\n")
         raise Exit(1)
+    if not (version_dir / repo).is_symlink():
+        print_success(f"[b]{repo}[/b] lives in [u]{version_dir}[/u] already, since it runs on this version.\n")
+        return
     update_scanned_repos(version_dir)
     print_success(f"Linked [b]{repo}[/b] into [u]{version_dir}[/u].\n")
 
@@ -44,7 +47,10 @@ def unlink(
     print_command_title(":broken_chain: Unlink Repository")
     version_dir = _get_version_dir()
     if repo not in get_linked_repos(version_dir):
-        print_error(f"[b]{repo}[/b] isn't linked into [u]{version_dir}[/u].\n")
+        if (version_dir / repo / ".git").is_dir():
+            print_error(f"[b]{repo}[/b] lives in [u]{version_dir}[/u], since it runs on this version.\n")
+        else:
+            print_error(f"[b]{repo}[/b] isn't linked into [u]{version_dir}[/u].\n")
         raise Exit(1)
     (version_dir / repo).unlink()
     update_scanned_repos(version_dir)

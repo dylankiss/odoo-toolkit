@@ -131,7 +131,7 @@ def setup(
     - a [`git worktree`](https://git-scm.com/docs/git-worktree) of every versioned repository (like `odoo` and
     `enterprise`), sharing the Git history with the other versions,\n
     - a link to every shared repository (like `upgrade`), which all versions use,\n
-    - a link to the pinned repositories that run on this version (like `odoofin`),\n
+    - the pinned repositories that run on this version (like `odoofin`), linked from the multiverse directory,\n
     - a Python virtual environment with the same Python version as Runbot and the version's dependencies,\n
     - the JavaScript tooling, and the Visual Studio Code configuration, where `F5` runs Odoo with the debugger.\n
     \n
@@ -319,6 +319,9 @@ def clone_repo(
     :return: The result of the clone.
     """
     if not (repo_dir / ".git").exists():
+        if repo_dir.is_symlink() and not repo_dir.exists():
+            # The link to a pinned repository whose version directory was deleted.
+            repo_dir.unlink()
         if repo_dir.exists() and any(repo_dir.iterdir()):
             return RepoResult(repo.name, Outcome.FAILED, f"[u]{repo_dir}[/u] exists but is not a Git repository")
         git_repo = clone(repo.url, repo_dir, progress=progress)
@@ -381,10 +384,10 @@ def _plan_links(
 ) -> tuple[dict[str, list[str]], list[RepoResult]]:
     """Decide which shared and pinned repositories to link into which version directories.
 
-    Shared repositories go into every version. Pinned repositories go into the version they run on, and the ones they
-    are configured to be in as well. Standalone repositories aren't linked anywhere.
+    Shared repositories go into every version. Pinned repositories move into the version they run on, and are linked
+    into the ones they are configured to be in as well. Standalone repositories aren't linked anywhere.
 
-    :return: The repository names to link per version, and the problems found.
+    :return: The repository names to link per version, and the moves and problems.
     """
     links: dict[str, list[str]] = {branch: [] for branch in branches}
     problems: list[RepoResult] = []
@@ -409,6 +412,12 @@ def _plan_links(
                         f"runs on [b]{runs_on}[/b], which isn't set up: add [b]-b {runs_on}[/b] to use it",
                     ),
                 )
+            else:
+                placed = run_safely(
+                    repo.name, lambda name=repo.name, version=runs_on: place_pinned_repo(multiverse_dir, name, version),
+                )
+                if placed.outcome != Outcome.SKIPPED:
+                    problems.append(placed)
             wanted = {version for version in (runs_on, *repo.also_in) if version}
             for version in wanted & set(links):
                 links[version].append(repo.name)
@@ -601,7 +610,8 @@ def link_repos(version_dir: Path, names: list[str]) -> RepoResult:
 def link_repo(version_dir: Path, name: str) -> bool:
     """Link a repository cloned in the multiverse directory into a version directory, using a relative link.
 
-    :return: Whether the repository is linked, which is not the case if a regular folder has its name.
+    :return: Whether the repository is in the version directory, which is not the case if a regular folder has its
+        name. A pinned repository living in the version directory counts as linked.
     """
     link = version_dir / name
     target = Path("..") / name
@@ -611,9 +621,43 @@ def link_repo(version_dir: Path, name: str) -> bool:
             link.symlink_to(target, target_is_directory=True)
         return True
     if link.exists():
-        return False
+        return (target_dir := version_dir.parent / name).exists() and link.samefile(target_dir)
     link.symlink_to(target, target_is_directory=True)
     return True
+
+
+def place_pinned_repo(multiverse_dir: Path, name: str, version: str) -> RepoResult:
+    """Move a pinned repository into the version directory it runs on, and link it from the multiverse directory.
+
+    Editors and language servers, like the Odoo one, see a regular folder that way, instead of a link they may resolve
+    to another path. The link in the multiverse directory keeps it reachable at the same place for everything else.
+
+    :param multiverse_dir: The multiverse directory.
+    :param name: The repository name.
+    :param version: The version it runs on, like `19.0`.
+    :return: The result, skipped if it's already there.
+    """
+    root_link = multiverse_dir / name
+    repo_dir = multiverse_dir / version / name
+    link_target = Path(version) / name
+    if root_link.is_symlink() and root_link.readlink() == link_target and not repo_dir.is_symlink():
+        return RepoResult(name, Outcome.SKIPPED, f"in [b]{version}[/b]")
+    current_dir = root_link.resolve()
+    if repo_dir.is_symlink():
+        # Linked into the version, by an older setup or `otk mv link`.
+        repo_dir.unlink()
+    elif repo_dir.exists():
+        return RepoResult(
+            name,
+            Outcome.WARNING,
+            f"[u]{repo_dir}[/u] already exists as a regular folder, so it can't move there. Remove it to move it.",
+        )
+    repo_dir.parent.mkdir(exist_ok=True)
+    current_dir.rename(repo_dir)
+    if root_link.is_symlink():
+        root_link.unlink()
+    root_link.symlink_to(link_target, target_is_directory=True)
+    return RepoResult(name, Outcome.UPDATED, f"moved into [b]{version}[/b]")
 
 
 def setup_python_env(version_dir: Path, *, python: str | None, requirements: list[Path], reset: bool) -> RepoResult:

@@ -239,7 +239,7 @@ def test_cli_setup_only_adds_worktrees_in_the_configured_versions(tmp_path: Path
 
 
 @pytest.mark.usefixtures("remotes")
-def test_cli_setup_links_pinned_repos_into_the_version_they_run_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_setup_places_pinned_repos_in_the_version_they_run_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
     root.mkdir()
@@ -250,12 +250,14 @@ def test_cli_setup_links_pinned_repos_into_the_version_they_run_on(tmp_path: Pat
     )
 
     assert result.exit_code == 0, result.output
-    # i18n-apps runs on 20.0, detected from its manifests.
-    assert (root / "20.0" / "i18n-apps").readlink() == Path("../i18n-apps")
+    # i18n-apps runs on 20.0, detected from its manifests. It lives there, and is linked from the multiverse directory.
+    assert (root / "20.0" / "i18n-apps" / ".git").is_dir()
+    assert (root / "i18n-apps").readlink() == Path("20.0/i18n-apps")
     assert not (root / "19.0" / "i18n-apps").exists()
-    # odoofin runs on its default branch, 18.0, which isn't set up.
+    # odoofin runs on its default branch, 18.0, which isn't set up, so it stays in the multiverse directory.
     assert git(root / "odoofin", "branch", "--show-current") == "18.0"
     assert "runs on 18.0, which isn't set up" in result.output
+    assert (root / "odoofin" / ".git").is_dir()
     assert not (root / "19.0" / "odoofin").exists()
     # Standalone repositories aren't linked anywhere.
     assert (root / "mobile" / ".git").is_dir()
@@ -267,7 +269,35 @@ def test_cli_setup_links_pinned_repos_into_the_version_they_run_on(tmp_path: Pat
     # Running it again without `-r` keeps everything that is set up.
     result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0"])
     assert result.exit_code == 0, result.output
-    assert (root / "20.0" / "i18n-apps").is_symlink()
+    assert (root / "20.0" / "i18n-apps" / ".git").is_dir()
+
+    # When it runs on another version, it moves there, and the versions in `also_in` link to it.
+    (root / "multiverse.toml").write_text('[repos.i18n-apps]\nkind = "pinned"\nruns_on = "19.0"\nalso_in = ["20.0"]\n')
+    result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0"])
+    assert result.exit_code == 0, result.output
+    assert (root / "19.0" / "i18n-apps" / ".git").is_dir()
+    assert (root / "i18n-apps").readlink() == Path("19.0/i18n-apps")
+    assert (root / "20.0" / "i18n-apps").readlink() == Path("../i18n-apps")
+    assert git(root / "20.0" / "i18n-apps", "branch", "--show-current") == "master"
+
+
+def test_place_pinned_repo(tmp_path: Path) -> None:
+    (tmp_path / "odoofin" / ".git").mkdir(parents=True)
+    (tmp_path / "19.0").mkdir()
+    # Linked into the version by an older setup.
+    (tmp_path / "19.0" / "odoofin").symlink_to(Path("..") / "odoofin")
+
+    assert mv_setup.place_pinned_repo(tmp_path, "odoofin", "19.0").outcome == Outcome.UPDATED
+    assert (tmp_path / "19.0" / "odoofin" / ".git").is_dir()
+    assert (tmp_path / "odoofin").readlink() == Path("19.0/odoofin")
+    assert mv_setup.place_pinned_repo(tmp_path, "odoofin", "19.0").outcome == Outcome.SKIPPED
+
+    # A regular folder in the way is never replaced.
+    (tmp_path / "20.0" / "odoofin").mkdir(parents=True)
+    result = mv_setup.place_pinned_repo(tmp_path, "odoofin", "20.0")
+    assert result.outcome == Outcome.WARNING
+    assert (tmp_path / "19.0" / "odoofin" / ".git").is_dir()
+    assert (tmp_path / "odoofin").readlink() == Path("19.0/odoofin")
 
 
 def test_follow_default_branch(tmp_path: Path, remotes: Path) -> None:

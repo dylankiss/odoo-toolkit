@@ -149,9 +149,11 @@ def test_get_repo_dirs_from_layout(multiverse: Path) -> None:
     (multiverse / "upgrade" / ".git").mkdir(parents=True)
     (multiverse / "19.0" / "upgrade").symlink_to(Path("..") / "upgrade")
     (multiverse / "19.0" / "my-notes").mkdir()
+    # A pinned repository living in the version it runs on.
+    (multiverse / "19.0" / "odoofin" / ".git").mkdir(parents=True)
 
     assert [p.name for p in get_repo_dirs(multiverse / "19.0", include_linked=False)] == ["odoo"]
-    assert [p.name for p in get_repo_dirs(multiverse / "19.0", include_linked=True)] == ["odoo", "upgrade"]
+    assert [p.name for p in get_repo_dirs(multiverse / "19.0", include_linked=True)] == ["odoo", "odoofin", "upgrade"]
 
 
 @pytest.mark.parametrize(
@@ -189,3 +191,14 @@ def test_cli_link_and_unlink(multiverse: Path, monkeypatch: pytest.MonkeyPatch) 
     assert json.loads(settings.read_text())["git.scanRepositories"] == []
     assert runner.invoke(app, ["mv", "link", "missing"]).exit_code == 1
     assert runner.invoke(app, ["mv", "unlink", "odoofin"]).exit_code == 1
+
+    # In the version a pinned repository lives in, there's nothing to link or unlink.
+    (multiverse / "odoofin").rename(multiverse / "19.0" / "odoofin")
+    (multiverse / "odoofin").symlink_to(Path("19.0/odoofin"))
+    result = runner.invoke(app, ["mv", "link", "odoofin"])
+    assert result.exit_code == 0, result.output
+    assert "lives in" in result.output
+    assert not (multiverse / "19.0" / "odoofin").is_symlink()
+    result = runner.invoke(app, ["mv", "unlink", "odoofin"])
+    assert result.exit_code == 1
+    assert (multiverse / "19.0" / "odoofin" / ".git").is_dir()
