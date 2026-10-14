@@ -78,18 +78,30 @@ class WeblateRateLimiter:
     It's shared by all requests and their retries, across threads and `WeblateApi` objects.
     """
 
-    def __init__(self, requests_per_second: float, burst: int, reserve: int) -> None:
+    def __init__(
+        self,
+        requests_per_second: float,
+        burst: int,
+        reserve: int,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         """Initialize the rate limiter.
 
         :param requests_per_second: The steady rate of requests.
         :param burst: How many requests may start at once.
         :param reserve: Wait for Weblate's rate limit window to reset once fewer requests than this remain in it.
+        :param clock: Get the current time in seconds, like `time.monotonic`.
+        :param sleep: Wait for a number of seconds, like `time.sleep`.
         """
+        self._clock = clock
+        self._sleep = sleep
         self.requests_per_second = requests_per_second
         self.burst = burst
         self.reserve = reserve
         self._tokens = float(burst)
-        self._updated_at = time.monotonic()
+        self._updated_at = self._clock()
         self._paused_until = 0.0
         self._reported_until = 0.0
         self._lock = threading.Lock()
@@ -103,7 +115,7 @@ class WeblateRateLimiter:
         """Wait until the next request may start."""
         while True:
             with self._lock:
-                now = time.monotonic()
+                now = self._clock()
                 self._refill(now)
                 if now < self._paused_until:
                     wait_time = self._paused_until - now
@@ -113,12 +125,12 @@ class WeblateRateLimiter:
                 else:
                     wait_time = (1 - self._tokens) / self.requests_per_second
             # Wait without blocking others, then check again, since all requests may have been paused meanwhile.
-            time.sleep(wait_time)
+            self._sleep(wait_time)
 
     def drain(self) -> None:
         """Fall back to the steady rate, since nginx's burst is used up."""
         with self._lock:
-            self._refill(time.monotonic())
+            self._refill(self._clock())
             self._tokens = 0
             # Don't refill while all requests are paused, so nginx's limit can recover.
             self._updated_at = max(self._updated_at, self._paused_until)
@@ -130,7 +142,7 @@ class WeblateRateLimiter:
         :param reason: Why, to report long waits.
         """
         with self._lock:
-            until = time.monotonic() + seconds
+            until = self._clock() + seconds
             self._paused_until = max(self._paused_until, until)
             # Parallel requests often hit the same limit, so only report a wait that ends noticeably later.
             report = seconds >= REPORTED_WAIT and until > self._reported_until + 1

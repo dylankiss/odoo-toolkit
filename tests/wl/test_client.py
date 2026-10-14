@@ -1,9 +1,8 @@
 import io
 import socket
 import threading
-import time
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, ClassVar
@@ -66,10 +65,27 @@ def no_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(wl_common, "RATE_LIMITED_PAUSE", 0)
 
 
-def timed(function: Any) -> float:  # noqa: ANN401
-    start = time.monotonic()
-    function()
-    return time.monotonic() - start
+class FakeClock:
+    """A clock that only moves when something sleeps, to test waiting without waiting."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.waited = 0.0
+        # Called when something sleeps for the first time, before the clock moves.
+        self.on_first_sleep: Callable[[], None] | None = None
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        if self.on_first_sleep:
+            on_first_sleep, self.on_first_sleep = self.on_first_sleep, None
+            on_first_sleep()
+        self.now += seconds
+        self.waited += seconds
+
+    def limiter(self, requests_per_second: float, burst: int) -> WeblateRateLimiter:
+        return WeblateRateLimiter(requests_per_second, burst, 20, clock=self, sleep=self.sleep)
 
 
 @pytest.fixture
@@ -106,14 +122,20 @@ def test_uploads_refused_by_nginx_are_retried(weblate: type[FakeWeblate]) -> Non
     assert weblate.requests == ["POST", "POST"]
 
 
-def test_requests_wait_when_weblate_rate_limit_runs_low(weblate: type[FakeWeblate]) -> None:
+def test_requests_wait_when_weblate_rate_limit_runs_low(
+    weblate: type[FakeWeblate], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(wl_common, "RATE_LIMITER", clock.limiter(1000, 1000))
     low = {"X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "3", "X-RateLimit-Reset": "0.3"}
     weblate.queued = [(200, low, b"{}"), (200, {}, b"{}")]
     api = WeblateApi()
 
     api.get(dict[str, Any], "/api/projects/")
+    api.get(dict[str, Any], "/api/projects/")
 
-    assert timed(lambda: api.get(dict[str, Any], "/api/projects/")) >= 0.25
+    # The second request waits until the window resets.
+    assert clock.waited == pytest.approx(0.3)
 
 
 def test_generator_follows_the_pages(weblate: type[FakeWeblate]) -> None:
@@ -123,49 +145,66 @@ def test_generator_follows_the_pages(weblate: type[FakeWeblate]) -> None:
 
 
 def test_rate_limiter_allows_a_burst_then_a_steady_rate() -> None:
-    limiter = WeblateRateLimiter(20, 3, 20)
+    clock = FakeClock()
+    limiter = clock.limiter(20, 3)
 
-    assert timed(lambda: [limiter.acquire() for _ in range(3)]) < 0.03
-    assert timed(lambda: [limiter.acquire() for _ in range(3)]) >= 0.13
+    for _ in range(3):
+        limiter.acquire()
+    assert clock.waited == 0
+
+    for _ in range(3):
+        limiter.acquire()
+    assert clock.waited == pytest.approx(0.15)
 
 
 def test_rate_limiter_drain_falls_back_to_the_steady_rate() -> None:
-    limiter = WeblateRateLimiter(20, 100, 20)
+    clock = FakeClock()
+    limiter = clock.limiter(20, 100)
 
     limiter.drain()
+    for _ in range(3):
+        limiter.acquire()
 
-    assert timed(lambda: [limiter.acquire() for _ in range(3)]) >= 0.13
+    assert clock.waited == pytest.approx(0.15)
 
 
 def test_nginx_rate_limit_drains_the_burst(weblate: type[FakeWeblate], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(wl_common, "RATE_LIMITER", WeblateRateLimiter(20, 100, 20))
+    clock = FakeClock()
+    monkeypatch.setattr(wl_common, "RATE_LIMITER", clock.limiter(20, 100))
     weblate.queued = [(429, {}, b"Too Many Requests"), (200, {}, b"{}"), (200, {}, b"{}"), (200, {}, b"{}")]
     api = WeblateApi()
 
-    api.get(dict[str, Any], "/api/projects/")
+    for _ in range(3):
+        api.get(dict[str, Any], "/api/projects/")
 
-    assert timed(lambda: [api.get(dict[str, Any], "/api/projects/") for _ in range(2)]) >= 0.08
+    # After nginx refused a request, its retry and the next requests go at the steady rate.
+    assert clock.waited == pytest.approx(0.15)
 
 
 def test_rate_limiter_only_pauses_when_few_requests_remain() -> None:
-    limiter = WeblateRateLimiter(1000, 1000, 20)
+    clock = FakeClock()
+    limiter = clock.limiter(1000, 1000)
 
     limiter.update({})
     limiter.update({"X-RateLimit-Remaining": "4000", "X-RateLimit-Reset": "10"})
-    assert timed(limiter.acquire) < 0.1
+    limiter.acquire()
+    assert clock.waited == 0
 
     limiter.update({"X-RateLimit-Remaining": "19", "X-RateLimit-Reset": "0.2"})
-    assert timed(limiter.acquire) >= 0.15
+    limiter.acquire()
+    assert clock.waited == pytest.approx(0.2)
 
 
 def test_rate_limiter_pause_applies_to_waiting_requests() -> None:
-    limiter = WeblateRateLimiter(5, 1, 20)
+    clock = FakeClock()
+    limiter = clock.limiter(5, 1)
     limiter.acquire()
 
-    # The next request waits for its turn, and gets paused in the meantime.
-    threading.Timer(0.05, lambda: limiter.pause(0.4, "Paused")).start()
+    # The next request waits for its turn, and all requests get paused in the meantime.
+    clock.on_first_sleep = lambda: limiter.pause(0.4, "Paused")
+    limiter.acquire()
 
-    assert timed(limiter.acquire) >= 0.4
+    assert clock.waited == pytest.approx(0.4)
 
 
 def test_uploads_are_not_retried_after_a_server_error(weblate: type[FakeWeblate]) -> None:
