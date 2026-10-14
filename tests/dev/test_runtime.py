@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from typer import Exit
 from typer.testing import CliRunner
 
 from odoo_toolkit.dev import run as dev_run
@@ -208,3 +209,17 @@ def test_cli_run_with_port_in_use(version_dir: Path, monkeypatch: pytest.MonkeyP
 def test_cli_run_outside_multiverse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     assert CliRunner().invoke(app, ["dev", "run"]).exit_code == 1
+
+
+def test_cli_run_says_it_starts_before_preparing(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Visual Studio Code only waits for the debug task if it sees this line within 5 seconds, even while pulling.
+    def slow_preparation(*_: object, **__: object) -> None:
+        raise Exit(1)
+
+    monkeypatch.setattr(dev_run, "_prepare", slow_preparation)
+    monkeypatch.setattr(dev_run, "is_port_free", always_free)
+    monkeypatch.chdir(version_dir)
+
+    result = CliRunner().invoke(app, ["dev", "run", "--debug"])
+
+    assert result.output.startswith("otk: starting Odoo 19.0")

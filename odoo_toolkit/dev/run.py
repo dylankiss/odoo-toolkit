@@ -97,6 +97,9 @@ def run(
             raise Exit(1)
 
     arch = platform.value if platform else get_native_arch()
+    # Visual Studio Code's debug task only waits for Odoo if it sees this line within 5 seconds, so print it before
+    # pulling the image or starting the services. It must not wrap, to match.
+    print(f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False, soft_wrap=True)
     _prepare(version_dir, version, arch=arch, build=build, pull=pull, db_port=db_port)
 
     options = RunOptions(
@@ -119,8 +122,6 @@ def run(
     )
     addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
     addons = ", ".join(str(path.relative_to(version_dir)) for path in addons_paths)
-    # Visual Studio Code's task waits for these lines, so they must not wrap.
-    print(f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False, soft_wrap=True)
     print(f"otk: addons path: {addons}", highlight=False, soft_wrap=True)
     _exec(command)
 

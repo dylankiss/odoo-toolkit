@@ -8,6 +8,7 @@
     "csv-edit.quoteAllFields": true,
     "csv-edit.quoteEmptyOrNullFields": "true",
     "csv-edit.readOption_hasHeader": "true",
+    "debug.onTaskErrors": "debugAnyway",
     "editor.quickSuggestions": {
         "strings": "on"
     },
