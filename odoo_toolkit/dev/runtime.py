@@ -133,6 +133,8 @@ def build_odoo_command(options: RunOptions) -> list[str]:
         "--db_password=odoo",
         f"--smtp={SMTP_HOST}",
         "--smtp-port=1025",
+        # Since saas-19.1, Odoo only listens on the container's localhost by default, which Docker can't publish.
+        "--http-interface=0.0.0.0",
         f"--http-port={ODOO_PORT}",
         f"--data-dir={VOLUMES['otk-filestore']}",
         # Don't stop requests while you're paused in the debugger.

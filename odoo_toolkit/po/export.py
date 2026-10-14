@@ -518,9 +518,10 @@ def _run_in_container(server: _Server, container: _Container, *, port: int, arch
         version_dir=container.version_dir,
         version=container.version,
         port=port,
-        # Odoo listens on its usual port in the container, published on the free port we found.
-        command=[*server.odoo_cmd, f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}", "--db_user=odoo",
-                 "--db_password=odoo"],
+        # Odoo listens on its usual port in the container, published on the free port we found. Since saas-19.1,
+        # Odoo only listens on the container's localhost by default, which Docker can't publish.
+        command=[*server.odoo_cmd, "--http-interface=0.0.0.0", f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}",
+                 "--db_user=odoo", "--db_password=odoo"],
         arch=arch,
         role="export",
     )
