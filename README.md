@@ -62,6 +62,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 
 | Command                                                 | Purpose                                                                                     |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [`otk wl authors`](#otk-wl-authors)                     | List the translators you can upload translations for.                                       |
 | [`otk wl config`](#otk-wl-config)                       | Update modules in the Weblate config file.                                                  |
 | [`otk wl config-odoo`](#otk-wl-config-odoo)             | Generate the standard Odoo Weblate config profile for a version.                            |
 | [`otk wl copy`](#otk-wl-copy)                           | Copy translations between languages, components, and/or projects.                           |
@@ -368,6 +369,29 @@ or make the variable available to your execution environment by putting it in yo
 configuration file for your shell.
 
 
+## `otk wl authors`
+
+**List the translators you can upload translations for, with `--author`.**
+
+Configure them once in your odoo-toolkit configuration file (`~/.config/odoo-toolkit/config.toml`, or in `$XDG_CONFIG_HOME`), by a short name:
+
+```toml
+[weblate.authors]
+alice = { name = "Alice Martin", email = "alice.martin@example.com" }
+bob = { name = "Bob Jones", email = "bob.jones@example.com" }
+```
+
+Then `otk wl copy --author alice` or `otk wl upload --author alice` credits Alice Martin. With shell completion installed (`otk --install-completion`), `--author <Tab>` completes the short names.
+
+Weblate finds the author's account by the email, and keeps that account's name. Only for a new email, it creates an account with the name you configured.
+
+### Usage
+
+```console
+$ otk wl authors
+```
+
+
 ## `otk wl config`
 
 **Update modules in the Weblate config file.**
@@ -465,8 +489,8 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 * `-L, --dest-language TEXT`: The language code to copy translations to.
 * `-c, --src-component TEXT`: The Weblate components to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
-* `-n, --author-name TEXT`: The author name to use for the uploaded translations. If not set, the API key user will be used.
-* `-e, --author-email TEXT`: The author email to use for the uploaded translations. If not set, the API key user will be used.
+* `-a, --author TEXT`: The author of the uploaded translations: the short name of a translator in your configuration file (see [`otk wl authors`](#otk-wl-authors)), or a full name. If not set, the API key user will be used.
+* `-e, --email TEXT`: The author's email, for an author that isn't in your configuration file. Weblate finds the author's account by it.
 * `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
 * `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
 * `--help`: Show this message and exit.
@@ -554,14 +578,14 @@ $ otk wl upload -p odoo-19 -l fr -m suggest
 * `-p, --project TEXT`: The Weblate project to upload translations to.  **[required]**
 * `-l, --language TEXT`: The languages to upload translations for. At least one language must be specified.  **[required]**
 * `-c, --component TEXT`: The Weblate components to upload translations to. You can use glob patterns. Uploads all matching files if none are specified.
-* `-a, --author TEXT`: The author name to use for the uploaded translations. If not set, the API key user will be used.
-* `-e, --email TEXT`: The author email to use for the uploaded translations. If not set, the API key user will be used.
+* `-a, --author TEXT`: The author of the uploaded translations: the short name of a translator in your configuration file (see [`otk wl authors`](#otk-wl-authors)), or a full name. If not set, the API key user will be used.
+* `-e, --email TEXT`: The author's email, for an author that isn't in your configuration file. Weblate finds the author's account by it.
 * `-m, --method [translate|approve|suggest]`: Upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
 * `-o, --overwrite [ignore|replace-translated|replace-approved]`: Don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
 * `-f, --fuzzy [ignore|process|approve]`: Ignore fuzzy translations (`ignore`), mark them as "Needs editing" (`process`), or add them as regular translations (`approve`).  [default: `process`]
 * `--help`: Show this message and exit.
 
-The author is only used if your API key's user may set it.
+The author is only used if your API key's user may set it (the "Define author of uploaded translation" permission).
 
 
 ## Odoo Multiverse (`otk mv`)

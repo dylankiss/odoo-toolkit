@@ -15,6 +15,7 @@ from odoo_toolkit.common import (
 )
 from odoo_toolkit.po.common import get_cldr_lang
 
+from .authors import AuthorOption, EmailOption, resolve_author
 from .common import (
     NOT_FOUND,
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
@@ -68,22 +69,8 @@ def copy(  # noqa: C901, PLR0912, PLR0915
             "strings if not specified.",
         ),
     ] = None,
-    author_name: Annotated[
-        str | None,
-        Option(
-            "--author-name",
-            "-n",
-            help="The author name to use for the uploaded translations. If not set, the API key user will be used.",
-        ),
-    ] = None,
-    author_email: Annotated[
-        str | None,
-        Option(
-            "--author-email",
-            "-e",
-            help="The author email to use for the uploaded translations. If not set, the API key user will be used.",
-        ),
-    ] = None,
+    author: AuthorOption = None,
+    email: EmailOption = None,
     method: Annotated[
         UploadMethod,
         Option(
@@ -148,10 +135,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         "method": method.value,
         "fuzzy": "process",
     }
-    if author_name:
-        upload_data["author_name"] = author_name
-    if author_email:
-        upload_data["author_email"] = author_email
+    upload_data |= resolve_author(author, email)
 
     try:
         weblate_api = WeblateApi()

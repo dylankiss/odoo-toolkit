@@ -15,6 +15,7 @@ from odoo_toolkit.common import (
 )
 from odoo_toolkit.po.common import get_cldr_lang
 
+from .authors import AuthorOption, EmailOption, resolve_author
 from .common import (
     WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
     UploadConflicts,
@@ -51,22 +52,8 @@ def upload(
             "files if none are specified.",
         ),
     ] = EMPTY_LIST,
-    author: Annotated[
-        str | None,
-        Option(
-            "--author",
-            "-a",
-            help="The author name to use for the uploaded translations. If not set, the API key user will be used.",
-        ),
-    ] = None,
-    email: Annotated[
-        str | None,
-        Option(
-            "--email",
-            "-e",
-            help="The author email to use for the uploaded translations. If not set, the API key user will be used.",
-        ),
-    ] = None,
+    author: AuthorOption = None,
+    email: EmailOption = None,
     method: Annotated[
         UploadMethod,
         Option(
@@ -114,10 +101,7 @@ def upload(
         "conflicts": conflicts.value,
         "fuzzy": "" if fuzzy == UploadFuzzy.IGNORE else fuzzy.value,
     }
-    if author:
-        upload_data["author_name"] = author
-    if email:
-        upload_data["author_email"] = email
+    upload_data |= resolve_author(author, email)
 
     files = _find_files(project, [get_cldr_lang(lang) for lang in normalize_list_option(languages)])
     patterns = normalize_list_option(components)

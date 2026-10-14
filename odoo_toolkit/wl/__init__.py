@@ -1,5 +1,6 @@
 from typer import Typer
 
+from .authors import app as authors_app
 from .config import app as config_app
 from .copy import app as copy_app
 from .download import app as download_app
@@ -7,6 +8,7 @@ from .update_teams import app as update_teams_app
 from .upload import app as upload_app
 
 app = Typer(no_args_is_help=True)
+app.add_typer(authors_app)
 app.add_typer(config_app)
 app.add_typer(copy_app)
 app.add_typer(download_app)
