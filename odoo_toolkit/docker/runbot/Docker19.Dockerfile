@@ -1,5 +1,6 @@
-# FROM ubuntu:noble
+# FROM ubuntu:noble (core)
 FROM ubuntu:noble
+ARG PG_VERSION=16
 
 # ENV LANG C.UTF-8
 ENV LANG C.UTF-8
@@ -12,6 +13,16 @@ RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-transport-https build-essential ca-certificates curl faketime file fonts-freefont-ttf fonts-noto-cjk gawk gnupg gsfonts libldap2-dev libjpeg9-dev libsasl2-dev libxslt1-dev lsb-release npm ocrmypdf sed sudo unzip xfonts-75dpi zip zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Setup postgresql server
+
+ENV PG_VERSION=${PG_VERSION}
+RUN set -x ; \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql-${PG_VERSION} postgresql-${PG_VERSION}-pgvector locales\
+    && rm -rf /var/lib/apt/lists/*
+RUN locale-gen en_US.UTF-8
+
 
 # Install debian packages
 RUN set -x ; \
@@ -54,9 +65,9 @@ RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-s
     && apt-get -y install --no-install-recommends /tmp/chrome.deb \
     && rm /tmp/chrome.deb
 
-# Install Odoo Phonenumbers with values {"phonenumbers_version": "8.12.57-4+odoo1_all"}
+# Install Odoo Phonenumbers noble with values {"phonenumbers_version": "8.12.57-4+odoo2_all"}
 # CACHE 86400
-ADD https://packages.odoo.com/pub/python3-phonenumbers_8.12.57-4+odoo1_all.deb /phonenumbers.deb
+ADD https://packages.odoo.com/pub/python3-phonenumbers_8.12.57-4+odoo2_all.deb /phonenumbers.deb
 RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /phonenumbers.deb \
