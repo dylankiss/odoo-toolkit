@@ -39,6 +39,12 @@ TIMEOUT = 30
 # The user the images run as. UID 1000 matches the first user on most Linux machines, which avoids permission issues
 # on mounted source code.
 BUILD_ARGS = "ARG USERNAME=odoo\nARG USERUID=1000\nARG USERGID=1000\n"
+# Odoo's own wkhtmltopdf build, which older Dockerfiles use, only exists for amd64. The official one with the patched Qt
+# exists for arm64 too.
+ODOO_WKHTMLTOPDF_PATTERN = re.compile(r"https://nightly\.odoo\.com/deb/(?P<release>\w+)/wkhtmltox_[^/\s]+_amd64\.deb")
+WKHTMLTOPDF_ARM64_URL = (
+    "https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.{release}_arm64.deb"
+)
 # Where Runbot's Dockerfiles download the Paper Muncher package to, which only exists for amd64.
 PAPER_MUNCHER_DEB = "/tmp/paper.deb"  # noqa: S108 (a path inside the image, not on this machine)
 
@@ -147,6 +153,11 @@ def _adapt_block_to_arm64(block: str, get_chrome_version: Callable[[str], str]) 
         return (
             "# libsass has no arm64 wheel, so use the python3-libsass package installed from debian/control.\n"
             + block.replace("RUN ", "RUN sed -i '/^libsass/d' /tmp/requirements.txt && ", 1)
+        )
+    if wkhtmltopdf := ODOO_WKHTMLTOPDF_PATTERN.search(block):
+        return (
+            "# Odoo's wkhtmltopdf build isn't built for arm64, so use the official one with the patched Qt.\n"
+            + block.replace(wkhtmltopdf.group(0), WKHTMLTOPDF_ARM64_URL.format(release=wkhtmltopdf.group("release")))
         )
     if chrome := CHROME_DEB_PATTERN.search(block):
         pinned_version = chrome.group("version")

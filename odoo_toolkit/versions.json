@@ -1,4 +1,9 @@
 {
+  "17.0": {
+    "image": "Docker17",
+    "ubuntu": "jammy",
+    "python": "3.10"
+  },
   "18.0": {
     "image": "Docker18",
     "ubuntu": "noble",

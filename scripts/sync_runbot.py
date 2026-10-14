@@ -23,7 +23,7 @@ VERSIONS_URL = f"{RUNBOT_URL}/runbot/versions"
 DOCKERFILE_URL = f"{RUNBOT_URL}/runbot/dockerfile"
 DOCKERFILES_DIR = Path(__file__).parent.parent / "odoo_toolkit" / "docker" / "runbot"
 # Older versions are no longer supported.
-MIN_VERSION = (18.0, 0.0)
+MIN_VERSION = (17.0, 0.0)
 TIMEOUT = 30
 
 ROW_PATTERN = re.compile(r"<tr(?:\s[^>]*)?>(.*?)</tr>", re.DOTALL)
