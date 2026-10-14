@@ -14,7 +14,7 @@
                     "regexp": "^__otk_never_matches__$"
                 },
                 "background": {
-                    "activeBegins": true,
+                    "activeOnStart": true,
                     "beginsPattern": "^otk: starting Odoo",
                     "endsPattern": "^otk: waiting for the debugger"
                 }
