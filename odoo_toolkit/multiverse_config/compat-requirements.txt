@@ -1,0 +1,4 @@
+# Requirements that keep the versions' own requirements working, installed after them.
+
+# Sphinx 4.3.2, which the documentation pins, imports `pkg_resources`, which setuptools 82 removed.
+setuptools<82

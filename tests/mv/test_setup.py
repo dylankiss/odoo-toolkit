@@ -198,6 +198,11 @@ def test_parse_requirements(tmp_path: Path) -> None:
     ]
 
 
+def test_compat_requirements_keep_pkg_resources() -> None:
+    # Sphinx 4.3.2, which every version's documentation pins, imports `pkg_resources`.
+    assert mv_setup.parse_requirements([mv_setup.COMPAT_REQUIREMENTS_FILE]) == ["setuptools<82"]
+
+
 def test_get_venv_python(tmp_path: Path) -> None:
     (tmp_path / "pyvenv.cfg").write_text("home = /usr/bin\nimplementation = CPython\nversion_info = 3.12.8\n")
     assert mv_setup.get_venv_python(tmp_path) == "3.12"

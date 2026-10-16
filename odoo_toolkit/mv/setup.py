@@ -65,6 +65,8 @@ VERSION_REQUIREMENTS = [
     Path("odoo/requirements.txt"),
     Path("documentation/requirements.txt"),
 ]
+# Requirements the versions' own requirements need, but don't pin, like the setuptools Sphinx needs.
+COMPAT_REQUIREMENTS_FILE = MULTIVERSE_CONFIG_DIR / "compat-requirements.txt"
 # Constraints for building old packages from source, like the Cython version some need.
 BUILD_CONSTRAINTS_FILE = MULTIVERSE_CONFIG_DIR / "build-constraints.txt"
 # Matches the package name at the start of a requirement, like `Pillow` in `Pillow==10.2.0 ; python_version >= '3.12'`.
@@ -551,7 +553,7 @@ def _configure_versions(
                     requirements=[version_dir / path for path in VERSION_REQUIREMENTS]
                     # The requirements of the linked pinned repositories, like `odoofin`.
                     + [version_dir / name / "requirements.txt" for name in links.get(branch, [])]
-                    + [multiverse_dir / "requirements.txt"],
+                    + [COMPAT_REQUIREMENTS_FILE, multiverse_dir / "requirements.txt"],
                     reset=reset_config,
                 ),
             ),
