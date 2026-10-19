@@ -118,5 +118,9 @@ RUN set -x ; \
     && rm /tmp/faketime-sources.tar.gz \
     && rm -rf /tmp/libfaketime-3062fb20041552727bdb810456d2f1b4001b341f
 
+# FORCE pgdump 18 (temporary)
+RUN ln -sf /usr/lib/postgresql/18/bin/pg_dump /usr/bin/pg_dump;
+RUN ln -sf /usr/lib/postgresql/18/bin/pg_restore /usr/bin/pg_restore;
+
 # Switch user for [Docker 17]
 USER ${USERNAME}

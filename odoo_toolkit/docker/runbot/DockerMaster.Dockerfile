@@ -127,12 +127,12 @@ RUN set -x ; \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="$PATH:/opt/paper-muncher/bin" 
 
-# Add odools with values {"odoo_ls_version": "1.3.3"}
+# Add odools with values {"odoo_ls_version": "1.6.0"}
 # CACHE 36000
 ADD https://github.com/python/typeshed/archive/refs/heads/main.zip /tmp/typeshed.zip
 RUN mkdir /usr/local/bin/typeshed && unzip /tmp/typeshed.zip -d /tmp/typeshed && mv /tmp/typeshed/typeshed-main/* /usr/local/bin/typeshed && chmod 775 -R /usr/local/bin/typeshed
 # CACHE 3600
-ADD https://github.com/odoo/odoo-ls/releases/download/1.3.3/odoo-linux-x86_64-1.3.3.tar.gz /tmp/odools.tar.gz
+ADD https://github.com/odoo/odoo-ls/releases/download/1.6.0/odoo-linux-x86_64-1.6.0.tar.gz /tmp/odools.tar.gz
 RUN cd /usr/local/bin && tar xvfz /tmp/odools.tar.gz && chmod 775 /usr/local/bin/odoo_ls_server && rm /tmp/odools.tar.gz
 
 # Switch user for [Docker Master Noble]
