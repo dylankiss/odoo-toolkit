@@ -1,15 +1,9 @@
 name: Release
 
-# Publishes the package to PyPI when a version tag (like `v4.0.0`) is pushed.
-#
-# Uses PyPI's trusted publishing, so no token is stored: the `odoo-toolkit` project on PyPI trusts this workflow, in the
-# `pypi` environment, of this repository.
+# Uses PyPI's trusted publishing: no token is stored, PyPI trusts this workflow in the `pypi` environment.
 on:
   push:
     tags: ["v*"]
-
-permissions:
-  contents: read
 
 jobs:
   pypi:
@@ -18,11 +12,14 @@ jobs:
       name: pypi
       url: https://pypi.org/project/odoo-toolkit/
     permissions:
-      # Proves to PyPI that this workflow is the one it trusts.
+      contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The previous tag, to list the commits since then.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Check that the tag is the package version
         env:
           TAG: ${{ github.ref_name }}
@@ -34,4 +31,21 @@ jobs:
           fi
       - run: uv run pytest -q tests
       - run: uv build
-      - run: uv publish
+      # Skips the files PyPI already has, so a failed release can be run again.
+      - run: uv publish --check-url https://pypi.org/simple/
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+          {
+            if [ -n "$previous" ]; then
+              git log --no-merges --format='- %s' "$previous..$TAG" | grep -v '^- \[REL\]' || true
+              echo
+              echo "**Full changelog:** https://github.com/$GITHUB_REPOSITORY/compare/$previous...$TAG"
+            fi
+            echo
+            echo "**PyPI:** https://pypi.org/project/odoo-toolkit/${TAG#v}/"
+          } > notes.md
+          gh release create "$TAG" dist/* --verify-tag --title "odoo-toolkit ${TAG#v}" --notes-file notes.md
