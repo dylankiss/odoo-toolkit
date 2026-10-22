@@ -1,8 +1,8 @@
 """Decide which branches the bare repositories fetch, and clean up the ones they don't need.
 
 Every remote fetches the branches your local branches track: the versions you set up, and the branches you switched
-to, as long as they still exist on GitHub. On top of that, `origin` fetches its default branch, and `dev` fetches your
-own branches (ending with your branch suffix).
+to, as long as they still exist on GitHub. On top of that, `origin` fetches its default branch, and your own branches
+(ending with your branch suffix) are fetched from `dev`, or from `origin` when the repository has no `dev` remote.
 Other branches, like the staging branches or other people's branches, are only fetched on demand.
 """
 
@@ -110,23 +110,24 @@ def configure_fetching(repo: Git, *, branch_suffix: str | None) -> bool:
     """Configure which branches the remotes of a bare repository fetch, and Git's speed-ups for large repositories.
 
     Every remote fetches the branches the local branches track, as long as they exist on GitHub: fetching a branch
-    that was deleted there fails the whole fetch. On top of that, `origin` fetches its default branch, and `dev`
-    fetches your own branches.
+    that was deleted there fails the whole fetch. On top of that, `origin` fetches its default branch, and your own
+    branches are fetched from `dev`, or from `origin` when the repository has no `dev` remote.
 
     :param repo: The bare repository.
-    :param branch_suffix: The suffix of your own branches on the `dev` remote, or None for the remembered one.
+    :param branch_suffix: The suffix of your own branches, or None for the remembered one.
     :return: Whether the fetched branches changed.
     """
     changed = False
     branch_suffix = resolve_branch_suffix(repo, branch_suffix)
     tracked = get_tracked_branches(repo)
-    for remote in repo.remotes():
-        if remote == "origin":
-            wanted = [branch_refspec(remote, get_known_default_branch(repo) or "master")]
-        elif remote == "dev":
-            wanted = [branch_refspec(remote, f"*-{branch_suffix}")] if branch_suffix else []
-        else:
+    remotes = repo.remotes()
+    own_branches_remote = "dev" if "dev" in remotes else "origin"
+    for remote in remotes:
+        if remote not in ("origin", "dev"):
             continue
+        wanted = [branch_refspec(remote, get_known_default_branch(repo) or "master")] if remote == "origin" else []
+        if remote == own_branches_remote and branch_suffix:
+            wanted.append(branch_refspec(remote, f"*-{branch_suffix}"))
         extra = {branch for branch in tracked.get(remote, set()) if not is_fetched(wanted, branch)}
         wanted += [branch_refspec(remote, branch) for branch in sorted(get_existing_branches(repo, remote, extra))]
         if wanted != get_fetch_refspecs(repo, remote):
