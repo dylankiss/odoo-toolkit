@@ -129,6 +129,10 @@ def test_detect_runs_on(tmp_path: Path) -> None:
     assert detect_runs_on(tmp_path, "18.0") == "18.0"
     assert detect_runs_on(tmp_path, "saas-19.2") == "saas-19.2"
     assert detect_runs_on(tmp_path, "master") is None
+    assert detect_runs_on(tmp_path, "19.0-fix-something-abcd") == "19.0"
+    assert detect_runs_on(tmp_path, "saas-19.2-fix-something-abcd") == "saas-19.2"
+    assert detect_runs_on(tmp_path, "master-fix-something-abcd") is None
+    assert detect_runs_on(tmp_path, "19.0.1") is None
     for module, version in [("a", "20.0.1.0"), ("b", "20.0.2.1"), ("c", "1.0")]:
         (tmp_path / module).mkdir()
         (tmp_path / module / "__manifest__.py").write_text(f"{{'name': '{module}', 'version': '{version}'}}")
