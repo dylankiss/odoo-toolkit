@@ -1,12 +1,59 @@
 name: Release
 
+# Run it on master to bump the version, then commit, tag and publish the release, or push a `v*` tag to publish it.
+# One workflow, as a tag pushed with the workflow's token doesn't start other workflows.
 # Uses PyPI's trusted publishing: no token is stored, PyPI trusts this workflow in the `pypi` environment.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: The part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 jobs:
+  tag:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Check that the release is made from master
+        if: github.ref != 'refs/heads/master'
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          echo "Releases are made from master, not $REF." >&2
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv run pytest -q tests
+      - name: Bump the version, and commit and tag the release
+        id: tag
+        env:
+          BUMP: ${{ inputs.bump }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          uv version --bump "$BUMP"
+          version=$(uv version --short)
+          git config user.name "$ACTOR"
+          git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
+          git commit -am "[REL] odoo-toolkit $version"
+          git tag -a "v$version" -m "odoo-toolkit $version"
+          # Atomic, so the tag isn't pushed when master moved in the meantime.
+          git push --atomic origin HEAD:master "v$version"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
   pypi:
+    needs: tag
+    # Also when the tag job is skipped, on a pushed tag.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.tag.result == 'success') }}
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -14,29 +61,31 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    env:
+      TAG: ${{ needs.tag.outputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: refs/tags/${{ env.TAG }}
           # The previous tag, to list the commits since then.
           fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Check that the tag is the package version
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
           version="v$(uv version --short)"
           if [ "$version" != "$TAG" ]; then
             echo "The tag $TAG doesn't match the package version $version." >&2
             exit 1
           fi
-      - run: uv run pytest -q tests
+      # The tag job already ran them.
+      - if: github.event_name == 'push'
+        run: uv run pytest -q tests
       - run: uv build
       # Skips the files PyPI already has, so a failed release can be run again.
       - run: uv publish --check-url https://pypi.org/simple/
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
         run: |
           previous=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
           {
