@@ -310,8 +310,11 @@ def test_follow_default_branch(tmp_path: Path, remotes: Path) -> None:
     result = mv_setup.clone_repo(KNOWN_REPOS["odoofin"], clone_dir)
     assert result.message == "cloned on [b]18.0[/b]"
     repo = Git(clone_dir)
-    # `origin` fetches its default branch, not `master`.
-    assert repo("config", "--get-all", "remote.origin.fetch") == "+refs/heads/18.0:refs/remotes/origin/18.0"
+    # `origin` fetches its default branch, not `master`. Without a `dev` remote, it also fetches your own branches.
+    assert repo("config", "--get-all", "remote.origin.fetch").splitlines() == [
+        "+refs/heads/18.0:refs/remotes/origin/18.0",
+        "+refs/heads/*-test:refs/remotes/origin/*-test",
+    ]
     assert mv_setup.follow_default_branch(repo, "odoofin").outcome == Outcome.SKIPPED
 
     git(remotes / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")

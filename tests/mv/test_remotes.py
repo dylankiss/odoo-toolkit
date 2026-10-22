@@ -47,6 +47,20 @@ def test_configure_fetching(bare: Git) -> None:
     assert not configure_fetching(bare, branch_suffix="abcd")
 
 
+def test_configure_fetching_without_dev_remote(bare: Git) -> None:
+    # Without an `odoo-dev` fork, like for `i18n-apps`, your own branches are on `origin`. So they are fetched
+    # however they were created, even with a plain `git push`.
+    bare("remote", "remove", "dev")
+
+    assert configure_fetching(bare, branch_suffix="abcd")
+
+    assert get_fetch_refspecs(bare, "origin") == [
+        "+refs/heads/master:refs/remotes/origin/master",
+        "+refs/heads/*-abcd:refs/remotes/origin/*-abcd",
+        "+refs/heads/19.0:refs/remotes/origin/19.0",
+    ]
+
+
 def test_switch_to_other_dev_branch_keeps_fetching_it(multiverse: Path, bare: Git) -> None:
     worktree = multiverse / "19.0" / "odoo"
     assert "+refs/heads/19.0-fix-abc:refs/remotes/dev/19.0-fix-abc" not in get_fetch_refspecs(bare, "dev")
