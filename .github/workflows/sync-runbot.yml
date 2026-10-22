@@ -3,7 +3,7 @@ name: Sync with Runbot
 # Checks Runbot every week for new versions or changed Dockerfiles, and opens a pull request with the changes.
 on:
   schedule:
-    - cron: "0 5 * * 1"
+    - cron: "0 5 * * 6"
   workflow_dispatch:
 
 permissions:
