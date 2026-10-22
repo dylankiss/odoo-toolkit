@@ -21,6 +21,7 @@ from .runtime import (
     get_git_identity,
     get_ssh_agent,
     is_port_free,
+    normalize_volume,
 )
 
 app = Typer()
@@ -55,6 +56,24 @@ def run(
             help="Leave these repositories out of the addons path, like `enterprise` or `odoofin,design-themes`.",
         ),
     ] = EMPTY_LIST,
+    volume: Annotated[
+        list[str],
+        Option(
+            "--volume",
+            "-v",
+            help="Mount a file or folder of your machine in the container, like `~/etc-odoo:/etc/odoo:ro`. Can be "
+            "used several times.",
+        ),
+    ] = EMPTY_LIST,
+    env: Annotated[
+        list[str],
+        Option(
+            "--env",
+            "-e",
+            help="Set an environment variable in the container, like `REQUESTS_CA_BUNDLE=/etc/ca.pem`. Can be used "
+            "several times.",
+        ),
+    ] = EMPTY_LIST,
     build: Annotated[bool, Option("--build", help="Build the image on your machine instead of pulling it.")] = False,
     pull: Annotated[bool, Option("--pull", help="Pull the latest image, even if you have one already.")] = False,
     db_port: Annotated[
@@ -82,10 +101,19 @@ def run(
     \n
     The addons path contains every repository of the version directory with modules in it, like `enterprise`,
     `odoo/addons`, and linked repositories like `odoofin`. Use `--community` to only load Odoo Community, or
-    `--exclude` to leave out repositories. Pass any other Odoo options after `--`, like `otk dev run -- -d mydb -i sale`.
+    `--exclude` to leave out repositories. Use `--volume` and `--env` to give the container files and settings of your
+    machine, like the configuration of a linked repository. Pass any other Odoo options after `--`, like
+    `otk dev run -- -d mydb -i sale`.
     """
     version_dir, version = get_version_dir()
     exclude = normalize_list_option(exclude)
+    volumes = [normalize_volume(spec) for spec in volume]
+    for spec in volumes:
+        source = spec.partition(":")[0]
+        # Docker would create a missing folder as `root`, instead of telling you the path is wrong.
+        if source.startswith("/") and not Path(source).exists():
+            print_error(f"Can't mount [u]{source}[/u], since it doesn't exist.\n")
+            raise Exit(1)
     if unknown := sorted(set(exclude) - {path.name for path in get_repo_dirs(version_dir, include_linked=True)}):
         print_warning(f"There is no [b]{'[/b], [b]'.join(unknown)}[/b] in [u]{version_dir}[/u] to leave out.\n")
 
@@ -109,6 +137,8 @@ def run(
         arch=arch,
         exclude=exclude,
         community=community,
+        volumes=volumes,
+        env=env,
     )
     command = build_run_command(
         options,

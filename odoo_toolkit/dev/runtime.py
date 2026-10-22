@@ -64,6 +64,9 @@ class RunOptions:
     exclude: list[str] = field(default_factory=list[str])
     # Whether to only load Odoo Community's modules.
     community: bool = False
+    # More `--volume` and `--env` arguments for the container, like `/etc/odoo:/etc/odoo:ro` and `KEY=value`.
+    volumes: list[str] = field(default_factory=list[str])
+    env: list[str] = field(default_factory=list[str])
     # Run this command instead of Odoo, like `bash`.
     command: list[str] | None = None
     # The architecture to run. Another than the machine's runs emulated, which is slower.
@@ -200,8 +203,23 @@ def build_run_command(
     run += ["--env", f"PYTHONPYCACHEPREFIX={VOLUMES['otk-pycache']}"]
     for key, value in git_identity.items():
         run += ["--env", f"{key}={value}"]
+    for volume in options.volumes:
+        run += ["--volume", volume]
+    for variable in options.env:
+        run += ["--env", variable]
     run += get_ssh_agent_args(ssh_agent)
     return [*run, get_image_tag(options.version), *command]
+
+
+def normalize_volume(volume: str) -> str:
+    """Make the path on your machine in a `--volume` absolute, since Docker takes a relative one for a volume's name.
+
+    `~` stands for your home folder, and `.` or `..` for the current folder. Names of volumes stay as they are.
+    """
+    source, separator, rest = volume.partition(":")
+    if separator and source.startswith(("~", ".")):
+        source = str(Path(source).expanduser().resolve())
+    return f"{source}{separator}{rest}"
 
 
 def get_ssh_agent() -> Path | None:

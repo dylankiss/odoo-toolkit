@@ -258,7 +258,7 @@ It starts PostgreSQL and Mailpit if needed, and runs Odoo with:
 - the database and mail server set up,
 - no time limits, so requests don't stop while you're paused in the debugger.
 
-Use `--community` to only load Odoo Community, or `--exclude` to leave out repositories, like `-x enterprise`. Pass any other Odoo options after `--`. Stop Odoo with `Ctrl+C`.
+Use `--community` to only load Odoo Community, or `--exclude` to leave out repositories, like `-x enterprise`. Use `--volume` and `--env` to give the container files and settings of your machine, like the configuration of a linked repository. Pass any other Odoo options after `--`. Stop Odoo with `Ctrl+C`.
 
 ### Usage
 
@@ -270,6 +270,7 @@ e.g.
 $ otk dev run -- -d mydb -i sale
 $ otk dev run --port 8070 --debug -- -d mydb
 $ otk dev run --community -- -d community-db
+$ otk dev run -v ~/etc-odoo:/etc/odoo:ro -e KEY=value -- -d mydb
 ```
 
 ### Options
@@ -280,6 +281,8 @@ $ otk dev run --community -- -d community-db
 * `--upgrade`: Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path.
 * `--community`: Only load the modules of Odoo Community (`odoo/addons`).
 * `-x, --exclude TEXT`: Leave these repositories out of the addons path, like `enterprise` or `odoofin,design-themes`.
+* `-v, --volume TEXT`: Mount a file or folder of your machine in the container, like `~/etc-odoo:/etc/odoo:ro`. Can be used several times. A path starting with `~` or `.` is made absolute, and the path must exist.
+* `-e, --env TEXT`: Set an environment variable in the container, like `REQUESTS_CA_BUNDLE=/etc/ca.pem`. Can be used several times.
 * `--build`: Build the image on your machine instead of pulling it.
 * `--pull`: Pull the latest image, even if you have one already.
 * `--db-port INTEGER`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it restarts PostgreSQL.

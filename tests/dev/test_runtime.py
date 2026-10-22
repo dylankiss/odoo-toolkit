@@ -16,6 +16,7 @@ from odoo_toolkit.dev.runtime import (
     get_addons_paths,
     get_ssh_agent,
     is_port_free,
+    normalize_volume,
 )
 from odoo_toolkit.main import app
 from odoo_toolkit.versions import get_versions
@@ -102,6 +103,36 @@ def test_build_run_command(version_dir: Path) -> None:
     assert odoo[0] == str(version_dir / "odoo" / "odoo-bin")
     assert f"--upgrade-path={version_dir / 'upgrade-util' / 'src'},{version_dir / 'upgrade' / 'migrations'}" in odoo
     assert odoo[-2:] == ["-d", "mydb"]
+
+
+def test_build_run_command_with_volumes_and_env(version_dir: Path) -> None:
+    options = RunOptions(
+        version_dir=version_dir,
+        version=get_versions()["19.0"],
+        volumes=["/data/etc-odoo:/etc/odoo:ro", "/data/ca.pem:/etc/ca.pem:ro"],
+        env=["REQUESTS_CA_BUNDLE=/etc/ca.pem"],
+    )
+
+    command = build_run_command(options, multiverse_dir=version_dir.parent, git_identity={}, tty=False, ssh_agent=None)
+
+    assert command.count("/data/etc-odoo:/etc/odoo:ro") == 1
+    assert command[command.index("/data/ca.pem:/etc/ca.pem:ro") - 1] == "--volume"
+    assert command[command.index("REQUESTS_CA_BUNDLE=/etc/ca.pem") - 1] == "--env"
+    # They come before the image, so Docker doesn't take them for Odoo's options.
+    image = command.index("dylankiss/odoo-dev:19.0")
+    assert command.index("/data/ca.pem:/etc/ca.pem:ro") < image
+    assert command.index("REQUESTS_CA_BUNDLE=/etc/ca.pem") < image
+
+
+def test_normalize_volume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    # Absolute paths and the names of volumes stay as they are.
+    assert normalize_volume("/etc/odoo:/etc/odoo:ro") == "/etc/odoo:/etc/odoo:ro"
+    assert normalize_volume("otk-filestore:/data") == "otk-filestore:/data"
+    # Relative paths and `~` would be taken for volume names, or not understood, by Docker.
+    assert normalize_volume("~/etc-odoo:/etc/odoo") == f"{(tmp_path / 'home' / 'etc-odoo').resolve()}:/etc/odoo"
+    assert normalize_volume("./conf:/etc/odoo:ro") == f"{(tmp_path / 'conf').resolve()}:/etc/odoo:ro"
 
 
 def test_build_run_command_for_a_shell_with_your_ssh_agent(version_dir: Path) -> None:
@@ -191,6 +222,46 @@ def test_cli_run(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert "addons path: design-themes, odoofin, odoo/addons" in result.output
     assert "127.0.0.1:8075:8069" in executed[0]
     assert executed[0][-4:] == ["-d", "mydb", "-i", "sale"]
+
+
+def test_cli_run_with_volumes_and_env(version_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    executed: list[list[str]] = []
+
+    def capture(command: list[str]) -> None:
+        executed.append(command)
+
+    def no_docker(*_: object, **__: object) -> None:
+        pass
+
+    config = tmp_path / "etc-odoo"
+    config.mkdir()
+    monkeypatch.setattr(dev_run, "_exec", capture)
+    monkeypatch.setattr(dev_run, "_prepare", no_docker)
+    monkeypatch.setattr(dev_run, "is_port_free", always_free)
+    monkeypatch.chdir(version_dir / "odoo")
+
+    result = CliRunner().invoke(
+        app, ["dev", "run", "-v", f"{config}:/etc/odoo:ro", "-e", "A=1", "--env", "B=2,3", "--", "-d", "mydb"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"{config}:/etc/odoo:ro" in executed[0]
+    # Values aren't split on commas, like the repositories of `--exclude`.
+    assert "B=2,3" in executed[0]
+    assert "A=1" in executed[0]
+    assert executed[0][-2:] == ["-d", "mydb"]
+
+
+def test_cli_run_with_a_volume_that_does_not_exist(
+    version_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(dev_run, "is_port_free", always_free)
+    monkeypatch.chdir(version_dir / "odoo")
+
+    result = CliRunner().invoke(app, ["dev", "run", "-v", f"{tmp_path / 'missing'}:/etc/odoo"])
+
+    assert result.exit_code == 1
+    assert "doesn't exist" in result.output
 
 
 def test_cli_run_with_port_in_use(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
