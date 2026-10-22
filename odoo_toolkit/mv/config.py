@@ -279,14 +279,17 @@ def get_odoo_com_version() -> str | None:
 
 
 def detect_runs_on(repo_dir: Path, branch: str | None) -> str | None:
-    """Detect the Odoo version a pinned repository runs on: its branch if that's a version, or else its modules' versions.
+    """Detect the Odoo version a pinned repository runs on: its branch's version, or else its modules' versions.
+
+    The branch's version is the branch itself, like `19.0`, or the version a feature branch starts with, like `19.0` in
+    `19.0-fix-something-abcd`.
 
     :param repo_dir: The repository's clone.
     :param branch: The repository's branch.
     :return: The Odoo version, or None if it can't be detected.
     """
-    if branch and VERSION_PATTERN.fullmatch(branch) and branch != "master":
-        return branch
+    if branch and (match := re.match(rf"({VERSION_PATTERN.pattern})(?:-|$)", branch)) and match.group(1) != "master":
+        return match.group(1)
     versions: dict[str, int] = {}
     for manifest in repo_dir.glob("*/__manifest__.py"):
         if match := MANIFEST_VERSION_PATTERN.search(manifest.read_text(encoding="utf-8", errors="replace")):
