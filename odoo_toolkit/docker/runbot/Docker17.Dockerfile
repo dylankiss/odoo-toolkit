@@ -56,7 +56,7 @@ RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql-${PG_VERSION} postgresql-${PG_VERSION}-pgvector locales\
     && rm -rf /var/lib/apt/lists/*
-RUN locale-gen en_US.UTF-8
+RUN sed -i 's/^# *en_US.UTF-8 UTF-8$/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
 
 
 # Install chrome with values {"chrome_version": "150.0.7871.114-1"}
