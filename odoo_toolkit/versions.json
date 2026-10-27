@@ -35,7 +35,7 @@
     "python": "3.14"
   },
   "20.0": {
-    "image": "DockerMaster",
+    "image": "Docker20",
     "ubuntu": "resolute",
     "python": "3.14"
   },
