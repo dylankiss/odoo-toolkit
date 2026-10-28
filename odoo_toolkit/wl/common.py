@@ -686,11 +686,7 @@ def fetch_language_files(
     return language_files
 
 
-K = TypeVar("K")
-R = TypeVar("R")
-
-
-def run_concurrently(
+def run_concurrently[K, R](
     items: Iterable[K],
     work: Callable[[K], R],
     *,

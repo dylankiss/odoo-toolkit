@@ -27,11 +27,14 @@ ignore = [
     "CPY001",   # missing-copyright-notice
     "D100",     # undocumented-public-module
     "D104",     # undocumented-public-package
+    "D203",     # incorrect-blank-line-before-class, which D211 replaces
+    "D213",     # multi-line-summary-second-line, which D212 replaces
     "D301",     # escape-sequence-in-docstring
     "E501",     # line-too-long
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
     "PLR0913",  # too-many-arguments
+    "PLR0917",  # too-many-positional-arguments, like the arguments of Typer commands
     "S602",     # subprocess-popen-with-shell-equals-true
     "S603",     # subprocess-without-shell-equals-true
     "S607",     # start-process-with-partial-path
@@ -53,7 +56,14 @@ ignore = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pyright]
+include = ["odoo_toolkit", "scripts", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
 [dependency-groups]
 dev = [
+    "pyright>=1.1.400",
     "pytest>=9.1.1",
+    "ruff==0.15.0",
 ]

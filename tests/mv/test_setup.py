@@ -248,7 +248,10 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mv_setup, "check_mountable", lambda _: "The multiverse can't be here.")
+    def check_mountable(_multiverse_dir: Path) -> str:
+        return "The multiverse can't be here."
+
+    monkeypatch.setattr(mv_setup, "check_mountable", check_mountable)
     version_dir = tmp_path / "mv" / "19.0"
     version_dir.mkdir(parents=True)
 
