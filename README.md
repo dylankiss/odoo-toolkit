@@ -704,6 +704,16 @@ After all that is done, your directory structure should look like this with the 
 
 Open a version directory (like `code <multiverse-folder>/19.0`) in your editor to work on that version.
 
+### Dev Container
+
+With `--devcontainer`, every version directory gets a [dev container](https://containers.dev) configuration. Open the version in Visual Studio Code and run **Dev Containers: Reopen in Container**. The window, its extensions and any AI agent in it then only see your multiverse directory (mounted at the same path as on your machine): not your home folder, SSH keys or Git credentials.
+
+- Run `otk dev db` first, since the container joins the network of the shared services. Odoo starts from the **Odoo (container): run and debug** launch configuration, because `otk dev run` needs Docker.
+- Git commands that need GitHub (fetch, pull, push) don't work in the container. Run them from a terminal on your machine.
+- Only windows opened in the container are isolated, not agents you start from a terminal on your machine.
+- Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.copyGitConfig": false` and `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings.
+- Extensions you always want in dev containers, like a spell checker, go in the `dev.containers.defaultExtensions` user setting.
+
 ### Usage
 
 ```console
@@ -721,6 +731,7 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 * `-d, --multiverse-dir PATH`: The directory to set up the multiverse in. Defaults to this directory.
 * `--reset-config`: Recreate the Python virtual environments and overwrite the configuration files of every version.
 * `--vscode / --no-vscode`: Write the Visual Studio Code configuration in each version directory.  [default: `--vscode`]
+* `--devcontainer / --no-devcontainer`: Write a dev container configuration in each version directory, to open it in Visual Studio Code in a container that only sees your multiverse, for example to keep AI agents away from the rest of your machine.  [default: `--no-devcontainer`]
 * `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. It's remembered for later commands. Defaults to the remembered one, or else the part of your Git email before the `@`.
 * `--help`: Show this message and exit.
 

@@ -196,6 +196,71 @@ def test_cli_reset_config_keeps_shared_repos_of_earlier_setup(tmp_path: Path, mo
     assert settings["git.scanRepositories"] == ["upgrade"]
 
 
+def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mv_setup, "get_git_identity", lambda: {"GIT_AUTHOR_NAME": "Abcd"})
+    multiverse_dir = tmp_path / "mv"
+    version_dir = multiverse_dir / "19.0"
+    for repo, modules_dir in (("odoo", "addons"), ("enterprise", "")):
+        module_dir = version_dir / repo / modules_dir / "some_module"
+        module_dir.mkdir(parents=True)
+        (module_dir / "__manifest__.py").write_text("{}")
+        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+
+    result = mv_setup.write_devcontainer_config(version_dir, reset=False)
+
+    assert result == RepoResult("devcontainer", Outcome.UPDATED, "wrote [b]devcontainer.json[/b]")
+    config_file = version_dir / ".devcontainer" / "devcontainer.json"
+    config = json.loads(config_file.read_text())
+    assert config["image"] == "dylankiss/odoo-dev:19.0"
+    # The multiverse is mounted at the same path, so links and worktrees work, and nothing else of your machine is.
+    assert config["workspaceMount"] == f"source={multiverse_dir},target={multiverse_dir},type=bind"
+    assert config["workspaceFolder"] == str(version_dir)
+    assert f"source={version_dir / '.venv-container'},target={version_dir / '.venv'},type=bind" in config["mounts"]
+    assert "--cap-drop=ALL" in config["runArgs"]
+    assert config["containerEnv"]["GIT_AUTHOR_NAME"] == "Abcd"
+    assert config["containerEnv"]["GIT_CONFIG_KEY_0"] == "core.checkStat"
+    assert config["remoteEnv"]["SSH_AUTH_SOCK"] is None
+    launch = config["customizations"]["vscode"]["settings"]["launch"]["configurations"][0]
+    assert launch["program"] == str(version_dir / "odoo" / "odoo-bin")
+    assert launch["args"][0] == f"--addons-path={version_dir / 'enterprise'},{version_dir / 'odoo' / 'addons'}"
+    assert launch["args"][-2:] == ["-d", "${workspaceFolderBasename}"]
+    # Existing configuration is kept, unless resetting.
+    config_file.write_text("{}")
+    assert mv_setup.write_devcontainer_config(version_dir, reset=False).outcome == Outcome.SKIPPED
+    assert config_file.read_text() == "{}"
+    assert mv_setup.write_devcontainer_config(version_dir, reset=True).outcome == Outcome.UPDATED
+
+
+def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mv_setup, "check_mountable", lambda _: "The multiverse can't be here.")
+    version_dir = tmp_path / "mv" / "19.0"
+    version_dir.mkdir(parents=True)
+
+    result = mv_setup.write_devcontainer_config(version_dir, reset=False)
+
+    assert result == RepoResult("devcontainer", Outcome.WARNING, "The multiverse can't be here.")
+    assert not (version_dir / ".devcontainer").exists()
+
+
+@pytest.mark.usefixtures("remotes")
+def test_cli_setup_devcontainer_is_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_slow_steps(monkeypatch)
+    root = tmp_path / "mv"
+    runner = CliRunner()
+
+    assert runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]).exit_code == 0
+    assert not (root / "19.0" / ".devcontainer").exists()
+
+    result = runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo", "--devcontainer"])
+
+    assert result.exit_code == 0, result.output
+    assert (root / "19.0" / ".devcontainer" / "devcontainer.json").is_file()
+    # The settings only you can change are explained.
+    assert "dev.containers.copyGitConfig" in result.output
+
+
 def test_parse_requirements(tmp_path: Path) -> None:
     odoo = tmp_path / "odoo.txt"
     odoo.write_text(

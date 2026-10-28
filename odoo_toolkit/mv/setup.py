@@ -22,6 +22,8 @@ from odoo_toolkit.common import (
     print_success,
     print_warning,
 )
+from odoo_toolkit.dev.images import DOCKER_REPOSITORY
+from odoo_toolkit.dev.runtime import NETWORK, ODOO_PORT, VOLUMES, check_mountable, get_git_identity, get_odoo_args
 from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone
 from odoo_toolkit.versions import get_versions
 
@@ -116,6 +118,15 @@ def setup(
         bool,
         Option("--vscode/--no-vscode", help="Write the Visual Studio Code configuration in each version directory."),
     ] = True,
+    devcontainer: Annotated[
+        bool,
+        Option(
+            "--devcontainer/--no-devcontainer",
+            help="Write a dev container configuration in each version directory, to open it in Visual Studio Code in a "
+            "container that only sees your multiverse, for example to keep AI agents away from the rest of your "
+            "machine.",
+        ),
+    ] = False,
     branch_suffix: Annotated[
         str | None,
         Option(
@@ -136,6 +147,10 @@ def setup(
     - the pinned repositories that run on this version (like `odoofin`), linked from the multiverse directory,\n
     - a Python virtual environment with the same Python version as Runbot and the version's dependencies,\n
     - the JavaScript tooling, and the Visual Studio Code configuration, where `F5` runs Odoo with the debugger.\n
+    \n
+    With `--devcontainer`, every version also gets a [dev container](https://containers.dev) configuration. Opening a
+    version in it only gives Visual Studio Code, and any AI agent in it, access to your multiverse directory: not your
+    SSH keys, Git credentials or the rest of your files.\n
     \n
     > Make sure you have set up your **GitHub SSH key**, and installed [`uv`](https://docs.astral.sh/uv/) and `npm`.\n
     \n
@@ -196,10 +211,14 @@ def setup(
     print_result_table(commit_graph_results)
 
     print_header(":gear: Configure Versions")
-    version_results = _configure_versions(multiverse_dir, branches, links=links, reset_config=reset_config, vscode=vscode)
+    version_results = _configure_versions(
+        multiverse_dir, branches, links=links, reset_config=reset_config, vscode=vscode, devcontainer=devcontainer,
+    )
     for branch, results in version_results.items():
         print(f"[b]{branch}[/b]")
         print_result_table(results)
+    if devcontainer:
+        _print_devcontainer_notes()
 
     all_results = [
         *clone_results,
@@ -580,6 +599,7 @@ def _configure_versions(
     links: dict[str, list[str]],
     reset_config: bool,
     vscode: bool,
+    devcontainer: bool,
 ) -> dict[str, list[RepoResult]]:
     """Configure every version directory in parallel.
 
@@ -588,6 +608,7 @@ def _configure_versions(
     :param links: The shared and pinned repositories to link into each version directory.
     :param reset_config: Whether to recreate the Python environments and overwrite the configuration files.
     :param vscode: Whether to write the Visual Studio Code configuration.
+    :param devcontainer: Whether to write the dev container configuration.
     :return: The results per version.
     """
     versions = get_versions()
@@ -616,6 +637,10 @@ def _configure_versions(
             steps.append(
                 ("vscode", lambda: write_vscode_config(version_dir, reset=reset_config)),
             )
+        if devcontainer:
+            steps.append(
+                ("devcontainer", lambda: write_devcontainer_config(version_dir, reset=reset_config)),
+            )
         results: list[RepoResult] = []
         for name, step in steps:
             progress.update(task, description=f"Configuring [b]{branch}[/b]: {name}")
@@ -626,7 +651,9 @@ def _configure_versions(
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
         futures = {
             branch: executor.submit(
-                configure, branch, progress.add_task(f"Configuring [b]{branch}[/b]", total=4 if vscode else 3),
+                configure,
+                branch,
+                progress.add_task(f"Configuring [b]{branch}[/b]", total=3 + vscode + devcontainer),
             )
             for branch in branches
         }
@@ -901,6 +928,75 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     if not written:
         return RepoResult("vscode", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)")
     return RepoResult("vscode", Outcome.UPDATED, f"wrote [b]{'[/b], [b]'.join(written)}[/b]")
+
+
+def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
+    """Write the dev container configuration of a version directory.
+
+    A window opened in the dev container only sees the multiverse directory, which is mounted at the same path as on
+    your machine, so the links between repositories and the Git worktrees keep working. Your home folder, SSH keys and
+    Git credentials aren't available there, and VS Code's sharing of them is switched off as far as a project can.
+
+    :param version_dir: The version directory.
+    :param reset: Whether to overwrite an existing configuration.
+    :return: The result of writing the configuration.
+    """
+    multiverse_dir = version_dir.parent
+    if problem := check_mountable(multiverse_dir):
+        return RepoResult("devcontainer", Outcome.WARNING, problem)
+    config_file = version_dir / ".devcontainer" / "devcontainer.json"
+    if config_file.exists() and not reset:
+        return RepoResult(
+            "devcontainer", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)",
+        )
+
+    template = _read_json(MULTIVERSE_CONFIG_DIR / ".devcontainer" / "devcontainer.json")
+    template["containerEnv"] = {
+        "PYTHONPYCACHEPREFIX": VOLUMES["otk-pycache"],
+        **get_git_identity(),
+        **template["containerEnv"],
+    }
+    # Inside the container, Odoo starts directly: `otk dev run` needs Docker, which isn't available there.
+    launch = template["customizations"]["vscode"]["settings"]["launch"]["configurations"][0]
+    launch["program"] = str(version_dir / "odoo" / "odoo-bin")
+    launch["args"] = [*get_odoo_args(version_dir), "-d", "${workspaceFolderBasename}"]
+
+    # Your `.venv` can't run in the container, so this folder replaces it there, with links to the image's Python.
+    venv_dir = version_dir / ".venv"
+    container_venv_dir = version_dir / ".venv-container"
+    config: dict[str, Any] = {
+        "name": f"Odoo {version_dir.name}",
+        "image": f"{DOCKER_REPOSITORY}:{version_dir.name}",
+        "workspaceMount": f"source={multiverse_dir},target={multiverse_dir},type=bind",
+        "workspaceFolder": str(version_dir),
+        # Runs on your machine. The network only exists once `otk dev db` has started the shared services.
+        "initializeCommand": (
+            f"mkdir -p {container_venv_dir.name}; docker network inspect {NETWORK} > /dev/null 2>&1 "
+            "|| { echo 'Run `otk dev db` first.' >&2; exit 1; }"
+        ),
+        "runArgs": [f"--network={NETWORK}", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--init"],
+        "mounts": [
+            *(f"source={volume},target={path},type=volume" for volume, path in VOLUMES.items()),
+            f"source={container_venv_dir},target={venv_dir},type=bind",
+        ],
+        "forwardPorts": [ODOO_PORT],
+        **template,
+    }
+    config_file.parent.mkdir(exist_ok=True)
+    _write_json(config_file, config, overwrite=True)
+    return RepoResult("devcontainer", Outcome.UPDATED, "wrote [b]devcontainer.json[/b]")
+
+
+def _print_devcontainer_notes() -> None:
+    """Explain what a dev container doesn't cover, and the settings that only you can change."""
+    print(
+        "[b]Dev containers[/b] are opened with [b]Dev Containers: Reopen in Container[/b]. They only isolate windows "
+        "opened that way, not agents started from a terminal on your machine.\n\n"
+        "Visual Studio Code shares your Git config and credential helper with every dev container, which a project "
+        "can't turn off. To keep them out, add this to your user settings:\n"
+        '  "dev.containers.copyGitConfig": false,\n'
+        '  "dev.containers.gitCredentialHelperConfigLocation": "none"\n',
+    )
 
 
 def update_scanned_repos(version_dir: Path) -> None:
