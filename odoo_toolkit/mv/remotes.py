@@ -134,7 +134,12 @@ def configure_fetching(repo: Git, *, branch_suffix: str | None) -> bool:
             set_fetch_refspecs(repo, remote, wanted)
             changed = True
 
-    for key, value in (("fetch.prune", "true"), ("core.fsmonitor", "true"), ("core.untrackedCache", "true")):
+    for key, value in (
+        ("fetch.prune", "true"),
+        ("fetch.writeCommitGraph", "true"),
+        ("core.fsmonitor", "true"),
+        ("core.untrackedCache", "true"),
+    ):
         repo("config", key, value)
     return changed
 

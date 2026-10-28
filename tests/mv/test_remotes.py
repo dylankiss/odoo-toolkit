@@ -43,8 +43,22 @@ def test_configure_fetching(bare: Git) -> None:
     ]
     assert bare("config", "core.fsmonitor") == "true"
     assert bare("config", "fetch.prune") == "true"
+    assert bare("config", "fetch.writeCommitGraph") == "true"
     # Running it again changes nothing.
     assert not configure_fetching(bare, branch_suffix="abcd")
+
+
+def test_fetching_adds_new_commits_to_the_commit_graph(bare: Git, remotes: dict[str, Path]) -> None:
+    configure_fetching(bare, branch_suffix="abcd")
+    chain = bare.path / "objects" / "info" / "commit-graphs" / "commit-graph-chain"
+    before = chain.read_text() if chain.is_file() else None
+
+    commit(remotes["seed"], "new.txt")
+    git(remotes["seed"], "push", "-q", "origin", "master")
+    bare("fetch", "-q", "origin")
+
+    assert chain.is_file()
+    assert chain.read_text() != before
 
 
 def test_configure_fetching_without_dev_remote(bare: Git) -> None:

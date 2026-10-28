@@ -191,6 +191,10 @@ def setup(
     worktree_results = _add_worktrees(multiverse_dir, branches, [r for r in versioned_repos if r in cloned])
     print_result_table(worktree_results)
 
+    print_header(":zap: Speed Up Git History")
+    commit_graph_results = _write_commit_graphs(multiverse_dir, cloned)
+    print_result_table(commit_graph_results)
+
     print_header(":gear: Configure Versions")
     version_results = _configure_versions(multiverse_dir, branches, links=links, reset_config=reset_config, vscode=vscode)
     for branch, results in version_results.items():
@@ -198,7 +202,11 @@ def setup(
         print_result_table(results)
 
     all_results = [
-        *clone_results, *link_results, *worktree_results, *(r for rs in version_results.values() for r in rs),
+        *clone_results,
+        *link_results,
+        *worktree_results,
+        *commit_graph_results,
+        *(r for rs in version_results.values() for r in rs),
     ]
     failed = [result for result in all_results if result.outcome == Outcome.FAILED]
     if failed:
@@ -515,6 +523,51 @@ def add_worktree(bare_dir: Path, worktree_dir: Path, branch: str) -> RepoResult:
     else:
         bare_repo("worktree", "add", "--track", "-b", branch, str(worktree_dir), upstream)
     return RepoResult(name, Outcome.UPDATED, "added")
+
+
+# Git history
+
+
+def _write_commit_graphs(multiverse_dir: Path, repos: list[RepoSpec]) -> list[RepoResult]:
+    """Write the commit graph of every repository, in parallel."""
+
+    def write_one(repo: RepoSpec, task: TaskID) -> RepoResult:
+        # The worktrees of a versioned repository share the history of its bare repository.
+        repo_dir = (
+            multiverse_dir / WORKTREE_SOURCE_DIR / repo.name / ".bare"
+            if repo.kind == RepoKind.VERSIONED
+            else multiverse_dir / repo.name
+        )
+        result = run_safely(repo.name, lambda: write_commit_graph(Git(repo_dir), repo.name))
+        progress.advance(task)
+        return result
+
+    with ThreadPoolExecutor() as executor, TransientProgress() as progress:
+        task = progress.add_task("Writing commit graphs, which takes a while the first time", total=len(repos))
+        futures = [executor.submit(write_one, repo, task) for repo in repos]
+        return [future.result() for future in futures]
+
+
+def write_commit_graph(repo: Git, name: str) -> RepoResult:
+    """Write the commit graph of a repository, including the paths every commit changed.
+
+    Git walks the history much faster with it, which speeds up `git blame`, `git log` on a file, and the file history
+    and blame annotations of editors. New commits are added to the existing graph, so running it again is quick.
+
+    :param repo: The repository, or bare repository.
+    :param name: The repository name, to report the result under.
+    :return: The result, a warning if the graph couldn't be written, since Git works without it.
+    """
+    chain_file = repo.path / repo("rev-parse", "--git-path", "objects/info/commit-graphs/commit-graph-chain")
+    before = chain_file.read_text(encoding="utf-8") if chain_file.is_file() else None
+    try:
+        repo("commit-graph", "write", "--reachable", "--changed-paths", "--split")
+    except GitError as e:
+        return RepoResult(name, Outcome.WARNING, f"couldn't write the commit graph: {e.message}")
+    after = chain_file.read_text(encoding="utf-8") if chain_file.is_file() else None
+    if after == before:
+        return RepoResult(name, Outcome.SKIPPED, "commit graph is up to date")
+    return RepoResult(name, Outcome.UPDATED, "commit graph written" if before is None else "commit graph updated")
 
 
 # Version configuration

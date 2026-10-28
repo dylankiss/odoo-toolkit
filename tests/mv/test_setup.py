@@ -122,6 +122,24 @@ def test_add_worktree_tracks_origin(tmp_path: Path) -> None:
     assert "no [b]saas-19.2[/b] branch" in missing.message
 
 
+def test_write_commit_graph(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    git(tmp_path, "init", "-q", str(repo_dir))
+    git(repo_dir, "commit", "-q", "--allow-empty", "-m", "first")
+    chain = repo_dir / ".git" / "objects" / "info" / "commit-graphs" / "commit-graph-chain"
+
+    assert mv_setup.write_commit_graph(Git(repo_dir), "repo") == RepoResult(
+        "repo", Outcome.UPDATED, "commit graph written",
+    )
+    assert chain.is_file()
+    # Without new commits, there's nothing to do.
+    assert mv_setup.write_commit_graph(Git(repo_dir), "repo").outcome == Outcome.SKIPPED
+    git(repo_dir, "commit", "-q", "--allow-empty", "-m", "second")
+    assert mv_setup.write_commit_graph(Git(repo_dir), "repo") == RepoResult(
+        "repo", Outcome.UPDATED, "commit graph updated",
+    )
+
+
 def test_link_repos_uses_relative_links(tmp_path: Path) -> None:
     version_dir = tmp_path / "mv" / "19.0"
     version_dir.mkdir(parents=True)
@@ -225,6 +243,10 @@ def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert (root / "19.0" / ".vscode" / "settings.json").is_file()
     assert (root / "ruff.toml").is_file()
     assert sorted(calls) == ["19.0", "master"]
+    # Every repository gets a commit graph: the bare repository of a versioned one, and the clone of the others.
+    graph_chain = Path("objects") / "info" / "commit-graphs" / "commit-graph-chain"
+    assert (root / ".worktree-source" / "odoo" / ".bare" / graph_chain).is_file()
+    assert (root / "upgrade" / ".git" / graph_chain).is_file()
     # Running it again changes nothing and still succeeds.
     assert CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]).exit_code == 0
 
