@@ -80,6 +80,8 @@ VERSION_REQUIREMENTS = [
 COMPAT_REQUIREMENTS_FILE = MULTIVERSE_CONFIG_DIR / "compat-requirements.txt"
 # Constraints for building old packages from source, like the Cython version some need.
 BUILD_CONSTRAINTS_FILE = MULTIVERSE_CONFIG_DIR / "build-constraints.txt"
+# Odoo's Ruff rules of the master branch: the copy in the multiverse directory that the other Ruff configurations extend.
+ODOO_RUFF_FILE = "ruff-odoo.toml"
 # Matches the package name at the start of a requirement, like `Pillow` in `Pillow==10.2.0 ; python_version >= '3.12'`.
 REQUIREMENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 # Files copied into the Community and Enterprise repositories to enable the JavaScript tooling.
@@ -210,7 +212,7 @@ def setup(
         raise Exit(1) from e
     versioned_repos = [repo for repo in repos if repo.kind == RepoKind.VERSIONED]
     overwrite_config = update_config or reset_config
-    _copy_root_config(multiverse_dir, reset_config=overwrite_config)
+    write_root_config(multiverse_dir, reset_config=overwrite_config)
 
     branch_suffix = branch_suffix or get_branch_suffix()
     if not branch_suffix:
@@ -281,11 +283,19 @@ def get_existing_versions(multiverse_dir: Path) -> list[str]:
     return sorted(names, key=lambda name: (supported.index(name) if name in supported else len(supported), name))
 
 
-def _copy_root_config(multiverse_dir: Path, *, reset_config: bool) -> None:
-    """Copy the configuration shared by all versions to the multiverse directory."""
-    for filename in ("ruff.toml", "requirements.txt"):
+def write_root_config(multiverse_dir: Path, *, reset_config: bool) -> None:
+    """Write the configuration shared by all versions to the multiverse directory."""
+    # Odoo's rules of the master branch are the ones this toolkit came with, which a workflow keeps up to date.
+    for filename in ("requirements.txt", ODOO_RUFF_FILE):
         if reset_config or not (multiverse_dir / filename).exists():
             shutil.copyfile(MULTIVERSE_CONFIG_DIR / filename, multiverse_dir / filename)
+    if reset_config or not (multiverse_dir / "ruff.toml").exists():
+        (multiverse_dir / "ruff.toml").write_text(_get_ruff_config(ODOO_RUFF_FILE), encoding="utf-8")
+
+
+def _get_ruff_config(extend: str) -> str:
+    """Get a Ruff configuration that follows Odoo's rules in another file, with the settings odoo-toolkit adds."""
+    return f'extend = "{extend}"\nline-length = 120\n\n[format]\nquote-style = "preserve"\n'
 
 
 # Cloning
@@ -665,6 +675,7 @@ def _configure_versions(
                 ),
             ),
             ("javascript", lambda: setup_js_tooling(version_dir)),
+            ("ruff", lambda: write_ruff_config(version_dir, reset=overwrite_config)),
         ]
         if vscode:
             steps.append(
@@ -686,7 +697,7 @@ def _configure_versions(
             branch: executor.submit(
                 configure,
                 branch,
-                progress.add_task(f"Configuring [b]{branch}[/b]", total=3 + vscode + has_devcontainer(branch)),
+                progress.add_task(f"Configuring [b]{branch}[/b]", total=4 + vscode + has_devcontainer(branch)),
             )
             for branch in branches
         }
@@ -925,6 +936,24 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
         if not node_modules.is_symlink():
             node_modules.symlink_to(Path(os.path.relpath(com_dir, ent_dir)) / "node_modules", target_is_directory=True)
     return RepoResult("javascript", Outcome.UPDATED, "ESLint and type checking set up")
+
+
+def write_ruff_config(version_dir: Path, *, reset: bool) -> RepoResult:
+    """Write the Ruff configuration of a version directory, for the repositories that don't have one of their own.
+
+    It follows the rules of the `ruff.toml` in Odoo's repository of that version. Without one, like for a version that
+    predates it, it follows the ones of Odoo's master branch in the multiverse directory.
+
+    :param version_dir: The version directory.
+    :param reset: Whether to overwrite an existing configuration.
+    :return: The result of writing the configuration.
+    """
+    config_file = version_dir / "ruff.toml"
+    if config_file.exists() and not reset:
+        return RepoResult("ruff", Outcome.SKIPPED, "already configured (use [b]--update-config[/b] to overwrite)")
+    extend = "odoo/ruff.toml" if (version_dir / "odoo" / "ruff.toml").is_file() else f"../{ODOO_RUFF_FILE}"
+    config_file.write_text(_get_ruff_config(extend), encoding="utf-8")
+    return RepoResult("ruff", Outcome.UPDATED, "wrote [b]ruff.toml[/b]")
 
 
 def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:

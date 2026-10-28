@@ -17,6 +17,7 @@ pydevd-odoo
 pyjwt
 pylint
 python-slugify
+ruff
 suds
 watchdog
 websocket-client

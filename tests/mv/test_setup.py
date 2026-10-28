@@ -156,6 +156,39 @@ def test_link_repos_uses_relative_links(tmp_path: Path) -> None:
     assert not (version_dir / "upgrade-util").is_symlink()
 
 
+def test_write_ruff_config(tmp_path: Path) -> None:
+    version_dir = tmp_path / "19.0"
+    version_dir.mkdir()
+    config_file = version_dir / "ruff.toml"
+
+    # Without Odoo's own rules to extend, it follows the ones of master in the multiverse directory.
+    assert mv_setup.write_ruff_config(version_dir, reset=False).outcome == Outcome.UPDATED
+    assert 'extend = "../ruff-odoo.toml"' in config_file.read_text()
+    assert mv_setup.write_ruff_config(version_dir, reset=False).outcome == Outcome.SKIPPED
+
+    # With them, it follows the rules of this version.
+    (version_dir / "odoo").mkdir()
+    (version_dir / "odoo" / "ruff.toml").write_text("")
+    assert mv_setup.write_ruff_config(version_dir, reset=True).outcome == Outcome.UPDATED
+    assert 'extend = "odoo/ruff.toml"' in config_file.read_text()
+
+
+def test_write_root_config_follows_odoo_ruff_rules(tmp_path: Path) -> None:
+    odoo_ruff_file = tmp_path / "ruff-odoo.toml"
+    bundled = (mv_setup.MULTIVERSE_CONFIG_DIR / "ruff-odoo.toml").read_text()
+
+    mv_setup.write_root_config(tmp_path, reset_config=False)
+
+    assert odoo_ruff_file.read_text() == bundled
+    assert 'extend = "ruff-odoo.toml"' in (tmp_path / "ruff.toml").read_text()
+    # Existing files are kept, unless resetting.
+    odoo_ruff_file.write_text("# mine\n")
+    mv_setup.write_root_config(tmp_path, reset_config=False)
+    assert odoo_ruff_file.read_text() == "# mine\n"
+    mv_setup.write_root_config(tmp_path, reset_config=True)
+    assert odoo_ruff_file.read_text() == bundled
+
+
 def test_write_vscode_config(tmp_path: Path) -> None:
     version_dir = tmp_path / "19.0"
     version_dir.mkdir()
@@ -337,6 +370,7 @@ def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert (root / "19.0" / "upgrade").readlink() == Path("../upgrade")
     assert (root / "19.0" / ".vscode" / "settings.json").is_file()
     assert (root / "ruff.toml").is_file()
+    assert (root / "19.0" / "ruff.toml").is_file()
     assert sorted(calls) == ["19.0", "master"]
     # Every repository gets a commit graph: the bare repository of a versioned one, and the clone of the others.
     graph_chain = Path("objects") / "info" / "commit-graphs" / "commit-graph-chain"

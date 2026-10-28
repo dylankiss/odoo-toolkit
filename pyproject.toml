@@ -18,6 +18,8 @@ otk = "odoo_toolkit.main:app"
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+# Odoo's Ruff configuration, which the multiverse follows and isn't for this project.
+extend-exclude = ["odoo_toolkit/multiverse_config/ruff-odoo.toml"]
 
 [tool.ruff.lint]
 preview = false

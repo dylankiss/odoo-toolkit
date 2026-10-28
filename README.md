@@ -696,6 +696,7 @@ After all that is done, your directory structure should look like this with the 
 ├── 19.0
 │   ├── .venv (Python virtual environment)
 │   ├── .vscode (Visual Studio Code configuration)
+│   ├── ruff.toml (extends the one of odoo, for the other repositories)
 │   ├── odoo (19.0)
 │   ├── enterprise (19.0)
 │   ├── design-themes (19.0)
@@ -708,7 +709,8 @@ After all that is done, your directory structure should look like this with the 
 ├── upgrade (master)
 ├── upgrade-util (master)
 ├── requirements.txt
-└── ruff.toml
+├── ruff-odoo.toml (Odoo's Ruff rules of master)
+└── ruff.toml (extends ruff-odoo.toml)
 ```
 
 Open a version directory (like `code <multiverse-folder>/19.0`) in your editor to work on that version.
