@@ -1,6 +1,4 @@
 {
-    "remoteUser": "odoo",
-    "updateRemoteUserUID": true,
     "containerEnv": {
         "GIT_CONFIG_COUNT": "2",
         "GIT_CONFIG_KEY_0": "core.checkStat",
@@ -13,7 +11,6 @@
         "SSH_AUTH_SOCK": null,
         "GIT_CONFIG_NOSYSTEM": "1"
     },
-    "onCreateCommand": "mkdir -p .venv/bin && for name in python python3 activate; do ln -sf /venv/main/bin/$name .venv/bin/$name; done",
     "postStartCommand": "git config --global --unset-all credential.helper || true",
     "postAttachCommand": "rm -f /tmp/vscode-ssh-auth-*.sock",
     "otherPortsAttributes": {
@@ -22,19 +19,10 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                "anthropic.claude-code",
-                "charliermarsh.ruff",
-                "dbaeumer.vscode-eslint",
-                "eamodio.gitlens",
-                "kevinrose.vsc-python-indent",
-                "ms-python.debugpy",
-                "ms-python.python",
-                "njpwerner.autodocstring",
-                "odoo.odoo",
-                "odoo.owl-vision",
-                "redhat.vscode-xml"
+                "anthropic.claude-code"
             ],
             "settings": {
+                "python.defaultInterpreterPath": "/venv/main/bin/python",
                 "terminal.integrated.defaultProfile.linux": "bash",
                 "remote.autoForwardPorts": false,
                 "git.terminalAuthentication": false,

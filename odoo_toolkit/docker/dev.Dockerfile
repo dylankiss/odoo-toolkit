@@ -25,9 +25,9 @@ RUN printf '%s\n' \
 # The debugger, used by `otk dev run --debug`, and the file watchers Odoo's `--dev=reload` restarts with.
 RUN python3 -m pip install --no-cache-dir debugpy pydevd-odoo inotify watchdog
 
-# The folders `otk dev run` mounts volumes on: the filestore and the Python bytecode cache. Docker gives new volumes the
-# owner of these folders, so Odoo can write in them.
-RUN mkdir -p /home/${USERNAME}/.local/share/Odoo /home/${USERNAME}/.cache/pycache \
+# The folders `otk dev run` and the dev containers mount volumes on: the filestore, the Python bytecode cache, and
+# Claude Code's login. Docker gives new volumes the owner of these folders, so Odoo and Claude Code can write in them.
+RUN mkdir -p /home/${USERNAME}/.local/share/Odoo /home/${USERNAME}/.cache/pycache /home/${USERNAME}/.claude \
     && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
 
 USER ${USERNAME}

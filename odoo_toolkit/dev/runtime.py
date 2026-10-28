@@ -42,6 +42,10 @@ VOLUMES = {
     "otk-filestore": f"{HOME}/.local/share/Odoo",
     "otk-pycache": f"{HOME}/.cache/pycache",
 }
+# Where Claude Code keeps its login in a dev container: a volume of its own, so your login on your machine stays out.
+# The Odoo containers don't get it.
+CLAUDE_DIR = f"{HOME}/.claude"
+DEVCONTAINER_VOLUMES = {**VOLUMES, "otk-claude": CLAUDE_DIR}
 # Where your SSH agent is available in the container, for Odoo modules that run Git commands.
 SSH_AGENT_SOCKET = "/run/otk-ssh-agent.sock"
 ORBSTACK_SSH_AGENT = "/run/host-services/ssh-auth.sock"

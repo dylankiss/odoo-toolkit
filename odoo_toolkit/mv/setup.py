@@ -23,7 +23,16 @@ from odoo_toolkit.common import (
     print_warning,
 )
 from odoo_toolkit.dev.images import DOCKER_REPOSITORY
-from odoo_toolkit.dev.runtime import NETWORK, ODOO_PORT, VOLUMES, check_mountable, get_git_identity, get_odoo_args
+from odoo_toolkit.dev.runtime import (
+    CLAUDE_DIR,
+    DEVCONTAINER_VOLUMES,
+    NETWORK,
+    ODOO_PORT,
+    VOLUMES,
+    check_mountable,
+    get_git_identity,
+    get_odoo_args,
+)
 from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone
 from odoo_toolkit.versions import get_versions
 
@@ -910,7 +919,6 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     linked_repos = get_linked_repos(version_dir)
 
     settings = _read_json(source_dir / "settings.json")
-    settings["python.defaultInterpreterPath"] = "${workspaceFolder}/.venv/bin/python"
     # Source Control doesn't look inside linked folders by itself.
     settings["git.scanRepositories"] = linked_repos
 
@@ -953,6 +961,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     template = _read_json(MULTIVERSE_CONFIG_DIR / ".devcontainer" / "devcontainer.json")
     template["containerEnv"] = {
         "PYTHONPYCACHEPREFIX": VOLUMES["otk-pycache"],
+        "CLAUDE_CONFIG_DIR": CLAUDE_DIR,
         **get_git_identity(),
         **template["containerEnv"],
     }
@@ -961,28 +970,33 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     launch["program"] = str(version_dir / "odoo" / "odoo-bin")
     launch["args"] = [*get_odoo_args(version_dir), "-d", "${workspaceFolderBasename}"]
 
-    # Your `.venv` can't run in the container, so this folder replaces it there, with links to the image's Python.
-    venv_dir = version_dir / ".venv"
-    container_venv_dir = version_dir / ".venv-container"
+    # The same extensions as the native setup recommends.
+    recommended = _read_json(MULTIVERSE_CONFIG_DIR / ".vscode" / "extensions.json")["recommendations"]
+    template["customizations"]["vscode"]["extensions"] += recommended
+
+    # What runs on your machine later, like the tasks and the dev container's own configuration, can only be changed from
+    # your machine, so nothing in the container can use it to run code outside it.
+    config_file.parent.mkdir(exist_ok=True)
+    protected = [path for name in (".devcontainer", ".vscode", ".venv") if (path := version_dir / name).is_dir()]
+
     config: dict[str, Any] = {
         "name": f"Odoo {version_dir.name}",
         "image": f"{DOCKER_REPOSITORY}:{version_dir.name}",
         "workspaceMount": f"source={multiverse_dir},target={multiverse_dir},type=bind",
         "workspaceFolder": str(version_dir),
-        # Runs on your machine. The network only exists once `otk dev db` has started the shared services.
+        # Runs on your machine. The network only exists once the shared services are running, which `otk dev db` starts.
         "initializeCommand": (
-            f"mkdir -p {container_venv_dir.name}; docker network inspect {NETWORK} > /dev/null 2>&1 "
+            f"otk dev db > /dev/null 2>&1 || docker network inspect {NETWORK} > /dev/null 2>&1 "
             "|| { echo 'Run `otk dev db` first.' >&2; exit 1; }"
         ),
         "runArgs": [f"--network={NETWORK}", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--init"],
         "mounts": [
-            *(f"source={volume},target={path},type=volume" for volume, path in VOLUMES.items()),
-            f"source={container_venv_dir},target={venv_dir},type=bind",
+            *(f"source={volume},target={path},type=volume" for volume, path in DEVCONTAINER_VOLUMES.items()),
+            *(f"source={path},target={path},type=bind,readonly" for path in protected),
         ],
         "forwardPorts": [ODOO_PORT],
         **template,
     }
-    config_file.parent.mkdir(exist_ok=True)
     _write_json(config_file, config, overwrite=True)
     return RepoResult("devcontainer", Outcome.UPDATED, "wrote [b]devcontainer.json[/b]")
 

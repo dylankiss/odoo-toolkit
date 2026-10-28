@@ -717,11 +717,14 @@ Open a version directory (like `code <multiverse-folder>/19.0`) in your editor t
 
 With `--devcontainer`, every version directory gets a [dev container](https://containers.dev) configuration. Open the version in Visual Studio Code and run **Dev Containers: Reopen in Container**. The window, its extensions and any AI agent in it then only see your multiverse directory (mounted at the same path as on your machine): not your home folder, SSH keys or Git credentials.
 
-- Run `otk dev db` first, since the container joins the network of the shared services. Odoo starts from the **Odoo (container): run and debug** launch configuration, because `otk dev run` needs Docker.
+- Opening the container starts the shared services (`otk dev db`), since it joins their network. Odoo starts from the **Odoo (container): run and debug** launch configuration, because `otk dev run` needs Docker.
 - Git commands that need GitHub (fetch, pull, push) don't work in the container. Run them from a terminal on your machine.
+- The `.devcontainer`, `.vscode` and `.venv` folders are read-only in the container, because they hold what runs on your machine later (like tasks and the dev container's own configuration). Change them from your machine.
+- Everything else in the multiverse can be read and changed in the container, and it has network access, including to the databases of `otk dev`. Don't keep secrets or data you can't share in your multiverse or those databases if you use AI agents.
 - Only windows opened in the container are isolated, not agents you start from a terminal on your machine.
 - Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.copyGitConfig": false` and `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings.
 - Extensions you always want in dev containers, like a spell checker, go in the `dev.containers.defaultExtensions` user setting.
+- Claude Code is installed, but your login on your machine stays out. Log in once in the container: it's kept in the `otk-claude` volume, which all your dev containers share, so it survives rebuilds.
 
 ### Usage
 

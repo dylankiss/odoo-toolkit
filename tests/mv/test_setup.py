@@ -166,7 +166,8 @@ def test_write_vscode_config(tmp_path: Path) -> None:
 
     assert result.outcome == Outcome.UPDATED
     settings = json.loads((version_dir / ".vscode" / "settings.json").read_text())
-    assert settings["python.defaultInterpreterPath"] == "${workspaceFolder}/.venv/bin/python"
+    # The interpreter is the one VS Code finds in `.venv`, so the dev container can use the image's instead.
+    assert "python.defaultInterpreterPath" not in settings
     assert settings["git.scanRepositories"] == ["upgrade"]
     launch = json.loads((version_dir / ".vscode" / "launch.json").read_text())
     tasks = json.loads((version_dir / ".vscode" / "tasks.json").read_text())
@@ -205,6 +206,7 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         module_dir.mkdir(parents=True)
         (module_dir / "__manifest__.py").write_text("{}")
         (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+    (version_dir / ".vscode").mkdir()
 
     result = mv_setup.write_devcontainer_config(version_dir, reset=False)
 
@@ -215,7 +217,19 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # The multiverse is mounted at the same path, so links and worktrees work, and nothing else of your machine is.
     assert config["workspaceMount"] == f"source={multiverse_dir},target={multiverse_dir},type=bind"
     assert config["workspaceFolder"] == str(version_dir)
-    assert f"source={version_dir / '.venv-container'},target={version_dir / '.venv'},type=bind" in config["mounts"]
+    # What runs on your machine later can't be changed from the container, if it exists: there is no `.venv` here.
+    read_only = [mount for mount in config["mounts"] if mount.endswith("readonly")]
+    assert read_only == [
+        f"source={version_dir / name},target={version_dir / name},type=bind,readonly" for name in (".devcontainer", ".vscode")
+    ]
+    assert all(mount.endswith(("type=volume", "readonly")) for mount in config["mounts"])
+    # Claude Code keeps its login in a volume of its own, so you log in once and your own login stays out.
+    assert "source=otk-claude,target=/home/odoo/.claude,type=volume" in config["mounts"]
+    assert config["containerEnv"]["CLAUDE_CONFIG_DIR"] == "/home/odoo/.claude"
+    extensions = config["customizations"]["vscode"]["extensions"]
+    recommended = json.loads((mv_setup.MULTIVERSE_CONFIG_DIR / ".vscode" / "extensions.json").read_text())
+    assert extensions == ["anthropic.claude-code", *recommended["recommendations"]]
+    assert config["customizations"]["vscode"]["settings"]["python.defaultInterpreterPath"] == "/venv/main/bin/python"
     assert "--cap-drop=ALL" in config["runArgs"]
     assert config["containerEnv"]["GIT_AUTHOR_NAME"] == "Abcd"
     assert config["containerEnv"]["GIT_CONFIG_KEY_0"] == "core.checkStat"
