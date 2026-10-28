@@ -149,6 +149,21 @@ def load_config(multiverse_dir: Path) -> dict[str, RepoSpec]:
     return specs
 
 
+def get_code_profile(multiverse_dir: Path) -> str | None:
+    """Get the Visual Studio Code profile `otk code` opens the versions with: `profile` in `[code]` of `multiverse.toml`.
+
+    :param multiverse_dir: The multiverse directory.
+    :return: The profile name, or None if there is none.
+    """
+    try:
+        config = tomllib.loads((multiverse_dir / CONFIG_FILE).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    code = config.get("code")
+    profile = cast("dict[str, Any]", code).get("profile") if isinstance(code, dict) else None
+    return profile if isinstance(profile, str) else None
+
+
 def get_configured_repos(multiverse_dir: Path) -> list[str]:
     """Get the names of the repositories with a `[repos.<name>]` table in `multiverse.toml`."""
     config_file = multiverse_dir / CONFIG_FILE

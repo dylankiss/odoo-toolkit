@@ -2,6 +2,7 @@ from typing import Annotated
 
 from typer import Exit, Option, Typer
 
+from .code import code
 from .common import VERSION, print
 from .dev import app as dev_app
 from .mv import app as mv_app
@@ -10,6 +11,7 @@ from .wl import app as wl_app
 
 # The main app to register all the commands with.
 app = Typer(no_args_is_help=True, rich_markup_mode="markdown")
+app.command()(code)
 app.add_typer(po_app, name="po")
 app.add_typer(dev_app, name="dev")
 app.add_typer(mv_app, name="mv")

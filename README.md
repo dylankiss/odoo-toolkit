@@ -847,3 +847,32 @@ $ otk mv cleanup [OPTIONS]
 * `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. Defaults to the one given to `otk mv setup`, or else the part of your Git email before the `@`.
 * `-y, --yes`: Don't ask for confirmation.
 * `--help`: Show this message and exit.
+
+## `otk code`
+
+Open a version directory of your multiverse in Visual Studio Code, like `otk code 19.0`.
+
+Run it anywhere inside your multiverse. Without a version, it opens the version directory you are in. If the version has a [dev container](#otk-mv-setup) (from `otk mv setup --devcontainer`), it opens in it. With a [profile](https://code.visualstudio.com/docs/configure/profiles), the window always has your extensions and settings for Odoo, so you don't have to associate every version directory with it in Visual Studio Code. Set it once in `multiverse.toml` to use it every time:
+
+```toml
+[code]
+profile = "Odoo"
+```
+
+It needs the `code` command: run **Shell Command: Install 'code' command in PATH** in Visual Studio Code.
+
+### Usage
+
+```console
+$ otk code [OPTIONS] [VERSION]
+```
+
+### Arguments
+
+* `[VERSION]`: The version to open, like `19.0`. Defaults to the version directory you are in.
+
+### Options
+
+* `-p, --profile TEXT`: The Visual Studio Code profile to open it with, like `Odoo`. Defaults to `profile` in the `[code]` table of `multiverse.toml`. A profile that doesn't exist yet is created empty.
+* `--local`: Open it on your machine, even if it has a dev container.
+* `--help`: Show this message and exit.
