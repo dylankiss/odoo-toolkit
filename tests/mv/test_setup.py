@@ -274,6 +274,19 @@ def test_cli_setup_devcontainer_is_opt_in(tmp_path: Path, monkeypatch: pytest.Mo
     # The settings only you can change are explained.
     assert "dev.containers.copyGitConfig" in result.output
 
+    # A version that has one keeps it without the option, and it's only overwritten when asked to.
+    setup = ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]
+    config_file = root / "19.0" / ".devcontainer" / "devcontainer.json"
+    config_file.write_text("{}")
+    assert runner.invoke(app, setup).exit_code == 0
+    assert config_file.read_text() == "{}"
+    assert runner.invoke(app, [*setup, "--update-config"]).exit_code == 0
+    assert "image" in json.loads(config_file.read_text())
+    # Unless you opt out.
+    config_file.write_text("{}")
+    assert runner.invoke(app, [*setup, "--update-config", "--no-devcontainer"]).exit_code == 0
+    assert config_file.read_text() == "{}"
+
 
 def test_parse_requirements(tmp_path: Path) -> None:
     odoo = tmp_path / "odoo.txt"

@@ -116,11 +116,20 @@ def setup(
         Path | None,
         Option("--multiverse-dir", "-d", help="The directory to set up the multiverse in. Defaults to this directory."),
     ] = None,
+    update_config: Annotated[
+        bool,
+        Option(
+            "--update-config",
+            help="Overwrite the configuration files of every version, like the Visual Studio Code and dev container "
+            "ones, to get the latest from the toolkit. The Python virtual environments are kept.",
+        ),
+    ] = False,
     reset_config: Annotated[
         bool,
         Option(
             "--reset-config",
-            help="Recreate the Python virtual environments and overwrite the configuration files of every version.",
+            help="Recreate the Python virtual environments as well as overwriting the configuration files of every "
+            "version.",
         ),
     ] = False,
     vscode: Annotated[
@@ -128,14 +137,14 @@ def setup(
         Option("--vscode/--no-vscode", help="Write the Visual Studio Code configuration in each version directory."),
     ] = True,
     devcontainer: Annotated[
-        bool,
+        bool | None,
         Option(
             "--devcontainer/--no-devcontainer",
             help="Write a dev container configuration in each version directory, to open it in Visual Studio Code in a "
             "container that only sees your multiverse, for example to keep AI agents away from the rest of your "
-            "machine.",
+            "machine. Versions that already have one keep it up to date, unless you pass `--no-devcontainer`.",
         ),
-    ] = False,
+    ] = None,
     branch_suffix: Annotated[
         str | None,
         Option(
@@ -170,8 +179,9 @@ def setup(
     Repositories that aren't known Odoo repositories are detected: versioned if they have branches for several Odoo
     versions, shared otherwise. Describe pinned repositories and exceptions in a `multiverse.toml` file in the multiverse directory.\n
     \n
-    You can run the command as many times as you want. It only adds what's missing, unless you pass `--reset-config`.
-    Shared, pinned and standalone repositories follow their default branch on GitHub.
+    You can run the command as many times as you want. It only adds what's missing, unless you pass `--update-config`
+    to overwrite the configuration files, or `--reset-config` to recreate the Python environments as well. Shared,
+    pinned and standalone repositories follow their default branch on GitHub.
     """
     print_command_title(":ringed_planet: Odoo Multiverse Setup")
 
@@ -199,7 +209,8 @@ def setup(
         print_error(f"{e}\n")
         raise Exit(1) from e
     versioned_repos = [repo for repo in repos if repo.kind == RepoKind.VERSIONED]
-    _copy_root_config(multiverse_dir, reset_config=reset_config)
+    overwrite_config = update_config or reset_config
+    _copy_root_config(multiverse_dir, reset_config=overwrite_config)
 
     branch_suffix = branch_suffix or get_branch_suffix()
     if not branch_suffix:
@@ -221,12 +232,18 @@ def setup(
 
     print_header(":gear: Configure Versions")
     version_results = _configure_versions(
-        multiverse_dir, branches, links=links, reset_config=reset_config, vscode=vscode, devcontainer=devcontainer,
+        multiverse_dir,
+        branches,
+        links=links,
+        reset_config=reset_config,
+        overwrite_config=overwrite_config,
+        vscode=vscode,
+        devcontainer=devcontainer,
     )
     for branch, results in version_results.items():
         print(f"[b]{branch}[/b]")
         print_result_table(results)
-    if devcontainer:
+    if any(result.name == "devcontainer" for results in version_results.values() for result in results):
         _print_devcontainer_notes()
 
     all_results = [
@@ -607,20 +624,27 @@ def _configure_versions(
     *,
     links: dict[str, list[str]],
     reset_config: bool,
+    overwrite_config: bool,
     vscode: bool,
-    devcontainer: bool,
+    devcontainer: bool | None,
 ) -> dict[str, list[RepoResult]]:
     """Configure every version directory in parallel.
 
     :param multiverse_dir: The multiverse directory.
     :param branches: The versions to configure.
     :param links: The shared and pinned repositories to link into each version directory.
-    :param reset_config: Whether to recreate the Python environments and overwrite the configuration files.
+    :param reset_config: Whether to recreate the Python environments.
+    :param overwrite_config: Whether to overwrite the configuration files.
     :param vscode: Whether to write the Visual Studio Code configuration.
-    :param devcontainer: Whether to write the dev container configuration.
+    :param devcontainer: Whether to write the dev container configuration, or None for the versions that have one.
     :return: The results per version.
     """
     versions = get_versions()
+
+    def has_devcontainer(branch: str) -> bool:
+        if devcontainer is not None:
+            return devcontainer
+        return (multiverse_dir / branch / ".devcontainer" / "devcontainer.json").is_file()
 
     def configure(branch: str, task: TaskID) -> list[RepoResult]:
         version_dir = multiverse_dir / branch
@@ -644,11 +668,11 @@ def _configure_versions(
         ]
         if vscode:
             steps.append(
-                ("vscode", lambda: write_vscode_config(version_dir, reset=reset_config)),
+                ("vscode", lambda: write_vscode_config(version_dir, reset=overwrite_config)),
             )
-        if devcontainer:
+        if has_devcontainer(branch):
             steps.append(
-                ("devcontainer", lambda: write_devcontainer_config(version_dir, reset=reset_config)),
+                ("devcontainer", lambda: write_devcontainer_config(version_dir, reset=overwrite_config)),
             )
         results: list[RepoResult] = []
         for name, step in steps:
@@ -662,7 +686,7 @@ def _configure_versions(
             branch: executor.submit(
                 configure,
                 branch,
-                progress.add_task(f"Configuring [b]{branch}[/b]", total=3 + vscode + devcontainer),
+                progress.add_task(f"Configuring [b]{branch}[/b]", total=3 + vscode + has_devcontainer(branch)),
             )
             for branch in branches
         }

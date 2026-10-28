@@ -625,7 +625,7 @@ The easiest way to set this up is by creating a directory for your multiverse se
 > [!IMPORTANT]
 > Make sure you have set up your GitHub SSH key beforehand in order to clone the repositories, and installed [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and `npm`.
 
-You can run the command as many times as you want. It only adds what's missing, and never touches your own files. Pass `--reset-config` to recreate the Python environments and overwrite the configuration files. Without `-b` or `-r`, it updates the versions and repositories that are already set up.
+You can run the command as many times as you want. It only adds what's missing, and never touches your own files. Pass `--update-config` to overwrite the configuration files with the latest ones, or `--reset-config` to recreate the Python environments as well. Without `-b` or `-r`, it updates the versions and repositories that are already set up.
 
 ### Repositories
 
@@ -719,7 +719,7 @@ With `--devcontainer`, every version directory gets a [dev container](https://co
 
 - Opening the container starts the shared services (`otk dev db`), since it joins their network. Odoo starts from the **Odoo (container): run and debug** launch configuration, because `otk dev run` needs Docker.
 - Git commands that need GitHub (fetch, pull, push) don't work in the container. Run them from a terminal on your machine.
-- The `.devcontainer`, `.vscode` and `.venv` folders are read-only in the container, because they hold what runs on your machine later (like tasks and the dev container's own configuration). Change them from your machine.
+- The `.devcontainer`, `.vscode` and `.venv` folders are read-only in the container, because they hold what runs on your machine later (like tasks and the dev container's own configuration). Change them from your machine, for example with `otk mv setup --update-config`.
 - Everything else in the multiverse can be read and changed in the container, and it has network access, including to the databases of `otk dev`. Don't keep secrets or data you can't share in your multiverse or those databases if you use AI agents.
 - Only windows opened in the container are isolated, not agents you start from a terminal on your machine.
 - Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.copyGitConfig": false` and `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings.
@@ -741,9 +741,10 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 * `-b, --branches TEXT`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Defaults to the ones already set up, or every supported version for a new multiverse.
 * `-r, --repositories TEXT`: The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. Defaults to the ones already set up, or `odoo`, `enterprise`, `design-themes`, `upgrade` and `upgrade-util` for a new multiverse, plus the ones in `multiverse.toml`.
 * `-d, --multiverse-dir PATH`: The directory to set up the multiverse in. Defaults to this directory.
-* `--reset-config`: Recreate the Python virtual environments and overwrite the configuration files of every version.
+* `--update-config`: Overwrite the configuration files of every version, like the Visual Studio Code and dev container ones, to get the latest from the toolkit. The Python virtual environments are kept.
+* `--reset-config`: Recreate the Python virtual environments as well as overwriting the configuration files of every version.
 * `--vscode / --no-vscode`: Write the Visual Studio Code configuration in each version directory.  [default: `--vscode`]
-* `--devcontainer / --no-devcontainer`: Write a dev container configuration in each version directory, to open it in Visual Studio Code in a container that only sees your multiverse, for example to keep AI agents away from the rest of your machine.  [default: `--no-devcontainer`]
+* `--devcontainer / --no-devcontainer`: Write a dev container configuration in each version directory, to open it in Visual Studio Code in a container that only sees your multiverse, for example to keep AI agents away from the rest of your machine. Versions that already have one keep it up to date, unless you pass `--no-devcontainer`.
 * `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. It's remembered for later commands. Defaults to the remembered one, or else the part of your Git email before the `@`.
 * `--help`: Show this message and exit.
 
