@@ -1,0 +1,39 @@
+{
+    "name": "odoo-toolkit",
+    "image": "mcr.microsoft.com/devcontainers/python:3.12",
+    "remoteUser": "vscode",
+    "updateRemoteUserUID": true,
+    "runArgs": ["--cap-drop=ALL", "--security-opt=no-new-privileges", "--init"],
+    "containerEnv": {
+        "UV_PROJECT_ENVIRONMENT": "/home/vscode/.venv",
+        "UV_LINK_MODE": "copy"
+    },
+    "remoteEnv": {
+        "PATH": "/home/vscode/.venv/bin:/home/vscode/.local/bin:${containerEnv:PATH}",
+        "SSH_AUTH_SOCK": null
+    },
+    "onCreateCommand": "pip install --user --quiet uv && uv sync --quiet",
+    "postStartCommand": "git config --global --unset-all credential.helper || true",
+    "postAttachCommand": "rm -f /tmp/vscode-ssh-auth-*.sock",
+    "otherPortsAttributes": {
+        "onAutoForward": "ignore"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "anthropic.claude-code",
+                "charliermarsh.ruff",
+                "ms-python.python",
+                "ms-python.debugpy",
+                "njpwerner.autodocstring"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
+                "remote.autoForwardPorts": false,
+                "git.terminalAuthentication": false,
+                "github.gitAuthentication": false,
+                "git.enableCommitSigning": false
+            }
+        }
+    }
+}
