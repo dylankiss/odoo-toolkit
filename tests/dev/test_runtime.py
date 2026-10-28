@@ -221,6 +221,7 @@ def test_cli_run(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(dev_run, "_exec", capture)
     monkeypatch.setattr(dev_run, "_prepare", no_docker)
+    monkeypatch.setattr(dev_run, "get_ssh_agent", lambda: None)
     monkeypatch.setattr(dev_run, "is_port_free", always_free)
     monkeypatch.chdir(version_dir / "odoo")
 
@@ -248,6 +249,7 @@ def test_cli_run_with_volumes_and_env(version_dir: Path, monkeypatch: pytest.Mon
     config.mkdir()
     monkeypatch.setattr(dev_run, "_exec", capture)
     monkeypatch.setattr(dev_run, "_prepare", no_docker)
+    monkeypatch.setattr(dev_run, "get_ssh_agent", lambda: None)
     monkeypatch.setattr(dev_run, "is_port_free", always_free)
     monkeypatch.chdir(version_dir / "odoo")
 
