@@ -44,6 +44,7 @@ VOLUMES = {
 }
 # Where your SSH agent is available in the container, for Odoo modules that run Git commands.
 SSH_AGENT_SOCKET = "/run/otk-ssh-agent.sock"
+ORBSTACK_SSH_AGENT = "/run/host-services/ssh-auth.sock"
 # Mounting the multiverse at one of these paths, or at one containing them, would hide files the image needs.
 SYSTEM_PATHS = ("/bin", "/etc", HOME, "/lib", "/opt", "/root", "/sbin", "/tmp", "/usr", "/var", "/venv")  # noqa: S108
 
@@ -239,8 +240,20 @@ def normalize_volume(volume: str) -> str:
     return f"{source}{separator}{rest}"
 
 
+def is_orbstack() -> bool:
+    """Check whether Docker runs on OrbStack, which can't mount the socket of your SSH agent from your machine."""
+    result = subprocess.run(["docker", "info", "--format", "{{.Name}}"], capture_output=True, text=True, check=False)
+    return result.stdout.strip() == "orbstack"
+
+
 def get_ssh_agent() -> Path | None:
-    """Get the socket of your SSH agent (like the one of Bitwarden or 1Password), if one is running."""
+    """Get the socket of your SSH agent (like the one of Bitwarden or 1Password), if one is running.
+
+    OrbStack provides your agent at a fixed path in its virtual machine instead. It uses the `IdentityAgent` of your
+    `~/.ssh/config`, if you have one.
+    """
+    if sys.platform == "darwin" and is_orbstack():
+        return Path(ORBSTACK_SSH_AGENT)
     socket_path = os.environ.get("SSH_AUTH_SOCK")
     if not socket_path:
         return None

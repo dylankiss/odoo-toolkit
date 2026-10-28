@@ -6,8 +6,10 @@ import pytest
 from typer.testing import CliRunner
 
 from odoo_toolkit.dev import run as dev_run
+from odoo_toolkit.dev import runtime
 from odoo_toolkit.dev.runtime import (
     DEBUGGER_READY,
+    ORBSTACK_SSH_AGENT,
     SSH_AGENT_SOCKET,
     RunOptions,
     build_run_command,
@@ -157,12 +159,21 @@ def test_build_run_command_for_a_shell_with_your_ssh_agent(version_dir: Path) ->
 
 
 def test_get_ssh_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runtime, "is_orbstack", lambda: False)
     monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
     assert get_ssh_agent() is None
     # Not a socket.
     (tmp_path / "file").write_text("")
     monkeypatch.setenv("SSH_AUTH_SOCK", str(tmp_path / "file"))
     assert get_ssh_agent() is None
+
+
+def test_get_ssh_agent_on_orbstack(monkeypatch: pytest.MonkeyPatch) -> None:
+    # OrbStack can't mount the socket from your machine, so the agent is its own, whatever `SSH_AUTH_SOCK` says.
+    monkeypatch.setattr(runtime.sys, "platform", "darwin")
+    monkeypatch.setattr(runtime, "is_orbstack", lambda: True)
+    monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
+    assert get_ssh_agent() == Path(ORBSTACK_SSH_AGENT)
 
 
 def test_check_mountable() -> None:

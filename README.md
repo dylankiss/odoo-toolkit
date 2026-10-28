@@ -244,6 +244,15 @@ What stays between runs:
 
 Your SSH agent (the one in `SSH_AUTH_SOCK`, like Bitwarden's or 1Password's) is available in the container, for Odoo modules that run Git commands. Your keys never leave your machine.
 
+With [OrbStack](https://orbstack.dev), which provides its own agent forwarding, an agent like Bitwarden's needs an `IdentityAgent` line in your `~/.ssh/config`. Add it below any `Include` lines, then restart OrbStack:
+
+```
+Host *
+    IdentityAgent "~/Library/Containers/com.bitwarden.desktop/Data/.bitwarden-ssh-agent.sock"
+```
+
+Use the socket in your `SSH_AUTH_SOCK` for the path, which is different for other agents, like 1Password's.
+
 On Linux, the container runs as your user, so the files Odoo writes are yours. The images on Docker Hub run as user ID 1000, the first user on most Linux machines. With another user ID, build the image on your machine once with `--build`.
 
 > [!TIP]
