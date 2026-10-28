@@ -28,7 +28,6 @@
                 "git.terminalAuthentication": false,
                 "github.gitAuthentication": false,
                 "git.enableCommitSigning": false,
-                "git.repositoryScanMaxDepth": 1,
                 "python-envs.terminal.autoActivationType": "command",
                 "launch": {
                     "version": "0.2.0",

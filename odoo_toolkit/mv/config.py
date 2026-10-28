@@ -164,6 +164,38 @@ def get_code_profile(multiverse_dir: Path) -> str | None:
     return profile if isinstance(profile, str) else None
 
 
+def get_devcontainer_extras(multiverse_dir: Path) -> tuple[list[str], dict[str, Any]]:
+    """Get the extensions and settings your dev containers get on top of the standard ones.
+
+    They are the `extensions` and `settings` in the `[devcontainer]` table of `multiverse.toml`:
+
+    ```toml
+    [devcontainer]
+    extensions = ["streetsidesoftware.code-spell-checker"]
+
+    [devcontainer.settings]
+    "cSpell.allowCompoundWords" = true
+    ```
+
+    :param multiverse_dir: The multiverse directory.
+    :return: The extensions and the settings, which are empty if there are none.
+    """
+    try:
+        config = tomllib.loads((multiverse_dir / CONFIG_FILE).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return [], {}
+    table = config.get("devcontainer")
+    values = cast("dict[str, Any]", table) if isinstance(table, dict) else {}
+    extensions = values.get("extensions")
+    settings = values.get("settings")
+    return (
+        [extension for extension in cast("list[Any]", extensions) if isinstance(extension, str)]
+        if isinstance(extensions, list)
+        else [],
+        cast("dict[str, Any]", settings) if isinstance(settings, dict) else {},
+    )
+
+
 def get_configured_repos(multiverse_dir: Path) -> list[str]:
     """Get the names of the repositories with a `[repos.<name>]` table in `multiverse.toml`."""
     config_file = multiverse_dir / CONFIG_FILE

@@ -47,6 +47,7 @@ from .config import (
     RepoSpec,
     get_configured_repos,
     get_current_dir,
+    get_devcontainer_extras,
     get_linked_repos,
     get_runs_on,
     load_config,
@@ -1026,6 +1027,11 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # The same extensions as the native setup recommends.
     recommended = _read_json(MULTIVERSE_CONFIG_DIR / ".vscode" / "extensions.json")["recommendations"]
     template["customizations"]["vscode"]["extensions"] += recommended
+    # And the ones you add in `multiverse.toml`, which win over the standard settings.
+    extra_extensions, extra_settings = get_devcontainer_extras(multiverse_dir)
+    extensions: list[str] = template["customizations"]["vscode"]["extensions"]
+    extensions += [extension for extension in extra_extensions if extension not in extensions]
+    template["customizations"]["vscode"]["settings"].update(extra_settings)
 
     # What runs on your machine later, like the tasks and the dev container's own configuration, can only be changed from
     # your machine, so nothing in the container can use it to run code outside it.

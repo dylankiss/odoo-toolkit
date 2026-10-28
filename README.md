@@ -728,7 +728,15 @@ With `--devcontainer`, every version directory gets a [dev container](https://co
 - Everything else in the multiverse can be read and changed in the container, and it has network access, including to the databases of `otk dev`. Don't keep secrets or data you can't share in your multiverse or those databases if you use AI agents.
 - Only windows opened in the container are isolated, not agents you start from a terminal on your machine.
 - Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.copyGitConfig": false` and `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings.
-- Extensions you always want in dev containers, like a spell checker, go in the `dev.containers.defaultExtensions` user setting.
+- Extensions and settings you want in the dev containers of this multiverse, like a spell checker, go in a `[devcontainer]` table in `multiverse.toml`, which `--update-config` applies. Extensions you want in every dev container go in the `dev.containers.defaultExtensions` user setting.
+
+  ```toml
+  [devcontainer]
+  extensions = ["streetsidesoftware.code-spell-checker"]
+
+  [devcontainer.settings]
+  "cSpell.allowCompoundWords" = true
+  ```
 - Claude Code is installed, but your login on your machine stays out. Log in once in the container: it's kept in the `otk-claude` volume, which all your dev containers share, so it survives rebuilds.
 
 ### Usage

@@ -278,6 +278,34 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert mv_setup.write_devcontainer_config(version_dir, reset=True).outcome == Outcome.UPDATED
 
 
+def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get_git_identity() -> dict[str, str]:
+        return {}
+
+    monkeypatch.setattr(mv_setup, "get_git_identity", get_git_identity)
+    version_dir = tmp_path / "mv" / "19.0"
+    version_dir.mkdir(parents=True)
+    (tmp_path / "mv" / "multiverse.toml").write_text(
+        '[devcontainer]\n'
+        'extensions = ["streetsidesoftware.code-spell-checker", "odoo.odoo"]\n'
+        '[devcontainer.settings]\n'
+        '"cSpell.allowCompoundWords" = true\n'
+        '"terminal.integrated.defaultProfile.linux" = "zsh"\n',
+    )
+
+    mv_setup.write_devcontainer_config(version_dir, reset=False)
+
+    config = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())
+    vscode = config["customizations"]["vscode"]
+    # Your extensions come on top of the standard ones, without duplicates, and your settings win.
+    assert vscode["extensions"][-1] == "streetsidesoftware.code-spell-checker"
+    assert vscode["extensions"].count("odoo.odoo") == 1
+    assert vscode["settings"]["cSpell.allowCompoundWords"] is True
+    assert vscode["settings"]["terminal.integrated.defaultProfile.linux"] == "zsh"
+
+
 def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
