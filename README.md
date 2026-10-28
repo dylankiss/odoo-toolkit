@@ -22,6 +22,9 @@ $ uv tool install --force git+https://github.com/dylankiss/odoo-toolkit.git
 > [!TIP]
 > You can run any command with the `--help` option to find out all options you can use.
 
+> [!NOTE]
+> At most once a day, in the background, the toolkit checks [PyPI](https://pypi.org/project/odoo-toolkit/) for a new version and tells you after the command has run. It doesn't check in scripts, in CI, or when the toolkit isn't installed from PyPI, like a linked development version. Set `OTK_NO_UPDATE_CHECK` to any value to turn it off.
+
 > [!TIP]
 > Anywhere you can provide modules as arguments or options, you can also use [glob patterns](https://docs.python.org/3/library/fnmatch.html) to match multiple similar ones.
 
