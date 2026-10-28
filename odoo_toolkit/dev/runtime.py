@@ -124,12 +124,19 @@ def get_upgrade_paths(version_dir: Path) -> list[Path]:
     return [path for path in candidates if path.is_dir()]
 
 
-def build_odoo_command(options: RunOptions) -> list[str]:
-    """Build the command that starts Odoo in the container."""
-    version_dir = options.version_dir
-    addons_paths = get_addons_paths(version_dir, exclude=options.exclude, community=options.community)
-    command = [
-        str(version_dir / "odoo" / "odoo-bin"),
+def get_odoo_args(
+    version_dir: Path, *, exclude: Collection[str] = (), community: bool = False, upgrade: bool = False,
+) -> list[str]:
+    """Get the Odoo options that load the modules of a version and connect Odoo to the shared services.
+
+    :param version_dir: The version directory.
+    :param exclude: The repositories to leave out of the addons path, like `enterprise`.
+    :param community: Whether to only load Odoo Community's modules.
+    :param upgrade: Whether to add the upgrade scripts, if their repositories are linked into the version.
+    :return: The options, without the path of `odoo-bin`.
+    """
+    addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
+    args = [
         f"--addons-path={','.join(str(path) for path in addons_paths)}",
         f"--db_host={DB_HOST}",
         "--db_user=odoo",
@@ -144,9 +151,19 @@ def build_odoo_command(options: RunOptions) -> list[str]:
         "--limit-time-cpu=99999",
         "--limit-time-real=99999",
     ]
-    if options.upgrade and (upgrade_paths := get_upgrade_paths(version_dir)):
-        command.append(f"--upgrade-path={','.join(str(path) for path in upgrade_paths)}")
-    command += options.odoo_args
+    if upgrade and (upgrade_paths := get_upgrade_paths(version_dir)):
+        args.append(f"--upgrade-path={','.join(str(path) for path in upgrade_paths)}")
+    return args
+
+
+def build_odoo_command(options: RunOptions) -> list[str]:
+    """Build the command that starts Odoo in the container."""
+    version_dir = options.version_dir
+    command = [
+        str(version_dir / "odoo" / "odoo-bin"),
+        *get_odoo_args(version_dir, exclude=options.exclude, community=options.community, upgrade=options.upgrade),
+        *options.odoo_args,
+    ]
     if options.debug_port:
         # Only say the debugger is ready once it listens, since Visual Studio Code attaches right away.
         launcher = (
