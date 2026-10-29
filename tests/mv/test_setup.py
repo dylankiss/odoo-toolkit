@@ -576,3 +576,23 @@ def test_install_requirements_tries_pip_for_what_uv_can_not_install(
 
     assert mv_setup.install_requirements(tmp_path / "python", [requirements]) == ["broken"]
     assert installed == [("uv", "good"), ("python", "old-archive")]
+
+
+@pytest.mark.usefixtures("remotes")
+@pytest.mark.parametrize("git_version", [(2, 39), (2, 49)])
+def test_complete_clone_works_with_and_without_backfill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_version: tuple[int, int],
+) -> None:
+    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+    mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
+    monkeypatch.setattr(mv_setup, "get_git_version", lambda: git_version)
+    bare = Git(repo_dir / ".bare")
+
+    progress: list[str] = []
+
+    assert mv_setup.complete_clone(bare, lambda stage, _current, _total: progress.append(stage))
+
+    # Both ways report what they download.
+    assert any("objects" in stage or "batch" in stage for stage in progress)
+    assert not git(repo_dir / ".bare", "rev-list", "--objects", "--all", "--missing=print").count("?")
+    assert not mv_setup.complete_clone(bare)

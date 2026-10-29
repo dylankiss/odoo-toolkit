@@ -34,7 +34,7 @@ from odoo_toolkit.dev.runtime import (
     get_git_identity,
     get_odoo_args,
 )
-from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone
+from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone, get_git_version, run_with_progress
 from odoo_toolkit.versions import get_versions
 
 from .config import (
@@ -84,6 +84,8 @@ COMPAT_REQUIREMENTS_FILE = MULTIVERSE_CONFIG_DIR / "compat-requirements.txt"
 BUILD_CONSTRAINTS_FILE = MULTIVERSE_CONFIG_DIR / "build-constraints.txt"
 # Odoo's Ruff rules of the master branch: the copy in the multiverse directory that the other Ruff configurations extend.
 ODOO_RUFF_FILE = "ruff-odoo.toml"
+# The first version of Git having `git backfill`, which downloads only what a partial clone is missing.
+BACKFILL_GIT_VERSION = (2, 49)
 # Matches the package name at the start of a requirement, like `Pillow` in `Pillow==10.2.0 ; python_version >= '3.12'`.
 REQUIREMENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*")
 # Files copied into the Community and Enterprise repositories to enable the JavaScript tooling.
@@ -164,7 +166,8 @@ def setup(
             "--full-history",
             help="Download the file contents of the whole history of the versioned repositories, so `git blame` works "
             "offline, like in a dev container. It needs several gigabytes more disk space and time than the default "
-            "partial clones. Repositories that are partial already are completed.",
+            "partial clones. Repositories that are partial already are completed, which only downloads what they miss with Git "
+            "2.49 or newer, and everything again with older versions.",
         ),
     ] = False,
 ) -> None:
@@ -308,7 +311,6 @@ def _get_ruff_config(extend: str) -> str:
     """Get a Ruff configuration that follows Odoo's rules in another file, with the settings odoo-toolkit adds."""
     return f'extend = "{extend}"\nline-length = 120\n\n[format]\nquote-style = "preserve"\n'
 
-
 # Cloning
 
 
@@ -379,7 +381,7 @@ def clone_bare_repo(
     bare_repo("worktree", "prune")
 
     if full_history and not cloned:
-        completed = complete_clone(bare_repo)
+        completed = complete_clone(bare_repo, progress)
 
     if cloned:
         return RepoResult(repo.name, Outcome.UPDATED, "cloned with its full history" if full_history else "cloned")
@@ -395,10 +397,11 @@ def clone_bare_repo(
     return RepoResult(repo.name, Outcome.SKIPPED, "already cloned")
 
 
-def complete_clone(repo: Git) -> bool:
+def complete_clone(repo: Git, progress: CloneProgress | None = None) -> bool:
     """Download everything a partial clone left out, and make it a regular repository.
 
     :param repo: The bare repository.
+    :param progress: Called with the progress of the download.
     :raises GitError: If downloading the file contents failed.
     :return: Whether the repository was partial.
     """
@@ -407,13 +410,44 @@ def complete_clone(repo: Git) -> bool:
     except GitError:
         return False
     remotes = [key.removeprefix("remote.").removesuffix(".promisor") for key in promisor_keys]
-    for remote in remotes:
-        repo("fetch", "--refetch", "--no-filter", remote)
+    if not _backfill(repo, progress):
+        for remote in remotes:
+            run_with_progress(
+                ["-C", str(repo.path), "fetch", "--refetch", "--no-filter", "--progress", remote], progress,
+            )
     for key in (*promisor_keys, *(f"remote.{remote}.partialclonefilter" for remote in remotes), "extensions.partialclone"):
         # Git exits with an error when the setting doesn't exist.
         with contextlib.suppress(GitError):
             repo("config", "--unset", key)
     return bool(remotes)
+
+
+def _backfill(repo: Git, progress: CloneProgress | None) -> bool:
+    """Download only the missing file contents of a partial clone, which is much less than fetching everything again.
+
+    :return: Whether it worked, which needs Git 2.49 or newer.
+    """
+    if get_git_version() < BACKFILL_GIT_VERSION:
+        return False
+    batch = 1
+    received = 0
+
+    def report_batches(stage: str, current: int, total: int) -> None:
+        # Every batch goes through all the stages of a download again, so only follow the one that takes the time.
+        nonlocal batch, received
+        if not progress or stage != "Receiving objects":
+            return
+        if current < received:
+            batch += 1
+        received = current
+        progress(f"Downloading file contents, batch {batch}", current, total)
+
+    try:
+        # It only prints its progress to a terminal.
+        run_with_progress(["-C", str(repo.path), "backfill", "--no-sparse", "--all"], report_batches, tty=True)
+    except GitError:
+        return False
+    return True
 
 
 def clone_repo(

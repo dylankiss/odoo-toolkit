@@ -1,15 +1,33 @@
 """A thin wrapper around the `git` command line."""
 
+import os
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from functools import cache
 from pathlib import Path
+
+try:
+    import pty
+except ImportError:  # Windows
+    pty = None
 
 # Matches the progress lines of `git clone --progress`, like "Receiving objects:  45% (450/1000), 1.20 MiB".
 PROGRESS_PATTERN = re.compile(r"(?P<stage>[A-Z][\w ]+):\s+\d+% \((?P<current>\d+)/(?P<total>\d+)\)")
 
 # A clone progress callback, receiving the current stage, like "Receiving objects", and the current and total counts.
 CloneProgress = Callable[[str, int, int], None]
+
+
+@cache
+def get_git_version() -> tuple[int, int]:
+    """Get the major and minor version of the installed Git, like `(2, 49)`, or `(0, 0)` if it can't be found."""
+    try:
+        output = subprocess.run(["git", "--version"], capture_output=True, text=True, check=False).stdout
+    except OSError:
+        return (0, 0)
+    match = re.search(r"(\d+)\.(\d+)", output)
+    return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
 
 
 class GitError(Exception):
@@ -118,15 +136,29 @@ def clone(url: str, path: Path, *args: str, progress: CloneProgress | None = Non
     :raises GitError: If the clone failed.
     :return: The cloned repository.
     """
-    cmd = ["clone", "--progress", *args, url, str(path)]
-    with subprocess.Popen(
-        ["git", *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-    ) as process:
-        assert process.stderr  # noqa: S101 (always set with stderr=PIPE)
+    run_with_progress(["clone", "--progress", *args, url, str(path)], progress)
+    return Git(path)
+
+
+def run_with_progress(cmd: list[str], progress: CloneProgress | None, *, tty: bool = False) -> None:
+    """Run a Git command, reporting the progress it prints.
+
+    :param cmd: The arguments to pass to `git`.
+    :param progress: Called with the progress of the command.
+    :param tty: Whether to run it in a terminal, which some commands need to print their progress, like `backfill`.
+    :raises GitError: If the command failed.
+    """
+    master_fd = None
+    stderr: int = subprocess.PIPE
+    if tty and pty:
+        master_fd, stderr = pty.openpty()
+    with subprocess.Popen(["git", *cmd], stdout=subprocess.DEVNULL, stderr=stderr, text=master_fd is None) as process:
+        if master_fd is not None:
+            os.close(stderr)
         output: list[str] = []
         line = ""
         # Progress lines are rewritten in place using carriage returns, so read character by character.
-        while char := process.stderr.read(1):
+        for char in _read_chars(process, master_fd):
             if char not in "\r\n":
                 line += char
                 continue
@@ -135,6 +167,25 @@ def clone(url: str, path: Path, *args: str, progress: CloneProgress | None = Non
             elif line.strip():
                 output.append(line)
             line = ""
+    if master_fd is not None:
+        os.close(master_fd)
     if process.returncode:
         raise GitError(cmd, process.returncode, "\n".join([*output, line]))
-    return Git(path)
+
+
+def _read_chars(process: subprocess.Popen[str], master_fd: int | None) -> Iterator[str]:
+    """Read the error output of a process character by character, from its pipe or its terminal."""
+    if master_fd is None:
+        assert process.stderr  # noqa: S101 (always set with stderr=PIPE)
+        while char := process.stderr.read(1):
+            yield char
+        return
+    while True:
+        try:
+            data = os.read(master_fd, 4096)
+        except OSError:
+            # The terminal reports its end like this on Linux.
+            return
+        if not data:
+            return
+        yield from data.decode(errors="replace")
