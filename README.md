@@ -727,7 +727,7 @@ With `--devcontainer`, every version directory gets a [dev container](https://co
 - The `.devcontainer`, `.vscode` and `.venv` folders are read-only in the container, because they hold what runs on your machine later (like tasks and the dev container's own configuration). Change them from your machine, for example with `otk mv setup --update-config`.
 - Everything else in the multiverse can be read and changed in the container, and it has network access, including to the databases of `otk dev`. Don't keep secrets or data you can't share in your multiverse or those databases if you use AI agents.
 - Only windows opened in the container are isolated, not agents you start from a terminal on your machine.
-- Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.copyGitConfig": false` and `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings.
+- Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings to keep your GitHub login out. Add `"dev.containers.copyGitConfig": false` as well, unless you've checked that your `~/.gitconfig` holds no secrets, like a token in `url.*.insteadOf` or `http.extraHeader`, which the container could use to push.
 - Extensions and settings you want in the dev containers of this multiverse, like a spell checker, go in a `[devcontainer]` table in `multiverse.toml`, which `--update-config` applies. Extensions you want in every dev container go in the `dev.containers.defaultExtensions` user setting.
 
   ```toml
@@ -737,6 +737,14 @@ With `--devcontainer`, every version directory gets a [dev container](https://co
   [devcontainer.settings]
   "cSpell.allowCompoundWords" = true
   ```
+- To sign commits in a dev container, use a GPG key: Visual Studio Code forwards your `gpg-agent` into it, so the container can sign, and GitHub doesn't accept GPG keys to push, so it still can't push. Set it up once for all your dev containers:
+  1. Install GnuPG and a graphical passphrase prompt: on macOS `brew install gnupg pinentry-mac`, on Debian or Ubuntu `sudo apt install gnupg pinentry-gnome3` (or `pinentry-qt`, depending on your desktop).
+  2. Create a signing-only key, with an email that is verified on GitHub: `gpg --quick-generate-key "Your Name <you@example.com>" ed25519 sign 2y`. Find its fingerprint with `gpg --list-secret-keys --keyid-format long`.
+  3. Ask for the passphrase in a window: add `default-cache-ttl 600` to `~/.gnupg/gpg-agent.conf` (use `0` to be asked for every commit), and on macOS also `pinentry-program` with the output of `brew --prefix` followed by `/bin/pinentry-mac`. Then run `gpgconf --kill gpg-agent`. On Linux, the prompt your desktop provides is used by default.
+  4. Add the public key (`gpg --armor --export <fingerprint>`) to GitHub, in *Settings*, *SSH and GPG keys*, *New GPG key*.
+  5. Sign with it on your machine too: `git config --global gpg.format openpgp`, `git config --global user.signingkey <fingerprint>` and `git config --global commit.gpgsign true`.
+  6. Let the dev containers copy your Git config, by setting `"dev.containers.copyGitConfig": true` in your user settings, and keep `"dev.containers.gitCredentialHelperConfigLocation": "none"`. Check first that `~/.gitconfig` holds no secrets, as the previous point explains.
+  7. Rebuild your dev containers, and check there: `echo test | gpg --clearsign` asks for your passphrase, and `ssh -T git@github.com` is refused.
 - Claude Code is installed, but your login on your machine stays out. Log in once in the container: it's kept in the `otk-claude` volume, which all your dev containers share, so it survives rebuilds.
 
 ### Usage

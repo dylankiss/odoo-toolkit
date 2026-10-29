@@ -1146,10 +1146,12 @@ def _print_devcontainer_notes() -> None:
     print(
         "[b]Dev containers[/b] are opened with [b]Dev Containers: Reopen in Container[/b]. They only isolate windows "
         "opened that way, not agents started from a terminal on your machine.\n\n"
-        "Visual Studio Code shares your Git config and credential helper with every dev container, which a project "
-        "can't turn off. To keep them out, add this to your user settings:\n"
-        '  "dev.containers.copyGitConfig": false,\n'
-        '  "dev.containers.gitCredentialHelperConfigLocation": "none"\n',
+        "Visual Studio Code shares your Git credential helper and Git config with every dev container, which a project "
+        "can't turn off. To keep your GitHub login out, add this to your user settings:\n"
+        '  "dev.containers.gitCredentialHelperConfigLocation": "none"\n\n'
+        "Your Git config can hold secrets too, so unless you've checked yours, also add:\n"
+        '  "dev.containers.copyGitConfig": false\n\n'
+        "To sign commits in a dev container, you need it on instead: see the README of odoo-toolkit.\n",
     )
 
 
