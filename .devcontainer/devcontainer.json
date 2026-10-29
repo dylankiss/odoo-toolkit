@@ -5,7 +5,7 @@
     },
     "remoteUser": "vscode",
     "updateRemoteUserUID": true,
-    "runArgs": ["--cap-drop=ALL", "--security-opt=no-new-privileges", "--init"],
+    "runArgs": ["--name=odoo-toolkit-dev", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--init"],
     "mounts": [
         "source=odoo-toolkit-claude,target=/home/vscode/.claude,type=volume",
         "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,readonly",
