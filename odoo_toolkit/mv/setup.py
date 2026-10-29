@@ -1129,7 +1129,13 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
             f"otk dev db > /dev/null 2>&1 || docker network inspect {NETWORK} > /dev/null 2>&1 "
             "|| { echo 'Run `otk dev db` first.' >&2; exit 1; }"
         ),
-        "runArgs": [f"--network={NETWORK}", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--init"],
+        "runArgs": [
+            f"--name=otk-{version_dir.name}-dev",
+            f"--network={NETWORK}",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--init",
+        ],
         "mounts": [
             *(f"source={volume},target={path},type=volume" for volume, path in DEVCONTAINER_VOLUMES.items()),
             *(f"source={path},target={path},type=bind,readonly" for path in protected),
