@@ -100,6 +100,36 @@ def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> No
 
 
 @pytest.mark.usefixtures("remotes")
+def test_clone_bare_repo_with_full_history(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+
+    result = mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir, full_history=True)
+
+    assert result == RepoResult("odoo", Outcome.UPDATED, "cloned with its full history")
+    bare = repo_dir / ".bare"
+    assert git(bare, "config", "--get", "remote.origin.partialclonefilter", check=False) == ""
+    assert not git(bare, "rev-list", "--objects", "--all", "--missing=print", "--filter-print-omitted").count("?")
+
+
+@pytest.mark.usefixtures("remotes")
+def test_clone_bare_repo_completes_a_partial_clone(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+    mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
+    bare = repo_dir / ".bare"
+    assert git(bare, "rev-list", "--objects", "--all", "--missing=print").count("?")
+
+    result = mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir, full_history=True)
+
+    assert result == RepoResult("odoo", Outcome.UPDATED, "downloaded its full history")
+    assert git(bare, "config", "--get", "remote.origin.promisor", check=False) == ""
+    assert not git(bare, "rev-list", "--objects", "--all", "--missing=print").count("?")
+    # Nothing is left to download, so blame works without GitHub.
+    git(bare, "remote", "set-url", "origin", "file:///nonexistent")
+    assert git(bare, "blame", "-L1,1", "master", "--", "requirements.txt")
+    assert mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir, full_history=True).outcome == Outcome.SKIPPED
+
+
+@pytest.mark.usefixtures("remotes")
 def test_add_worktree_tracks_origin(tmp_path: Path) -> None:
     repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
     mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)

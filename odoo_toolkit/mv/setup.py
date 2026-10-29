@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -157,6 +158,15 @@ def setup(
             "the `@`.",
         ),
     ] = None,
+    full_history: Annotated[
+        bool,
+        Option(
+            "--full-history",
+            help="Download the file contents of the whole history of the versioned repositories, so `git blame` works "
+            "offline, like in a dev container. It needs several gigabytes more disk space and time than the default "
+            "partial clones. Repositories that are partial already are completed.",
+        ),
+    ] = False,
 ) -> None:
     """Set up an :ringed_planet: Odoo Multiverse environment, having different versions checked out at the same time.
 
@@ -220,7 +230,7 @@ def setup(
         print_warning("No Git email configured, so the [b]dev[/b] remotes won't fetch any of your branches.\n")
 
     print_header(":honey_pot: Clone Repositories")
-    clone_results = _clone_repos(multiverse_dir, repos, branch_suffix=branch_suffix)
+    clone_results = _clone_repos(multiverse_dir, repos, branch_suffix=branch_suffix, full_history=full_history)
     cloned = [repo for repo in repos if repo.name in {r.name for r in clone_results if r.outcome != Outcome.FAILED}]
     links, link_results = _plan_links(multiverse_dir, cloned, branches)
     print_result_table(clone_results + link_results)
@@ -302,7 +312,9 @@ def _get_ruff_config(extend: str) -> str:
 # Cloning
 
 
-def _clone_repos(multiverse_dir: Path, repos: list[RepoSpec], *, branch_suffix: str | None) -> list[RepoResult]:
+def _clone_repos(
+    multiverse_dir: Path, repos: list[RepoSpec], *, branch_suffix: str | None, full_history: bool,
+) -> list[RepoResult]:
     """Clone the versioned repositories as bare repositories, and the other ones as regular ones."""
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
 
@@ -316,7 +328,11 @@ def _clone_repos(multiverse_dir: Path, repos: list[RepoSpec], *, branch_suffix: 
 
             if repo.kind == RepoKind.VERSIONED:
                 return clone_bare_repo(
-                    repo, multiverse_dir / WORKTREE_SOURCE_DIR / repo.name, update_progress, branch_suffix=branch_suffix,
+                    repo,
+                    multiverse_dir / WORKTREE_SOURCE_DIR / repo.name,
+                    update_progress,
+                    branch_suffix=branch_suffix,
+                    full_history=full_history,
                 )
             return clone_repo(repo, multiverse_dir / repo.name, update_progress, branch_suffix=branch_suffix)
 
@@ -330,22 +346,27 @@ def clone_bare_repo(
     progress: CloneProgress | None = None,
     *,
     branch_suffix: str | None = None,
+    full_history: bool = False,
 ) -> RepoResult:
     """Clone a versioned repository as a bare repository to add worktrees from, and configure its remotes.
 
-    The clone is partial: file contents are only downloaded when a worktree needs them, which saves gigabytes. Only the
-    default branch is cloned; the version branches are fetched when adding their worktrees.
+    The clone is partial, unless you want the full history: file contents are only downloaded when a worktree needs
+    them, which saves gigabytes, but `git blame` then needs GitHub. Only the default branch is cloned; the version
+    branches are fetched when adding their worktrees.
 
     :param repo: The repository to clone.
     :param repo_dir: The directory to clone into, which gets the bare repository in its `.bare` subdirectory.
     :param progress: Called with the progress of the clone.
     :param branch_suffix: The suffix of your own branches, which the `dev` remote fetches.
+    :param full_history: Whether to download the file contents of the whole history, completing a partial clone.
     :return: The result of the clone.
     """
     bare_dir = repo_dir / ".bare"
     cloned = not bare_dir.exists()
+    completed = False
     if cloned:
-        bare_repo = clone(repo.url, bare_dir, "--bare", "--single-branch", "--filter=blob:none", progress=progress)
+        filter_args = [] if full_history else ["--filter=blob:none"]
+        bare_repo = clone(repo.url, bare_dir, "--bare", "--single-branch", *filter_args, progress=progress)
     else:
         bare_repo = Git(bare_dir)
 
@@ -357,8 +378,13 @@ def clone_bare_repo(
     # Forget the worktrees whose directories were deleted.
     bare_repo("worktree", "prune")
 
+    if full_history and not cloned:
+        completed = complete_clone(bare_repo)
+
     if cloned:
-        return RepoResult(repo.name, Outcome.UPDATED, "cloned")
+        return RepoResult(repo.name, Outcome.UPDATED, "cloned with its full history" if full_history else "cloned")
+    if completed:
+        return RepoResult(repo.name, Outcome.UPDATED, "downloaded its full history")
     if fetching_changed:
         return RepoResult(
             repo.name,
@@ -367,6 +393,27 @@ def clone_bare_repo(
             "(run [b]otk mv cleanup[/b] to remove the others)",
         )
     return RepoResult(repo.name, Outcome.SKIPPED, "already cloned")
+
+
+def complete_clone(repo: Git) -> bool:
+    """Download everything a partial clone left out, and make it a regular repository.
+
+    :param repo: The bare repository.
+    :raises GitError: If downloading the file contents failed.
+    :return: Whether the repository was partial.
+    """
+    try:
+        promisor_keys = [line.split()[0] for line in repo("config", "--get-regexp", r"^remote\..*\.promisor$").splitlines()]
+    except GitError:
+        return False
+    remotes = [key.removeprefix("remote.").removesuffix(".promisor") for key in promisor_keys]
+    for remote in remotes:
+        repo("fetch", "--refetch", "--no-filter", remote)
+    for key in (*promisor_keys, *(f"remote.{remote}.partialclonefilter" for remote in remotes), "extensions.partialclone"):
+        # Git exits with an error when the setting doesn't exist.
+        with contextlib.suppress(GitError):
+            repo("config", "--unset", key)
+    return bool(remotes)
 
 
 def clone_repo(

@@ -759,6 +759,7 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 * `--vscode / --no-vscode`: Write the Visual Studio Code configuration in each version directory.  [default: `--vscode`]
 * `--devcontainer / --no-devcontainer`: Write a dev container configuration in each version directory, to open it in Visual Studio Code in a container that only sees your multiverse, for example to keep AI agents away from the rest of your machine. Versions that already have one keep it up to date, unless you pass `--no-devcontainer`.
 * `--branch-suffix TEXT`: The suffix of your own branches on the `dev` remote, like `abcd` for `master-fix-xyz-abcd`. It's remembered for later commands. Defaults to the remembered one, or else the part of your Git email before the `@`.
+* `--full-history`: Download the file contents of the whole history of the versioned repositories, so `git blame` works offline, like in a dev container. It needs several gigabytes more disk space and time than the default partial clones. Repositories that are partial already are completed.
 * `--help`: Show this message and exit.
 
 ## `otk mv reset`
