@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import re
 from collections.abc import Callable, Collection, Iterable
 from contextlib import suppress
@@ -243,3 +244,9 @@ def filter_by_globs(items: Iterable[str], globs: Collection[str], ignore_globs: 
         if any(fnmatch(item, pattern) for pattern in set(globs))
         and not any(fnmatch(item, pattern) for pattern in set(ignore_globs))
     ]
+
+
+def get_config_file() -> Path:
+    """Get the path of your odoo-toolkit configuration file, in `$XDG_CONFIG_HOME` or `~/.config`."""
+    config_home = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return Path(config_home) / "odoo-toolkit" / "config.toml"

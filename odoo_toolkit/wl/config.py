@@ -1,15 +1,17 @@
 import json
 import re
+import tomllib
 from collections import defaultdict
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, cast
 
 from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
+    get_config_file,
     get_valid_modules_to_path_mapping,
     is_l10n_module,
     normalize_list_option,
@@ -21,138 +23,41 @@ from odoo_toolkit.common import (
 )
 from odoo_toolkit.mv.config import get_default_repo_path
 
+from .authors import ConfigError
 from .common import WeblateComponentData
 
 app = Typer()
 
 WeblateConfigType = dict[str, dict[str, list[WeblateComponentData]]]
 
-# Maps fnmatch glob patterns (matched against module names) to a fixed list of language codes.
-# Patterns are evaluated in order; the first match wins.
-# Modules not listed here fall back to scanning available .po files.
-L10N_LANGUAGE_MAP: dict[str, list[str] | None] = {
-    "*l10n_account_withholding_tax*": ["es_419", "id", "th"],
-    "*l10n_ae*": ["ar"],
-    "*l10n_ar*": ["es_419"],
-    "*l10n_at*": ["de"],
-    "*l10n_bd*": ["bn"],
-    "*l10n_be*": ["de", "fr", "nl"],
-    "*l10n_bf*": ["fr"],
-    "*l10n_bg*": ["bg"],
-    "*l10n_bh*": ["ar"],
-    "*l10n_bj*": ["fr"],
-    "*l10n_bo*": ["es_419"],
-    "*l10n_br*": ["pt_BR"],
-    "*l10n_ca*": ["fr"],
-    "*l10n_cd*": ["fr"],
-    "*l10n_cf*": ["fr"],
-    "*l10n_cg*": ["fr"],
-    "*l10n_ch*": ["de", "fr", "it"],
-    "*l10n_ci*": ["fr"],
-    "*l10n_cl*": ["es_419"],
-    "*l10n_cm*": ["fr"],
-    "*l10n_cn_city*": None,
-    "*l10n_cn*": ["zh_CN"],
-    "*l10n_co*": ["es_419"],
-    "*l10n_cr*": ["es_419"],
-    "*l10n_cy*": ["el", "tr"],
-    "*l10n_cz*": ["cs"],
-    "*l10n_de*": ["de"],
-    "*l10n_din5008*": ["de", "fr", "it"],
-    "*l10n_dk*": ["da"],
-    "*l10n_do*": ["es_419"],
-    "*l10n_dz*": ["ar", "fr"],
-    "*l10n_ec*": ["es_419"],
-    "*l10n_ee*": ["et"],
-    "*l10n_eg*": ["ar"],
-    "*l10n_employment_hero*": ["ms"],
-    "*l10n_es*": ["es"],
-    "*l10n_et*": ["am"],
-    "*l10n_eu*": ["bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
-    "*l10n_fi*": ["fi"],
-    "*l10n_fr*": ["fr"],
-    "*l10n_ga*": ["fr"],
-    "*l10n_gcc*": ["ar"],
-    "*l10n_ge*": ["ka"],
-    "*l10n_gf*": ["fr"],
-    "*l10n_gn*": ["fr"],
-    "*l10n_gp*": ["fr"],
-    "*l10n_gq*": ["es", "fr", "pt"],
-    "*l10n_gr*": ["el"],
-    "*l10n_gt*": ["es_419"],
-    "*l10n_gw*": ["pt"],
-    "*l10n_hk*": ["zh_TW"],
-    "*l10n_hn*": ["es_419"],
-    "*l10n_hr*": ["hr"],
-    "*l10n_hu*": ["hu"],
-    "*l10n_id*": ["id"],
-    "*l10n_il*": ["he"],
-    "*l10n_in*": ["hi"],
-    "*l10n_iq*": ["ar"],
-    "*l10n_it*": ["it"],
-    "*l10n_jo*": ["ar"],
-    "*l10n_jp*": ["ja"],
-    "*l10n_ke*": ["sw"],
-    "*l10n_kh*": ["km"],
-    "*l10n_km*": ["ar", "fr"],
-    "*l10n_kr*": ["ko"],
-    "*l10n_kw*": ["ar"],
-    "*l10n_kz*": ["ru"],
-    "*l10n_latam*": ["es_419", "pt_BR"],
-    "*l10n_lb*": ["ar", "fr"],
-    "*l10n_lk*": ["si", "ta"],
-    "*l10n_lt*": ["lt"],
-    "*l10n_lu*": ["de", "fr", "lb"],
-    "*l10n_lv*": ["lv"],
-    "*l10n_ma*": ["ar", "fr"],
-    "*l10n_mc*": ["fr"],
-    "*l10n_mk*": ["mk"],
-    "*l10n_ml*": ["fr"],
-    "*l10n_mm*": ["my"],
-    "*l10n_mn*": ["mn"],
-    "*l10n_mq*": ["fr"],
-    "*l10n_mr*": ["fr"],
-    "*l10n_mu*": ["fr"],
-    "*l10n_mx*": ["es_419"],
-    "*l10n_my*": ["ms"],
-    "*l10n_mz*": ["pt"],
-    "*l10n_ne*": ["fr"],
-    "*l10n_nl*": ["nl"],
-    "*l10n_no*": ["nb"],
-    "*l10n_om*": ["ar"],
-    "*l10n_pa*": ["es_419"],
-    "*l10n_pe*": ["es_419"],
-    "*l10n_ph*": ["tl"],
-    "*l10n_pl*": ["pl"],
-    "*l10n_pt*": ["pt"],
-    "*l10n_qa*": ["ar"],
-    "*l10n_re*": ["fr"],
-    "*l10n_ro*": ["ro"],
-    "*l10n_rs*": ["sr@latin"],
-    "*l10n_rw*": ["fr", "sw"],
-    "*l10n_sa*": ["ar"],
-    "*l10n_se*": ["sv"],
-    "*l10n_si*": ["sl"],
-    "*l10n_sk*": ["sk"],
-    "*l10n_sn*": ["fr"],
-    "*l10n_syscohada*": ["fr"],
-    "*l10n_td*": ["ar", "fr"],
-    "*l10n_tg*": ["fr"],
-    "*l10n_th*": ["th"],
-    "*l10n_tn*": ["ar", "fr"],
-    "*l10n_tr*": ["tr"],
-    "*l10n_tw*": ["zh_TW"],
-    "*l10n_tz*": ["sw"],
-    "*l10n_ua*": ["uk"],
-    "*l10n_ug*": ["sw"],
-    "*l10n_us*": ["es_419"],
-    "*l10n_uy*": ["es_419"],
-    "*l10n_uz*": ["ru", "uz"],
-    "*l10n_ve*": ["es_419"],
-    "*l10n_vn*": ["vi"],
-    "*l10n_yt*": ["fr"],
-}
+L10N_LANGUAGES_FILE = Path(__file__).parent / "l10n_languages.toml"
 
+
+def get_l10n_language_map() -> dict[str, list[str]]:
+    """Get the languages of the localization modules, by glob pattern, in the order they are matched.
+
+    Your own patterns, in `[weblate.l10n_languages]` of your configuration file, come before the ones that ship with the
+    toolkit in `l10n_languages.toml`. A pattern with no languages makes the module follow the project's languages.
+
+    :raises ConfigError: If your configuration file is invalid.
+    :return: The languages for every pattern.
+    """
+    language_map: dict[str, list[str]] = {}
+    config_file = get_config_file()
+    if config_file.is_file():
+        try:
+            config = tomllib.loads(config_file.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as e:
+            msg = f"{config_file} is not valid TOML: {e}"
+            raise ConfigError(msg) from e
+        weblate = cast("dict[str, Any]", config.get("weblate", {}))
+        for pattern, languages in cast("dict[str, Any]", weblate.get("l10n_languages", {})).items():
+            if not isinstance(languages, list) or not all(isinstance(lang, str) for lang in cast("list[Any]", languages)):
+                msg = f'Invalid languages for `{pattern}` in {config_file}: use `"{pattern}" = ["fr", "nl"]`.'
+                raise ConfigError(msg)
+            language_map[pattern] = cast("list[str]", languages)
+    shipped = tomllib.loads(L10N_LANGUAGES_FILE.read_text(encoding="utf-8"))
+    return language_map | {pattern: languages for pattern, languages in shipped.items() if pattern not in language_map}
 
 
 class WeblateConfigError(Exception):
@@ -170,13 +75,16 @@ class WeblateConfigError(Exception):
 class WeblateConfig:
     """A Weblate config file."""
 
-    def __init__(self, file_path: Path) -> None:
+    def __init__(self, file_path: Path, l10n_languages: dict[str, list[str]] | None = None) -> None:
         """Initialize a WeblateConfig object.
 
         :param file_path: The file to load into the object or to save the new object to.
+        :param l10n_languages: The languages of the localization modules by glob pattern, or None for the standard ones
+            and the ones in your configuration file.
         :raises WeblateConfigError: If the given file could not be loaded or parsed.
         """
         self.file_path = file_path
+        self.l10n_languages = get_l10n_language_map() if l10n_languages is None else l10n_languages
         self.config: dict[str, dict[str, list[WeblateComponentData]]] = {
             "projects": defaultdict[str, list[WeblateComponentData]](list),
         }
@@ -221,14 +129,13 @@ class WeblateConfig:
         if not languages and is_l10n_module(module_name):
             # If we are adding a l10n module, check the fixed language map first.
             fixed_language_match = next(
-                ((pattern, langs) for pattern, langs in L10N_LANGUAGE_MAP.items() if fnmatch(module_name, pattern)),
+                ((pattern, langs) for pattern, langs in self.l10n_languages.items() if fnmatch(module_name, pattern)),
                 None,
             )
             if fixed_language_match is None:
                 languages = sorted([lang.stem for lang in (module_path / "i18n").glob("*.po") if lang.is_file()])
             else:
-                _, fixed_languages = fixed_language_match
-                languages = fixed_languages or []
+                languages = fixed_language_match[1]
         if languages:
             module_config["language_regex"] = f"^({'|'.join(sorted(languages))})$"
         if existing_module_config:
@@ -334,7 +241,11 @@ def _update_addons_config(
     """Update one .weblate.json file for the given modules."""
     print_header(f"Updating [u]{weblate_config_path}[/u]")
 
-    weblate_config = WeblateConfig(weblate_config_path)
+    try:
+        weblate_config = WeblateConfig(weblate_config_path)
+    except ConfigError as e:
+        print_error("Config file update failed.\n", str(e))
+        raise Exit(1) from e
     if reset:
         weblate_config.clear(project)
 

@@ -413,6 +413,13 @@ $ otk wl authors
 
 This command will add, update, or remove module entries in `.weblate.json` files. The `.weblate.json` files need to be located at the provided addons paths' roots. If not, a new file will be created.
 
+A localization module gets the languages of its country, from the list that ships with the toolkit ([`l10n_languages.toml`](odoo_toolkit/wl/l10n_languages.toml)), or the languages of its `.po` files if it isn't listed. Without `-l`, you can add or change them for yourself in your odoo-toolkit configuration file (`~/.config/odoo-toolkit/config.toml`, or in `$XDG_CONFIG_HOME`). Your patterns are matched first, and the first match wins. An empty list makes the module follow the languages of the Weblate project.
+
+```toml
+[weblate.l10n_languages]
+"*l10n_xx*" = ["fr", "nl"]
+```
+
 For `odoo` and `enterprise`, the project slug follows the format `odoo-18` for major versions and `odoo-s18-1` for SaaS versions. Other repos have their own project slugs. Check the Weblate URLs to find the right project slug.
 
 ### Usage

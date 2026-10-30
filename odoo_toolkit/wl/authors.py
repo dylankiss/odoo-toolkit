@@ -7,27 +7,19 @@ alice = { name = "Alice Martin", email = "alice.martin@example.com" }
 ```
 """
 
-import os
 import tomllib
-from pathlib import Path
 from typing import Annotated, Any, cast
 
 from rich.table import Table
 from typer import Exit, Option, Typer
 
-from odoo_toolkit.common import print, print_command_title, print_error, print_warning
+from odoo_toolkit.common import get_config_file, print, print_command_title, print_error, print_warning
 
 app = Typer()
 
 
 class ConfigError(Exception):
     """The configuration file is invalid."""
-
-
-def get_config_file() -> Path:
-    """Get the path of your odoo-toolkit configuration file, in `$XDG_CONFIG_HOME` or `~/.config`."""
-    config_home = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
-    return Path(config_home) / "odoo-toolkit" / "config.toml"
 
 
 def get_authors() -> dict[str, tuple[str, str]]:

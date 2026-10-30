@@ -5,12 +5,13 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from odoo_toolkit.common import normalize_list_option
+from odoo_toolkit.common import get_config_file, normalize_list_option
 from odoo_toolkit.main import app
 from odoo_toolkit.po.common import get_cldr_lang, get_odoo_lang
 from odoo_toolkit.wl import common as wl_common
 from odoo_toolkit.wl import update_teams as wl_update_teams
-from odoo_toolkit.wl.config import WeblateConfig
+from odoo_toolkit.wl.authors import ConfigError
+from odoo_toolkit.wl.config import WeblateConfig, get_l10n_language_map
 
 
 def test_normalize_list_option_drops_empty_items() -> None:
@@ -35,6 +36,44 @@ def test_config_forgets_the_languages_of_modules_without_them(tmp_path: Path) ->
 
     component = json.loads((tmp_path / ".weblate.json").read_text())["projects"]["odoo-19"][0]
     assert "language_regex" not in component
+
+
+def test_l10n_languages_come_from_the_toolkit_and_your_config() -> None:
+    standard = get_l10n_language_map()
+    assert standard["*l10n_be*"] == ["de", "fr", "nl"]
+    # A module that follows the languages of the project has none.
+    assert standard["*l10n_cn_city*"] == []
+
+    config_file = get_config_file()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text('[weblate.l10n_languages]\n"*l10n_be_x*" = ["nl"]\n"*l10n_ch*" = ["rm"]\n')
+    mine = get_l10n_language_map()
+
+    # Yours are matched first, and win over the standard pattern with the same name.
+    assert list(mine)[:2] == ["*l10n_be_x*", "*l10n_ch*"]
+    assert mine["*l10n_ch*"] == ["rm"]
+    assert list(mine).count("*l10n_ch*") == 1
+    assert mine["*l10n_be*"] == ["de", "fr", "nl"]
+
+
+def test_l10n_languages_of_your_config_must_be_lists_of_codes() -> None:
+    config_file = get_config_file()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text('[weblate.l10n_languages]\n"*l10n_be*" = "nl"\n')
+
+    with pytest.raises(ConfigError, match=r"Invalid languages for `\*l10n_be\*`"):
+        get_l10n_language_map()
+
+
+def test_config_limits_a_l10n_module_to_its_languages(tmp_path: Path) -> None:
+    module = tmp_path / "l10n_be"
+    (module / "i18n").mkdir(parents=True)
+    (module / "i18n" / "l10n_be.pot").write_text("")
+    (module / "i18n" / "es.po").write_text("")
+    config = WeblateConfig(tmp_path / ".weblate.json", {"*l10n_be*": ["nl", "fr"]})
+    config.update_module(module, "odoo-19", [])
+
+    assert config.config["projects"]["odoo-19"][0]["language_regex"] == "^(fr|nl)$"
 
 
 class FakeTeamsApi:

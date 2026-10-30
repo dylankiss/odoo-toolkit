@@ -10,6 +10,12 @@ def no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def isolated_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep the tests away from the configuration file of the user."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+
+
+@pytest.fixture(autouse=True)
 def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Isolate Git from the user's configuration."""
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
