@@ -270,6 +270,9 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         (module_dir / "__manifest__.py").write_text("{}")
         (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
     (version_dir / ".vscode").mkdir()
+    bare_dir = multiverse_dir / ".worktree-source" / "odoo" / ".bare"
+    bare_dir.mkdir(parents=True)
+    (bare_dir / "config").write_text("[core]\n")
 
     result = mv_setup.write_devcontainer_config(version_dir, reset=False)
 
@@ -282,8 +285,12 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config["workspaceFolder"] == str(version_dir)
     # What runs on your machine later can't be changed from the container, if it exists: there is no `.venv` here.
     read_only = [mount for mount in config["mounts"] if mount.endswith("readonly")]
-    assert read_only == [
+    assert read_only[:2] == [
         f"source={version_dir / name},target={version_dir / name},type=bind,readonly" for name in (".devcontainer", ".vscode")
+    ]
+    # The hooks and configuration of the bare repositories, which every version shares, are Git's way to run code later.
+    assert read_only[2:] == [
+        f"source={bare_dir / name},target={bare_dir / name},type=bind,readonly" for name in ("config", "hooks")
     ]
     assert all(mount.endswith(("type=volume", "readonly")) for mount in config["mounts"])
     # Claude Code keeps its login in a volume of its own, so you log in once and your own login stays out.

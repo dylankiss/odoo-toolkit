@@ -1118,6 +1118,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # your machine, so nothing in the container can use it to run code outside it.
     config_file.parent.mkdir(exist_ok=True)
     protected = [path for name in (".devcontainer", ".vscode", ".venv") if (path := version_dir / name).is_dir()]
+    protected += _get_protected_git_paths(multiverse_dir)
 
     config: dict[str, Any] = {
         "name": f"Odoo {version_dir.name}",
@@ -1145,6 +1146,20 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     }
     _write_json(config_file, config, overwrite=True)
     return RepoResult("devcontainer", Outcome.UPDATED, "wrote [b]devcontainer.json[/b]")
+
+
+def _get_protected_git_paths(multiverse_dir: Path) -> list[Path]:
+    """Get what a bare repository holds that Git runs on your machine: its hooks and its configuration.
+
+    Every dev container sees all the bare repositories, since the worktrees of all versions share them, and a hook or a
+    setting like `core.fsmonitor` or an alias would run the next time you use Git on your machine.
+    """
+    paths: list[Path] = []
+    for bare_dir in sorted((multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare")):
+        # A bind mount needs something to mount.
+        (bare_dir / "hooks").mkdir(exist_ok=True)
+        paths += [path for name in ("config", "hooks") if (path := bare_dir / name).exists()]
+    return paths
 
 
 def _print_devcontainer_notes() -> None:
