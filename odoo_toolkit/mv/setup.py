@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from string import Template
 from subprocess import CalledProcessError
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -26,9 +27,11 @@ from odoo_toolkit.common import (
 from odoo_toolkit.dev.images import DOCKER_REPOSITORY
 from odoo_toolkit.dev.runtime import (
     CLAUDE_DIR,
+    DB_HOST,
     DEVCONTAINER_VOLUMES,
     NETWORK,
     ODOO_PORT,
+    SMTP_HOST,
     VOLUMES,
     check_mountable,
     get_git_identity,
@@ -1119,6 +1122,12 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     config_file.parent.mkdir(exist_ok=True)
     protected = [path for name in (".devcontainer", ".vscode", ".venv") if (path := version_dir / name).is_dir()]
     protected += _get_protected_git_paths(multiverse_dir)
+    # How this container works, for Claude Code. It is in the read-only `.devcontainer` folder and mounted where Claude
+    # Code reads its user instructions, so nothing in the container can change it.
+    instructions_file = config_file.parent / "CLAUDE.md"
+    instructions_file.write_text(
+        _get_devcontainer_instructions(version_dir, odoo_args=launch["args"][:-2]), encoding="utf-8",
+    )
 
     config: dict[str, Any] = {
         "name": f"Odoo {version_dir.name}",
@@ -1140,12 +1149,29 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "mounts": [
             *(f"source={volume},target={path},type=volume" for volume, path in DEVCONTAINER_VOLUMES.items()),
             *(f"source={path},target={path},type=bind,readonly" for path in protected),
+            f"source={instructions_file},target={CLAUDE_DIR}/CLAUDE.md,type=bind,readonly",
         ],
         "forwardPorts": [ODOO_PORT],
         **template,
     }
     _write_json(config_file, config, overwrite=True)
     return RepoResult("devcontainer", Outcome.UPDATED, "wrote [b]devcontainer.json[/b]")
+
+
+def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -> str:
+    """Get the instructions for Claude Code in the dev container of a version directory."""
+    repos = sorted(path.name for path in version_dir.iterdir() if (path / ".git").exists()) if version_dir.is_dir() else []
+    template = (MULTIVERSE_CONFIG_DIR / ".devcontainer" / "CLAUDE.md").read_text(encoding="utf-8")
+    return Template(template).safe_substitute(
+        version=version_dir.name,
+        multiverse_dir=version_dir.parent,
+        version_dir=version_dir,
+        repos=", ".join(f"`{repo}`" for repo in repos) or "`odoo`",
+        odoo_bin=version_dir / "odoo" / "odoo-bin",
+        odoo_args=" ".join(odoo_args),
+        db_host=DB_HOST,
+        smtp_host=SMTP_HOST,
+    )
 
 
 def _get_protected_git_paths(multiverse_dir: Path) -> list[Path]:

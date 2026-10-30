@@ -289,10 +289,12 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         f"source={version_dir / name},target={version_dir / name},type=bind,readonly" for name in (".devcontainer", ".vscode")
     ]
     # The hooks and configuration of the bare repositories, which every version shares, are Git's way to run code later.
-    assert read_only[2:] == [
+    assert read_only[2:4] == [
         f"source={bare_dir / name},target={bare_dir / name},type=bind,readonly" for name in ("config", "hooks")
     ]
-    assert all(mount.endswith(("type=volume", "readonly")) for mount in config["mounts"])
+    # Claude Code finds the instructions of the container where it reads its own, and they can't be changed from inside.
+    instructions_file = version_dir / ".devcontainer" / "CLAUDE.md"
+    assert read_only[4:] == [f"source={instructions_file},target=/home/odoo/.claude/CLAUDE.md,type=bind,readonly"]
     # Claude Code keeps its login in a volume of its own, so you log in once and your own login stays out.
     assert "source=otk-claude,target=/home/odoo/.claude,type=volume" in config["mounts"]
     assert config["containerEnv"]["CLAUDE_CONFIG_DIR"] == "/home/odoo/.claude"
@@ -304,6 +306,7 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "--name=otk-19.0-dev" in config["runArgs"]
     # Odoo's Ruff rules can be newer than the Ruff in the image of a version, so the extension brings its own.
     assert config["customizations"]["vscode"]["settings"]["ruff.importStrategy"] == "useBundled"
+    assert "--network=otk" in config["runArgs"]
     assert config["containerEnv"]["GIT_AUTHOR_NAME"] == "Abcd"
     assert config["containerEnv"]["GIT_CONFIG_KEY_0"] == "core.checkStat"
     assert config["remoteEnv"]["SSH_AUTH_SOCK"] is None
@@ -316,6 +319,27 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert mv_setup.write_devcontainer_config(version_dir, reset=False).outcome == Outcome.SKIPPED
     assert config_file.read_text() == "{}"
     assert mv_setup.write_devcontainer_config(version_dir, reset=True).outcome == Outcome.UPDATED
+
+
+def test_write_devcontainer_config_tells_claude_how_the_container_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mv_setup, "get_git_identity", dict)
+    version_dir = tmp_path / "mv" / "19.0"
+    for repo in ("odoo", "enterprise"):
+        (version_dir / repo).mkdir(parents=True)
+        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+
+    mv_setup.write_devcontainer_config(version_dir, reset=False)
+
+    instructions = (version_dir / ".devcontainer" / "CLAUDE.md").read_text()
+    assert "Odoo 19.0" in instructions
+    assert f"`{version_dir / 'odoo' / 'odoo-bin'}`" in instructions
+    assert "`enterprise`, `odoo`" in instructions
+    assert "otk-postgres" in instructions
+    assert "Ask the user before you fetch an external site" in instructions
+    # Every placeholder is filled in.
+    assert "$" not in instructions
 
 
 def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
