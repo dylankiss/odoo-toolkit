@@ -28,6 +28,7 @@
                 "git.terminalAuthentication": false,
                 "github.gitAuthentication": false,
                 "git.enableCommitSigning": false,
+                "ruff.importStrategy": "useBundled",
                 "python-envs.terminal.autoActivationType": "command",
                 "launch": {
                     "version": "0.2.0",

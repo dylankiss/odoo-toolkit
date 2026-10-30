@@ -295,6 +295,8 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config["customizations"]["vscode"]["settings"]["python.defaultInterpreterPath"] == "/venv/main/bin/python"
     assert "--cap-drop=ALL" in config["runArgs"]
     assert "--name=otk-19.0-dev" in config["runArgs"]
+    # Odoo's Ruff rules can be newer than the Ruff in the image of a version, so the extension brings its own.
+    assert config["customizations"]["vscode"]["settings"]["ruff.importStrategy"] == "useBundled"
     assert config["containerEnv"]["GIT_AUTHOR_NAME"] == "Abcd"
     assert config["containerEnv"]["GIT_CONFIG_KEY_0"] == "core.checkStat"
     assert config["remoteEnv"]["SSH_AUTH_SOCK"] is None
