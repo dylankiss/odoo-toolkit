@@ -343,7 +343,10 @@ def _update_config(
 def config(
     modules: Annotated[
         list[str],
-        Argument(help="Include these Odoo modules in `.weblate.json`, or either `all`, `community`, or `enterprise`."),
+        Argument(
+            help="Include these Odoo modules (supports glob patterns) in `.weblate.json`, or either `all`, "
+            "`community`, `enterprise`, `community-l10n`, or `enterprise-l10n`.",
+        ),
     ],
     project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
     exclude: Annotated[

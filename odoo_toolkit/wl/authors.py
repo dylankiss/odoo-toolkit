@@ -78,7 +78,7 @@ AuthorOption = Annotated[
         "--author",
         "-a",
         help="The author of the uploaded translations: the short name of a translator in your configuration file "
-        "(see `otk wl authors`), or a full name.",
+        "(see `otk wl authors`), or a full name. If not set, the user of the API token is the author.",
         autocompletion=complete_author,
     ),
 ]

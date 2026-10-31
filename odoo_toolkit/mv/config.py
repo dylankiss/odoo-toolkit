@@ -4,10 +4,12 @@
 <multiverse>/
 ├── multiverse.toml        optional: extra repositories and exceptions to the defaults below
 ├── .worktree-source/      the bare repositories of the versioned repositories
-├── upgrade/  odoofin/ …   the clones of the shared, pinned and standalone repositories
+├── upgrade/ mobile/ …     the clones of the shared and standalone repositories
+├── odoofin -> 19.0/odoofin   links to the pinned repositories, which live in the version they run on
 └── 19.0/                  a version directory
     ├── odoo/ …            worktrees of the versioned repositories
-    └── upgrade -> ../upgrade, …   links to the shared repositories, and to the pinned repositories running on this version
+    ├── odoofin/           the clone of a pinned repository running on this version
+    └── upgrade -> ../upgrade, …   links to the shared repositories, and to pinned repositories linked here as well
 ```
 """
 
@@ -48,7 +50,7 @@ class RepoKind(StrEnum):
     VERSIONED = "versioned"
     # One clone on the default branch, linked into every version directory.
     SHARED = "shared"
-    # One clone on the default branch, pinned to one Odoo version: linked into that version directory only.
+    # One clone, living in the directory of the Odoo version it runs on, and linked from the multiverse directory.
     PINNED = "pinned"
     # One clone on the default branch, not linked into any version directory.
     STANDALONE = "standalone"
