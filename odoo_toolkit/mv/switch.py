@@ -75,12 +75,11 @@ def switch(
         f"Switching to {branch}",
     )
 
-    success = print_results(results, version_dir)
+    error = None
     if not any(result.branch_found for result in results):
         where = f"the remotes of [b]{owner}[/b]" if owner else "any remote or locally"
-        print_error(f"The branch [b]{branch}[/b] could not be found on {where} for any repository.\n")
-        success = False
-    if not success:
+        error = f"The branch [b]{branch}[/b] could not be found on {where} for any repository."
+    if not print_results(results, version_dir, error=error):
         raise Exit(1)
 
 

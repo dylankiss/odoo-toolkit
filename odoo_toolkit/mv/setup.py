@@ -119,7 +119,8 @@ def setup(
             "-r",
             help="The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. "
             f"Defaults to the ones already set up, or {', '.join(DEFAULT_REPOS)} for a new multiverse, plus the "
-            f"ones in `{CONFIG_FILE}`.",
+            f"ones in `{CONFIG_FILE}`. A repository the toolkit doesn't know, like the one above, is only set up "
+            f"again later if it has a `[repos.<name>]` table there.",
         ),
     ] = EMPTY_LIST,
     multiverse_dir: Annotated[
@@ -232,8 +233,8 @@ def setup(
     overwrite_config = update_config or reset_config
     write_root_config(multiverse_dir, reset_config=overwrite_config)
 
-    branch_suffix = branch_suffix or get_branch_suffix()
-    if not branch_suffix:
+    # The suffix is only passed on when given, so the one a repository remembers isn't replaced by the default.
+    if not branch_suffix and not get_branch_suffix():
         print_warning("No Git email configured, so the [b]dev[/b] remotes won't fetch any of your branches.\n")
 
     print_header(":honey_pot: Clone Repositories")
@@ -322,6 +323,10 @@ def _clone_repos(
     multiverse_dir: Path, repos: list[RepoSpec], *, branch_suffix: str | None, full_history: bool,
 ) -> list[RepoResult]:
     """Clone the versioned repositories as bare repositories, and the other ones as regular ones."""
+    # Like `preauthenticate_ssh`: an SSH agent that confirms each session gets one request, instead of a race of them.
+    if repos:
+        with contextlib.suppress(GitError):
+            Git(multiverse_dir)("ls-remote", repos[0].url, "HEAD")
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
 
         def clone_one(repo: RepoSpec) -> RepoResult:
@@ -416,9 +421,7 @@ def complete_clone(repo: Git, progress: CloneProgress | None = None) -> bool:
     remotes = [key.removeprefix("remote.").removesuffix(".promisor") for key in promisor_keys]
     if not _backfill(repo, progress):
         for remote in remotes:
-            run_with_progress(
-                ["-C", str(repo.path), "fetch", "--refetch", "--no-filter", "--progress", remote], progress,
-            )
+            run_with_progress(["fetch", "--refetch", "--no-filter", "--progress", remote], progress, cwd=repo.path)
     for key in (*promisor_keys, *(f"remote.{remote}.partialclonefilter" for remote in remotes), "extensions.partialclone"):
         # Git exits with an error when the setting doesn't exist.
         with contextlib.suppress(GitError):
@@ -448,7 +451,7 @@ def _backfill(repo: Git, progress: CloneProgress | None) -> bool:
 
     try:
         # It only prints its progress to a terminal.
-        run_with_progress(["-C", str(repo.path), "backfill", "--no-sparse", "--all"], report_batches, tty=True)
+        run_with_progress(["backfill", "--no-sparse", "--all"], report_batches, cwd=repo.path, tty=True)
     except GitError:
         return False
     return True
@@ -869,9 +872,7 @@ def link_repo(version_dir: Path, name: str) -> bool:
     link = version_dir / name
     target = Path("..") / name
     if link.is_symlink():
-        if link.readlink() != target:
-            link.unlink()
-            link.symlink_to(target, target_is_directory=True)
+        # A link of your own, to another clone, is kept.
         return True
     if link.exists():
         return (target_dir := version_dir.parent / name).exists() and link.samefile(target_dir)
@@ -1141,7 +1142,7 @@ def write_vscode_config(version_dir: Path, *, reset: bool) -> RepoResult:
     update_scanned_repos(version_dir)
 
     if not written:
-        return RepoResult("vscode", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)")
+        return RepoResult("vscode", Outcome.SKIPPED, "already configured (use [b]--update-config[/b] to overwrite)")
     return RepoResult("vscode", Outcome.UPDATED, f"wrote [b]{'[/b], [b]'.join(written)}[/b]")
 
 
@@ -1162,7 +1163,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     config_file = version_dir / ".devcontainer" / "devcontainer.json"
     if config_file.exists() and not reset:
         return RepoResult(
-            "devcontainer", Outcome.SKIPPED, "already configured (use [b]--reset-config[/b] to overwrite)",
+            "devcontainer", Outcome.SKIPPED, "already configured (use [b]--update-config[/b] to overwrite)",
         )
 
     template = _read_json(MULTIVERSE_CONFIG_DIR / ".devcontainer" / "devcontainer.json")

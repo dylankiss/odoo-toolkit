@@ -138,6 +138,9 @@ def test_cli_switch_and_reset(multiverse: Path, monkeypatch: pytest.MonkeyPatch)
 
     result = runner.invoke(app, ["mv", "switch", "no-such-branch"])
     assert result.exit_code == 1, result.output
+    # The repositories are fine, but the switch as a whole failed, so it doesn't say it's done.
+    assert "could not be found" in result.output
+    assert "Done." not in result.output
 
     result = runner.invoke(app, ["mv", "reset"])
     assert result.exit_code == 0, result.output

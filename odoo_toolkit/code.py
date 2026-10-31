@@ -38,12 +38,15 @@ def code(
     It needs the `code` command: run *Shell Command: Install 'code' command in PATH* in Visual Studio Code.
     """
     if not (code_command := shutil.which("code")):
-        print_error("The [b]code[/b] command isn't available. Run *Shell Command: Install 'code' command in PATH*.\n")
+        print_error(
+            "The [b]code[/b] command isn't available. Run [b]Shell Command: Install 'code' command in PATH[/b] in "
+            "Visual Studio Code.\n",
+        )
         raise Exit(1)
 
     if version:
         if not (multiverse_dir := find_multiverse_dir(get_current_dir())):
-            print_error(NOT_IN_VERSION_DIR)
+            print_error("Run this command inside an Odoo Multiverse to open one of its versions.\n")
             raise Exit(1)
         version_dir = multiverse_dir / version
         if not version_dir.is_dir() or find_version_dir(version_dir) != version_dir:

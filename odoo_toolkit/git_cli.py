@@ -140,11 +140,14 @@ def clone(url: str, path: Path, *args: str, progress: CloneProgress | None = Non
     return Git(path)
 
 
-def run_with_progress(cmd: list[str], progress: CloneProgress | None, *, tty: bool = False) -> None:
+def run_with_progress(
+    cmd: list[str], progress: CloneProgress | None, *, cwd: Path | None = None, tty: bool = False,
+) -> None:
     """Run a Git command, reporting the progress it prints.
 
     :param cmd: The arguments to pass to `git`.
     :param progress: Called with the progress of the command.
+    :param cwd: The repository to run it in, or None for the current directory.
     :param tty: Whether to run it in a terminal, which some commands need to print their progress, like `backfill`.
     :raises GitError: If the command failed.
     """
@@ -152,7 +155,9 @@ def run_with_progress(cmd: list[str], progress: CloneProgress | None, *, tty: bo
     stderr: int = subprocess.PIPE
     if tty and pty:
         master_fd, stderr = pty.openpty()
-    with subprocess.Popen(["git", *cmd], stdout=subprocess.DEVNULL, stderr=stderr, text=master_fd is None) as process:
+    with subprocess.Popen(
+        ["git", *cmd], cwd=cwd, stdout=subprocess.DEVNULL, stderr=stderr, text=master_fd is None,
+    ) as process:
         if master_fd is not None:
             os.close(stderr)
         output: list[str] = []

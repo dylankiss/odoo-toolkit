@@ -137,8 +137,11 @@ def load_config(multiverse_dir: Path) -> dict[str, RepoSpec]:
         msg = f"{config_file} is not valid TOML: {e}"
         raise ConfigError(msg) from e
 
-    repos: dict[str, Any] = config.get("repos", {})
-    for name, values in repos.items():
+    repos = config.get("repos", {})
+    if not isinstance(repos, dict):
+        msg = f"`repos` in {config_file} must be a table, like [repos.<name>]."
+        raise ConfigError(msg)
+    for name, values in cast("dict[str, Any]", repos).items():
         if not isinstance(values, dict):
             msg = f"[repos.{name}] in {config_file} must be a table."
             raise ConfigError(msg)
@@ -202,9 +205,10 @@ def get_configured_repos(multiverse_dir: Path) -> list[str]:
     if not config_file.is_file():
         return []
     try:
-        return list(tomllib.loads(config_file.read_text(encoding="utf-8")).get("repos", {}))
+        repos = tomllib.loads(config_file.read_text(encoding="utf-8")).get("repos", {})
     except tomllib.TOMLDecodeError:
         return []
+    return list(cast("dict[str, Any]", repos)) if isinstance(repos, dict) else []
 
 
 def _apply_overrides(spec: RepoSpec, values: dict[str, Any], config_file: Path) -> RepoSpec:

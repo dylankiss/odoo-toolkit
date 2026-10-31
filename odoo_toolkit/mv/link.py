@@ -3,10 +3,10 @@ from typing import Annotated
 
 from typer import Argument, Exit, Typer
 
-from odoo_toolkit.common import print_command_title, print_error, print_success
+from odoo_toolkit.common import print_command_title, print_error, print_success, print_warning
 
 from .config import NOT_IN_VERSION_DIR, find_version_dir, get_linked_repos
-from .setup import link_repo, update_scanned_repos
+from .setup import configure_language_server, link_repo, update_scanned_repos
 
 app = Typer()
 
@@ -32,7 +32,7 @@ def link(
     if not (version_dir / repo).is_symlink():
         print_success(f"[b]{repo}[/b] lives in [u]{version_dir}[/u] already, since it runs on this version.\n")
         return
-    update_scanned_repos(version_dir)
+    _update_configs(version_dir)
     print_success(f"Linked [b]{repo}[/b] into [u]{version_dir}[/u].\n")
 
 
@@ -53,8 +53,23 @@ def unlink(
             print_error(f"[b]{repo}[/b] isn't linked into [u]{version_dir}[/u].\n")
         raise Exit(1)
     (version_dir / repo).unlink()
-    update_scanned_repos(version_dir)
+    _update_configs(version_dir)
     print_success(f"Unlinked [b]{repo}[/b] from [u]{version_dir}[/u].\n")
+
+
+def _update_configs(version_dir: Path) -> None:
+    """Update what depends on the repositories in a version directory: Source Control and the Odoo language server.
+
+    The dev container's configuration can't be changed from inside it, so it's only updated on request.
+    """
+    update_scanned_repos(version_dir)
+    if (version_dir / "odools.toml").is_file():
+        configure_language_server(version_dir)
+    if (version_dir / ".devcontainer" / "devcontainer.json").is_file():
+        print_warning(
+            "The dev container still has the repositories it had. Update it with [b]otk mv setup --update-config[/b] "
+            "on your machine, and rebuild it.\n",
+        )
 
 
 def _get_version_dir() -> Path:

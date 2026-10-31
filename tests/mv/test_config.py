@@ -45,6 +45,7 @@ def test_load_config_overrides_and_adds_repos(tmp_path: Path) -> None:
         ("[repos.x]\nruns_on = 20.0\n", "Invalid setting `runs_on`"),
         ("[repos.x]\nunknown = true\n", "Invalid setting `unknown`"),
         ("[repos\n", "is not valid TOML"),
+        ("repos = 1\n", "must be a table"),
     ],
 )
 def test_load_config_rejects_invalid_settings(tmp_path: Path, content: str, error: str) -> None:
