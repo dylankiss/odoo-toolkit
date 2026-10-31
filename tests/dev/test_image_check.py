@@ -125,7 +125,7 @@ def test_a_failing_check_is_swallowed(monkeypatch: pytest.MonkeyPatch, capfd: py
         ({"sha256:new"}, "sha256:new", False),
         ({"sha256:old", "sha256:new"}, "sha256:new", False),
         # Built on this machine, or not pulled: nothing to compare.
-        (set(), "sha256:new", False),
+        (set[str](), "sha256:new", False),
         ({"sha256:old"}, None, False),
     ],
 )
