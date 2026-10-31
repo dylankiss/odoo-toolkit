@@ -1,5 +1,5 @@
 from fnmatch import fnmatch
-from typing import Annotated, Any
+from typing import Annotated
 
 from typer import Exit, Option, Typer
 
@@ -18,12 +18,13 @@ from odoo_toolkit.po.common import get_cldr_lang
 from .authors import AuthorOption, EmailOption, resolve_author
 from .common import (
     NOT_FOUND,
-    WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
+    MethodOption,
+    OverwriteOption,
     UploadConflicts,
+    UploadFuzzy,
     UploadMethod,
     WeblateApi,
     WeblateApiError,
-    WeblateTranslationsUploadResponse,
     clean_po_header,
     fetch_language_files,
     format_upload_counts,
@@ -32,6 +33,7 @@ from .common import (
     po_has_translations,
     print_failures,
     run_concurrently,
+    upload_translations,
 )
 
 app = Typer()
@@ -72,24 +74,8 @@ def copy(  # noqa: C901, PLR0912, PLR0915
     ] = None,
     author: AuthorOption = None,
     email: EmailOption = None,
-    method: Annotated[
-        UploadMethod,
-        Option(
-            "--method",
-            "-m",
-            help="Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), "
-            "non-reviewed strings (`translate`), or suggestions (`suggest`).",
-        ),
-    ] = UploadMethod.TRANSLATE,
-    conflicts: Annotated[
-        UploadConflicts,
-        Option(
-            "--overwrite",
-            "-o",
-            help="Specify what the upload should do. Either don't overwrite existing translations (`ignore`), "
-            "overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).",
-        ),
-    ] = UploadConflicts.IGNORE,
+    method: MethodOption = UploadMethod.TRANSLATE,
+    conflicts: OverwriteOption = UploadConflicts.IGNORE,
 ) -> None:
     """Copy translations between languages, components, and/or projects.
 
@@ -134,7 +120,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
     upload_data = {
         "conflicts": conflicts.value,
         "method": method.value,
-        "fuzzy": "process",
+        "fuzzy": UploadFuzzy.PROCESS.value,
     }
     upload_data |= resolve_author(author, email)
 
@@ -235,8 +221,8 @@ def copy(  # noqa: C901, PLR0912, PLR0915
                 )
                 results = run_concurrently(
                     uploads,
-                    lambda upload, dest_project=dest_project, lang_dest=lang_dest: _upload_translations(
-                        weblate_api, upload[0], dest_project, upload[1], lang_dest, upload_data=upload_data,
+                    lambda upload, dest_project=dest_project, lang_dest=lang_dest: upload_translations(
+                        weblate_api, dest_project, upload[1], get_cldr_lang(lang_dest), upload[0], upload_data,
                     ),
                     progress=progress,
                     task_id=progress_task,
@@ -314,6 +300,14 @@ def _map_components(
         # An explicit destination was named, so there is nothing to look up or filter.
         return {dest_project: {next(iter(src_components_set)): dest_component} for dest_project in dest_projects}
 
+    slugs: dict[str, set[str]] = {}
+
+    def get_slugs(project: str) -> set[str]:
+        # The source project can be a destination too.
+        if project not in slugs:
+            slugs[project] = get_weblate_project_component_slugs(api, project)
+        return slugs[project]
+
     has_globs = any(any(char in c for char in GLOB_CHARACTERS) for c in src_components_set)
     if src_components_set and not has_globs:
         # The source components are all literal, so the source project's component list adds nothing.
@@ -321,39 +315,8 @@ def _map_components(
     else:
         src_component_slugs = {
             c
-            for c in get_weblate_project_component_slugs(api, src_project)
+            for c in get_slugs(src_project)
             if not src_components_set or any(fnmatch(c, pattern) for pattern in src_components_set)
         }
 
-    components_per_dest: dict[str, dict[str, str]] = {}
-    dest_slugs_cache: dict[str, set[str]] = {}
-    for dest_project in dest_projects:
-        if dest_project not in dest_slugs_cache:
-            dest_slugs_cache[dest_project] = get_weblate_project_component_slugs(api, dest_project)
-        components_per_dest[dest_project] = {
-            c: c for c in src_component_slugs & dest_slugs_cache[dest_project]
-        }
-    return components_per_dest
-
-
-def _upload_translations(
-    api: WeblateApi,
-    src_bytes: bytes,
-    dest_project: str,
-    dest_component: str,
-    dest_language: str,
-    *,
-    upload_data: dict[str, Any],
-) -> WeblateTranslationsUploadResponse:
-    lang_code = get_cldr_lang(dest_language)
-    return api.request(
-        WeblateTranslationsUploadResponse,
-        "POST",
-        WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(
-            project=dest_project,
-            component=dest_component,
-            language=lang_code,
-        ),
-        data=upload_data,
-        files={"file": (f"{dest_project}-{dest_component}-{lang_code}.po", src_bytes)},
-    )
+    return {dest_project: {c: c for c in src_component_slugs & get_slugs(dest_project)} for dest_project in dest_projects}
