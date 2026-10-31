@@ -21,11 +21,11 @@ def db(
         Option(
             "--port",
             "-p",
-            help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or 5432. Changing "
+            help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing "
             "it restarts PostgreSQL.",
         ),
     ] = None,
-    pgadmin: Annotated[bool, Option("--pgadmin", help="Start pgAdmin as well, on http://localhost:5050.")] = False,
+    pgadmin: Annotated[bool, Option("--pgadmin", help="Start pgAdmin as well, on `http://localhost:5050`.")] = False,
     pull: Annotated[
         bool,
         Option(

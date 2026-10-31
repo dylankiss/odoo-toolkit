@@ -85,7 +85,7 @@ def run(
         int | None,
         Option(
             "--db-port",
-            help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or 5432. Changing "
+            help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing "
             "it restarts PostgreSQL.",
         ),
     ] = None,

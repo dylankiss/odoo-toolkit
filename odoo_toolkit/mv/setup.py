@@ -119,7 +119,8 @@ def setup(
             "--repositories",
             "-r",
             help="The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. "
-            f"Defaults to the ones already set up, or {', '.join(DEFAULT_REPOS[:-1])} and {DEFAULT_REPOS[-1]} for a "
+            f"Defaults to the ones already set up, or {', '.join(f'`{r}`' for r in DEFAULT_REPOS[:-1])} and "
+            f"`{DEFAULT_REPOS[-1]}` for a "
             f"new multiverse, plus the ones in `{CONFIG_FILE}`. A repository the toolkit doesn't know, like the one "
             "above, is only set up again later if it has a `[repos.<name>]` table there.",
         ),
