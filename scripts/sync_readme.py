@@ -31,7 +31,9 @@ def get_commands(command: object, ctx: Context) -> Iterator[tuple[str, Context]]
         return
     for name in command.list_commands(ctx):
         if sub := command.get_command(ctx, name):
-            yield from get_commands(sub, sub.make_context(name, [], parent=ctx, resilient_parsing=True))
+            # Like `make_context`, but without parsing any arguments, which isn't needed to describe the command.
+            sub_ctx = Context(sub, info_name=name, parent=ctx, resilient_parsing=True, **sub.context_settings)
+            yield from get_commands(sub, sub_ctx)
 
 
 def format_entry(name: str, help_text: str) -> str:
@@ -107,7 +109,7 @@ def sync_readme(readme: str) -> tuple[str, list[str]]:
     """
     root = get_command(app)
     missing: list[str] = []
-    for command_path, ctx in get_commands(root, root.make_context("otk", [], resilient_parsing=True)):
+    for command_path, ctx in get_commands(root, Context(root, info_name="otk", resilient_parsing=True)):
         heading = f"## `{command_path}`\n"
         start = readme.find(heading)
         if start < 0:
