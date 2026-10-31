@@ -356,6 +356,9 @@ $ otk dev stop [OPTIONS]
 > ```
 > Odoo leaves the connection settings you don't pass to PostgreSQL's client library, which reads these variables. If you also run another PostgreSQL on your machine, the tools then connect to this one by default.
 
+> [!NOTE]
+> Images are pulled once and then kept, so a rebuilt image goes unnoticed. At most once a day per image, `otk dev run`, `otk dev shell` and `otk dev db` compare your Odoo image and the images of these services with Docker Hub, and tell you when there is a newer build, with the command to get it (`--pull`). A dev container keeps using the image it was created from, so rebuild it after pulling. Images you built yourself are skipped, and nothing is checked in scripts, in CI, or with `OTK_NO_UPDATE_CHECK` set.
+
 ### Usage
 
 ```console
@@ -366,6 +369,7 @@ $ otk dev db [OPTIONS]
 
 * `-p, --port INTEGER`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it restarts PostgreSQL.
 * `--pgadmin`: Start pgAdmin as well, on `http://localhost:5050`.
+* `--pull`: Pull newer builds of the images first. A service whose image changed is recreated, which keeps its data.
 * `--help`: Show this message and exit.
 
 

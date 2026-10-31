@@ -11,6 +11,7 @@ from odoo_toolkit.mv.config import get_repo_dirs
 from odoo_toolkit.versions import OdooVersion
 
 from .common import ensure_image, get_run_containers, get_version_dir, start_services
+from .image_check import notify_outdated_images
 from .images import Arch, get_native_arch
 from .runtime import (
     RunOptions,
@@ -204,6 +205,9 @@ def _prepare(
         raise Exit(1)
     ensure_image(version, build=build, arch=arch, pull=pull)
     start_services(db_port=db_port)
+    if not (build or pull):
+        # Images stay as they were pulled, so tell when there is a newer build of them.
+        notify_outdated_images(version)
 
 
 def _exec(command: list[str]) -> None:

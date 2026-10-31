@@ -63,12 +63,13 @@ def get_db_port() -> int | None:
     return int(port) if port.isdigit() else None
 
 
-def start_services(*, db_port: int | None = None, pgadmin: bool = False) -> None:
+def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: bool = False) -> None:
     """Start the shared services, and wait until PostgreSQL accepts connections.
 
     :param db_port: The port to publish PostgreSQL on, or None to keep the one it runs on (5432 at first). Changing it
         restarts PostgreSQL.
     :param pgadmin: Whether to start pgAdmin as well.
+    :param pull: Whether to pull newer builds of the images first. A service whose image changed is recreated.
     :raises Exit: If the services couldn't be started.
     """
     check_docker()
@@ -76,7 +77,7 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False) -> None
     cmd = ["docker", "compose", "--file", str(COMPOSE_FILE)]
     if pgadmin:
         cmd += ["--profile", "pgadmin"]
-    cmd += ["up", "--detach", "--wait", "--quiet-pull"]
+    cmd += ["up", "--detach", "--wait", "--quiet-pull", *(["--pull", "always"] if pull else [])]
     with TransientProgress() as progress:
         progress.add_task("Starting PostgreSQL and Mailpit", total=None)
         result = subprocess.run(

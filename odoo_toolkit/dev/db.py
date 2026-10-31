@@ -6,6 +6,7 @@ from typer import Option, Typer
 from odoo_toolkit.common import print, print_command_title, print_panel, print_success
 
 from .common import DEFAULT_DB_PORT, get_db_port, start_services
+from .image_check import notify_outdated_images
 
 app = Typer()
 
@@ -25,6 +26,10 @@ def db(
         ),
     ] = None,
     pgadmin: Annotated[bool, Option("--pgadmin", help="Start pgAdmin as well, on http://localhost:5050.")] = False,
+    pull: Annotated[
+        bool,
+        Option("--pull", help="Pull newer builds of the images first. A service whose image changed is recreated."),
+    ] = False,
 ) -> None:
     """Start :elephant: PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.
 
@@ -32,9 +37,11 @@ def db(
     Odoo directly on your machine (with `--db_host=localhost --db_user=odoo`), or to use pgAdmin.
     """
     print_command_title(":elephant: Odoo Services")
-    start_services(db_port=port, pgadmin=pgadmin)
+    start_services(db_port=port, pgadmin=pgadmin, pull=pull)
     port = get_db_port() or DEFAULT_DB_PORT
     print_success("PostgreSQL and Mailpit are running.\n")
+    if not pull:
+        notify_outdated_images()
     print_panel(
         f"PostgreSQL: [b]localhost:{port}[/b], user [b]odoo[/b], no password needed\n"
         "Mailpit: [b]http://localhost:8025[/b]"
