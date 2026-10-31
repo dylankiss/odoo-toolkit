@@ -17,17 +17,19 @@ from odoo_toolkit.po.common import get_cldr_lang
 
 from .authors import AuthorOption, EmailOption, resolve_author
 from .common import (
-    WEBLATE_TRANSLATIONS_FILE_ENDPOINT,
+    MethodOption,
+    OverwriteOption,
     UploadConflicts,
     UploadFuzzy,
     UploadMethod,
+    WeblateApi,
     WeblateApiError,
-    WeblateTranslationsUploadResponse,
     format_upload_counts,
     get_weblate_api,
     get_weblate_project_component_slugs,
     print_failures,
     run_concurrently,
+    upload_translations,
 )
 
 app = Typer()
@@ -55,31 +57,15 @@ def upload(
     ] = EMPTY_LIST,
     author: AuthorOption = None,
     email: EmailOption = None,
-    method: Annotated[
-        UploadMethod,
-        Option(
-            "--method",
-            "-m",
-            help="Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), "
-            "non-reviewed strings (`translate`), or suggestions (`suggest`).",
-        ),
-    ] = UploadMethod.TRANSLATE,
-    conflicts: Annotated[
-        UploadConflicts,
-        Option(
-            "--overwrite",
-            "-o",
-            help="Specify what the upload should do. Either don't overwrite existing translations (`ignore`), "
-            "overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).",
-        ),
-    ] = UploadConflicts.IGNORE,
+    method: MethodOption = UploadMethod.TRANSLATE,
+    conflicts: OverwriteOption = UploadConflicts.IGNORE,
     fuzzy: Annotated[
         UploadFuzzy,
         Option(
             "--fuzzy",
             "-f",
-            help='Specify how fuzzy translations should be handled. Either ignore them (`ignore`), mark them as '
-            '"Needs editing" (`process`), or add them as a regular translation (`approve`).',
+            help='Ignore fuzzy translations (`ignore`), mark them as "Needs editing" (`process`), or add them as '
+            "regular translations (`approve`).",
         ),
     ] = UploadFuzzy.PROCESS,
 ) -> None:
@@ -100,22 +86,12 @@ def upload(
     }
     upload_data |= resolve_author(author, email)
 
-    files = _find_files(project, [get_cldr_lang(lang) for lang in normalize_list_option(languages)])
-    patterns = normalize_list_option(components)
-    files = {key: path for key, path in files.items() if not patterns or filter_by_globs([key[0]], patterns)}
-    if not files:
-        print_error(f"No files named [b]{project}-<component>-<language>.po[/b] to upload in [u]{Path.cwd()}[/u].")
-        raise Exit(1)
-
-    # The name only tells where the project ends if the component exists: `odoo-18-l10n-…` is also `odoo-18-…`.
-    try:
-        slugs = get_weblate_project_component_slugs(weblate_api, project)
-    except WeblateApiError as e:
-        print_error(f"Fetching the components of [b]{project}[/b] failed: {e.summary}", str(e))
-        raise Exit(1) from e
-    if unknown := sorted(path.name for (component, _), path in files.items() if component not in slugs):
-        print_warning(f"Skipped files of components that aren't in [b]{project}[/b]: {', '.join(unknown)}")
-        files = {key: path for key, path in files.items() if key[0] in slugs}
+    files = _select_files(
+        weblate_api,
+        project,
+        [get_cldr_lang(lang) for lang in normalize_list_option(languages)],
+        normalize_list_option(components),
+    )
 
     failures: dict[str, str] = {}
     contents: dict[tuple[str, str], bytes] = {}
@@ -129,13 +105,7 @@ def upload(
         task = progress.add_task("Uploading PO files", total=len(contents))
         results = run_concurrently(
             sorted(contents),
-            lambda key: weblate_api.request(
-                WeblateTranslationsUploadResponse,
-                "POST",
-                WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(project=project, component=key[0], language=key[1]),
-                data=upload_data,
-                files={"file": (files[key].name, contents[key])},
-            ),
+            lambda key: upload_translations(weblate_api, project, key[0], key[1], contents[key], upload_data),
             progress=progress,
             task_id=task,
         )
@@ -154,6 +124,37 @@ def upload(
         print_error(f"Failed to upload {len(failures)} file(s):")
         print_failures(failures)
         raise Exit(1)
+
+
+def _select_files(
+    api: WeblateApi, project: str, language_codes: list[str], patterns: list[str],
+) -> dict[tuple[str, str], Path]:
+    """Select the PO files to upload, by component and language.
+
+    :param api: The Weblate API to use.
+    :param project: The project slug.
+    :param language_codes: The Weblate language codes to upload.
+    :param patterns: The glob patterns of the components to upload, or none for all of them.
+    :raises Exit: If there are no files, or the components of the project can't be fetched.
+    :return: The files to upload.
+    """
+    files = _find_files(project, language_codes)
+    if patterns:
+        matching = set(filter_by_globs([component for component, _ in files], patterns))
+        files = {key: path for key, path in files.items() if key[0] in matching}
+    if not files:
+        print_error(f"No files named [b]{project}-<component>-<language>.po[/b] to upload in [u]{Path.cwd()}[/u].")
+        raise Exit(1)
+
+    # The name only tells where the project ends if the component exists: `odoo-18-l10n-…` is also `odoo-18-…`.
+    try:
+        slugs = get_weblate_project_component_slugs(api, project)
+    except WeblateApiError as e:
+        print_error(f"Fetching the components of [b]{project}[/b] failed: {e.summary}", str(e))
+        raise Exit(1) from e
+    if unknown := sorted(path.name for (component, _), path in files.items() if component not in slugs):
+        print_warning(f"Skipped files of components that aren't in [b]{project}[/b]: {', '.join(unknown)}")
+    return {key: path for key, path in files.items() if key[0] in slugs}
 
 
 def _find_files(project: str, language_codes: list[str]) -> dict[tuple[str, str], Path]:

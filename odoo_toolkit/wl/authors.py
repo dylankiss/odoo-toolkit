@@ -22,11 +22,12 @@ class ConfigError(Exception):
     """The configuration file is invalid."""
 
 
-def get_authors() -> dict[str, tuple[str, str]]:
-    """Get the configured authors, by their short name.
+def get_weblate_settings(table: str) -> dict[str, Any]:
+    """Get a table of the `[weblate]` settings in your configuration file, like `authors`.
 
-    :raises ConfigError: If the configuration file is invalid.
-    :return: The name and email of every author.
+    :param table: The name of the table, inside `[weblate]`.
+    :raises ConfigError: If the configuration file isn't valid TOML, or the table isn't a table.
+    :return: The table, which is empty if it isn't configured.
     """
     config_file = get_config_file()
     if not config_file.is_file():
@@ -36,10 +37,23 @@ def get_authors() -> dict[str, tuple[str, str]]:
     except tomllib.TOMLDecodeError as e:
         msg = f"{config_file} is not valid TOML: {e}"
         raise ConfigError(msg) from e
+    weblate = config.get("weblate", {})
+    values = cast("dict[str, Any]", weblate).get(table, {}) if isinstance(weblate, dict) else {}
+    if not isinstance(values, dict):
+        msg = f"[weblate.{table}] in {config_file} must be a table."
+        raise ConfigError(msg)
+    return cast("dict[str, Any]", values)
 
-    weblate = cast("dict[str, Any]", config.get("weblate", {}))
+
+def get_authors() -> dict[str, tuple[str, str]]:
+    """Get the configured authors, by their short name.
+
+    :raises ConfigError: If the configuration file is invalid.
+    :return: The name and email of every author.
+    """
+    config_file = get_config_file()
     authors: dict[str, tuple[str, str]] = {}
-    for key, value in cast("dict[str, Any]", weblate.get("authors", {})).items():
+    for key, value in get_weblate_settings("authors").items():
         settings = cast("dict[str, Any]", value) if isinstance(value, dict) else {}
         name, email = settings.get("name"), settings.get("email")
         if not isinstance(name, str) or not isinstance(email, str) or "@" not in email:

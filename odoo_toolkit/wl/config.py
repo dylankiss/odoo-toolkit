@@ -12,7 +12,6 @@ from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
     get_config_file,
-    get_valid_modules_to_path_mapping,
     is_l10n_module,
     normalize_list_option,
     print,
@@ -22,8 +21,9 @@ from odoo_toolkit.common import (
     print_success,
 )
 from odoo_toolkit.mv.config import get_default_repo_path
+from odoo_toolkit.po.common import select_modules
 
-from .authors import ConfigError
+from .authors import ConfigError, get_weblate_settings
 from .common import WeblateComponentData
 
 app = Typer()
@@ -44,18 +44,11 @@ def get_l10n_language_map() -> dict[str, list[str]]:
     """
     language_map: dict[str, list[str]] = {}
     config_file = get_config_file()
-    if config_file.is_file():
-        try:
-            config = tomllib.loads(config_file.read_text(encoding="utf-8"))
-        except tomllib.TOMLDecodeError as e:
-            msg = f"{config_file} is not valid TOML: {e}"
-            raise ConfigError(msg) from e
-        weblate = cast("dict[str, Any]", config.get("weblate", {}))
-        for pattern, languages in cast("dict[str, Any]", weblate.get("l10n_languages", {})).items():
-            if not isinstance(languages, list) or not all(isinstance(lang, str) for lang in cast("list[Any]", languages)):
-                msg = f'Invalid languages for `{pattern}` in {config_file}: use `"{pattern}" = ["fr", "nl"]`.'
-                raise ConfigError(msg)
-            language_map[pattern] = cast("list[str]", languages)
+    for pattern, languages in get_weblate_settings("l10n_languages").items():
+        if not isinstance(languages, list) or not all(isinstance(lang, str) for lang in cast("list[Any]", languages)):
+            msg = f'Invalid languages for `{pattern}` in {config_file}: use `"{pattern}" = ["fr", "nl"]`.'
+            raise ConfigError(msg)
+        language_map[pattern] = cast("list[str]", languages)
     shipped = tomllib.loads(L10N_LANGUAGES_FILE.read_text(encoding="utf-8"))
     return language_map | {pattern: languages for pattern, languages in shipped.items() if pattern not in language_map}
 
@@ -91,7 +84,7 @@ class WeblateConfig:
 
         if self.file_path.is_file():
             try:
-                projects = json.loads(self.file_path.read_text()).get("projects")
+                projects = json.loads(self.file_path.read_text(encoding="utf-8")).get("projects")
                 if projects:
                     self.config["projects"].update(projects)
             except (OSError, json.JSONDecodeError) as e:
@@ -161,7 +154,7 @@ class WeblateConfig:
             }
 
         try:
-            self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n")
+            self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n", encoding="utf-8")
         except OSError as e:
             raise WeblateConfigError(self.file_path, "save") from e
 
@@ -208,7 +201,7 @@ def _get_config_languages(module_path: Path, module_name: str, languages: list[s
         return languages
 
     i18n_folder = module_path / "i18n"
-    module_languages = [po.stem for po in i18n_folder.glob("*.po")] if i18n_folder.is_dir() else EMPTY_LIST
+    module_languages = [po.stem for po in i18n_folder.glob("*.po")] if i18n_folder.is_dir() else []
     if not module_languages and (i18n_folder / f"{module_name}.pot").is_file():
         return None
     return module_languages
@@ -308,29 +301,21 @@ def _update_config(
     extra_addons_paths: list[Path],
 ) -> None:
     """Update the `.weblate.json` files of the given modules."""
-    com_path = get_default_repo_path(com_path, "odoo")
-    ent_path = get_default_repo_path(ent_path, "enterprise")
     languages = sorted(normalize_list_option(languages))
-    exclude = normalize_list_option(exclude)
-    lang_filter = False
-    if "filter" in languages:
-        languages = EMPTY_LIST
-        lang_filter = True
+    lang_filter = "filter" in languages
+    if lang_filter:
+        languages = []
 
-    def include_path(p: Path) -> bool:
-        if exclude and any(fnmatch(p.name, e) for e in exclude):
-            return False
-        if path_filters:
-            return any(p.is_relative_to(fp.expanduser().resolve()) for fp in path_filters)
-        return True
-
-    module_to_path = get_valid_modules_to_path_mapping(
-        modules=normalize_list_option(modules),
+    selection = select_modules(
+        modules,
+        exclude=exclude,
+        path_filters=path_filters,
         com_path=com_path,
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
-        include_path=include_path,
     )
+    module_to_path = selection.module_to_path
+    com_path, ent_path = selection.com_path, selection.ent_path
 
     print(f"Modules to include: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
 

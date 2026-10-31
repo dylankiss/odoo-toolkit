@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import StrEnum
 from os import environ
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Annotated, Any, TypedDict, TypeVar, cast
 from urllib.parse import urljoin
 
 from requests import ConnectionError as RequestsConnectionError
@@ -16,11 +16,11 @@ from requests import HTTPError, JSONDecodeError, Response, Session
 from requests import Timeout as RequestsTimeout
 from requests.adapters import HTTPAdapter
 from rich.progress import TaskID
-from typer import Exit
+from typer import Exit, Option
 from urllib3 import BaseHTTPResponse
 from urllib3.util.retry import Retry
 
-from odoo_toolkit.common import USER_AGENT, TransientProgress, print, print_error, print_warning
+from odoo_toolkit.common import HTTP_HEADERS, TransientProgress, print, print_error, print_warning
 
 WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
@@ -196,18 +196,14 @@ class WeblateRetry(Retry):
         """Wait before retrying, making all requests wait if we hit a rate limit."""
         if response is not None:
             RATE_LIMITER.update(response.headers)
-            if response.status == TOO_MANY_REQUESTS:
-                retry_after = self.get_retry_after(response)
-                if retry_after is None:
-                    # nginx doesn't say how long to wait, but a short pause lets its limit recover.
-                    RATE_LIMITER.pause(max(self.get_backoff_time(), RATE_LIMITED_PAUSE), "nginx's rate limit was hit")
-                    RATE_LIMITER.drain()
-                else:
-                    RATE_LIMITER.pause(retry_after, "Weblate's rate limit was hit")
-            else:
-                time.sleep(self.get_backoff_time())
-        else:
+        if response is None or response.status != TOO_MANY_REQUESTS:
             time.sleep(self.get_backoff_time())
+        elif (retry_after := self.get_retry_after(response)) is None:
+            # nginx doesn't say how long to wait, but a short pause lets its limit recover.
+            RATE_LIMITER.pause(max(self.get_backoff_time(), RATE_LIMITED_PAUSE), "nginx's rate limit was hit")
+            RATE_LIMITER.drain()
+        else:
+            RATE_LIMITER.pause(retry_after, "Weblate's rate limit was hit")
         RATE_LIMITER.acquire()
 
 
@@ -231,44 +227,14 @@ RETRY = WeblateRetry(
 
 
 
-class WeblateFileFormatParamsData(TypedDict, total=False):
-    """Partial structure of Weblate file format parameters."""
-
-    po_fuzzy_matching: bool
-    po_keep_previous: bool
-    po_line_wrap: int
-    po_no_location: bool
-
-
 class WeblateComponentData(TypedDict, total=False):
-    """Partial structure of a Weblate component."""
+    """The parts of a Weblate component the toolkit uses, from the API and in `.weblate.json`."""
 
-    id: int
-    allow_translation_propagation: bool
-    auto_lock_error: bool
-    branch: str
-    commit_pending_age: int
-    enable_suggestions: bool
-    file_format: str
-    file_format_params: WeblateFileFormatParamsData
     filemask: str
-    language_code_style: str
     language_regex: str
-    license: str
-    linked_component: str | None
-    merge_style: str
     name: str
     new_base: str
-    new_lang: str
-    push: str
-    push_branch: str
-    push_on_commit: bool
-    repo: str
     slug: str
-    suggestion_voting: bool
-    suggestion_autoaccept: int
-    url: str
-    vcs: str
 
 
 class WeblateGroupResponse(TypedDict):
@@ -408,7 +374,7 @@ class WeblateApi:
             raise WeblateTokenMissingError(WEBLATE_ERR_1)
         self.base_url = WEBLATE_URL
         self.session = Session()
-        self.session.headers.update({"Authorization": f"Bearer {WEBLATE_API_TOKEN}", "User-Agent": USER_AGENT})
+        self.session.headers.update({**HTTP_HEADERS, "Authorization": f"Bearer {WEBLATE_API_TOKEN}"})
         for prefix in ("https://", "http://"):
             self.session.mount(prefix, HTTPAdapter(max_retries=RETRY))
 
@@ -531,6 +497,54 @@ class UploadFuzzy(StrEnum):
     APPROVE = "approve"
 
 
+MethodOption = Annotated[
+    UploadMethod,
+    Option(
+        "--method",
+        "-m",
+        help="Upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or "
+        "suggestions (`suggest`).",
+    ),
+]
+OverwriteOption = Annotated[
+    UploadConflicts,
+    Option(
+        "--overwrite",
+        "-o",
+        help="Don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations "
+        "(`replace-translated`), or overwrite even approved translations (`replace-approved`).",
+    ),
+]
+
+
+def upload_translations(
+    api: "WeblateApi",
+    project: str,
+    component: str,
+    language: str,
+    content: bytes,
+    upload_data: Mapping[str, str],
+) -> WeblateTranslationsUploadResponse:
+    """Upload a PO file to a translation on Weblate.
+
+    :param api: The Weblate API to use.
+    :param project: The project slug.
+    :param component: The component slug.
+    :param language: The Weblate language code, like `zh_Hans`.
+    :param content: The PO file.
+    :param upload_data: The upload options, like the method and the author.
+    :raises WeblateApiError: If the upload failed.
+    :return: What Weblate did with the translations.
+    """
+    return api.request(
+        WeblateTranslationsUploadResponse,
+        "POST",
+        WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(project=project, component=component, language=language),
+        data=dict(upload_data),
+        files={"file": (f"{project}-{component}-{language}.po", content)},
+    )
+
+
 def format_upload_counts(accepted: int, skipped: int, not_found: int) -> str:
     """Describe the result of translation uploads, like `updated 10 and skipped 2 translation(s)`."""
     text = f"updated {accepted} and skipped {skipped} translation(s)"
@@ -577,7 +591,7 @@ def clean_po_header(po_file: bytes) -> bytes:
 
 def _po_body(po_file: bytes) -> bytes:
     """Return a PO file's contents without the header entry, or the whole file if it has no recognizable header."""
-    body = po_file.replace(b"\r\n", b"\n") if b"\r\n" in po_file else po_file
+    body = po_file.replace(b"\r\n", b"\n")
     # The header entry's `msgstr` is always filled in, so it must not count as an entry or a translation.
     if PO_HEADER_PATTERN.match(body):
         _, _, body = body.partition(b"\n\n")
