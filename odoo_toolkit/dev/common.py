@@ -7,7 +7,7 @@ import requests
 from typer import Exit
 
 from odoo_toolkit.common import TransientProgress, print, print_error, print_warning
-from odoo_toolkit.mv.config import NOT_IN_VERSION_DIR, find_version_dir
+from odoo_toolkit.mv.config import require_version_dir
 from odoo_toolkit.versions import OdooVersion, get_versions
 
 from .images import (
@@ -33,10 +33,7 @@ def get_version_dir() -> tuple[Path, OdooVersion]:
 
     :raises Exit: If the current directory isn't inside a supported version directory.
     """
-    version_dir = find_version_dir()
-    if not version_dir:
-        print_error(NOT_IN_VERSION_DIR)
-        raise Exit(1)
+    version_dir = require_version_dir()
     version = get_versions().get(version_dir.name)
     if not version:
         print_error(f"Odoo [b]{version_dir.name}[/b] isn't supported by Runbot, so there is no image for it.\n")

@@ -68,6 +68,7 @@ from .repos import (
     get_remote_default_branch,
     print_result_table,
     remote_has_branch,
+    run_on_repos,
     run_safely,
 )
 
@@ -674,22 +675,21 @@ def add_worktree(bare_dir: Path, worktree_dir: Path, branch: str) -> RepoResult:
 
 def _write_commit_graphs(multiverse_dir: Path, repos: list[RepoSpec]) -> list[RepoResult]:
     """Write the commit graph of every repository, in parallel."""
-
-    def write_one(repo: RepoSpec, task: TaskID) -> RepoResult:
-        # The worktrees of a versioned repository share the history of its bare repository.
-        repo_dir = (
+    # The worktrees of a versioned repository share the history of its bare repository.
+    names = {
+        (
             multiverse_dir / WORKTREE_SOURCE_DIR / repo.name / ".bare"
             if repo.kind == RepoKind.VERSIONED
             else multiverse_dir / repo.name
-        )
-        result = run_safely(repo.name, lambda: write_commit_graph(Git(repo_dir), repo.name))
-        progress.advance(task)
-        return result
-
-    with ThreadPoolExecutor() as executor, TransientProgress() as progress:
-        task = progress.add_task("Writing commit graphs, which takes a while the first time", total=len(repos))
-        futures = [executor.submit(write_one, repo, task) for repo in repos]
-        return [future.result() for future in futures]
+        ): repo.name
+        for repo in repos
+    }
+    return run_on_repos(
+        list(names),
+        lambda repo_dir: write_commit_graph(Git(repo_dir), names[repo_dir]),
+        "Writing commit graphs, which takes a while the first time",
+        names=names,
+    )
 
 
 def write_commit_graph(repo: Git, name: str) -> RepoResult:
@@ -776,6 +776,7 @@ def _configure_versions(
             steps.append(
                 ("devcontainer", lambda: write_devcontainer_config(version_dir, reset=overwrite_config)),
             )
+        progress.update(task, total=len(steps))
         results: list[RepoResult] = []
         for name, step in steps:
             progress.update(task, description=f"Configuring [b]{branch}[/b]: {name}")
@@ -788,7 +789,7 @@ def _configure_versions(
             branch: executor.submit(
                 configure,
                 branch,
-                progress.add_task(f"Configuring [b]{branch}[/b]", total=6 + vscode + has_devcontainer(branch)),
+                progress.add_task(f"Configuring [b]{branch}[/b]", total=None),
             )
             for branch in branches
         }
@@ -936,8 +937,7 @@ def setup_python_env(version_dir: Path, *, python: str | None, requirements: lis
     try:
         _run([*venv_cmd, str(venv_dir)])
     except CalledProcessError as e:
-        error = (e.stderr or "").strip().splitlines()
-        return RepoResult("python", Outcome.FAILED, f"creating the environment failed: {error[-1] if error else e}")
+        return RepoResult("python", Outcome.FAILED, f"creating the environment failed: {_get_error(e)}")
 
     failed = install_requirements(venv_dir / "bin" / "python", [path for path in requirements if path.is_file()])
     version = get_venv_python(venv_dir) or "?"
@@ -1043,8 +1043,7 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
         # so this is the last version that has it.
         _run(["npm", "install", "--silent", "--no-save", "typescript@6"], cwd=com_dir)
     except CalledProcessError as e:
-        error = (e.stderr or "").strip().splitlines()
-        return RepoResult("javascript", Outcome.FAILED, f"npm install failed: {error[-1] if error else e}")
+        return RepoResult("javascript", Outcome.FAILED, f"npm install failed: {_get_error(e)}")
 
     if ent_dir.is_dir():
         for source, target in JS_TOOLING_FILES.items():
@@ -1176,7 +1175,8 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # Inside the container, Odoo starts directly: `otk dev run` needs Docker, which isn't available there.
     launch = template["customizations"]["vscode"]["settings"]["launch"]["configurations"][0]
     launch["program"] = str(version_dir / "odoo" / "odoo-bin")
-    launch["args"] = [*get_odoo_args(version_dir), "-d", "${workspaceFolderBasename}"]
+    odoo_args = get_odoo_args(version_dir)
+    launch["args"] = [*odoo_args, "-d", "${workspaceFolderBasename}"]
 
     # The same extensions as the native setup recommends.
     recommended = _read_json(MULTIVERSE_CONFIG_DIR / ".vscode" / "extensions.json")["recommendations"]
@@ -1196,7 +1196,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # Code reads its user instructions, so nothing in the container can change it.
     instructions_file = config_file.parent / "CLAUDE.md"
     instructions_file.write_text(
-        _get_devcontainer_instructions(version_dir, odoo_args=launch["args"][:-2]),
+        _get_devcontainer_instructions(version_dir, odoo_args=odoo_args),
         encoding="utf-8",
     )
 
@@ -1234,7 +1234,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
 
 def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -> str:
     """Get the instructions for Claude Code in the dev container of a version directory."""
-    repos = sorted(path.name for path in version_dir.iterdir() if (path / ".git").exists()) if version_dir.is_dir() else []
+    repos = sorted(path.name for path in version_dir.iterdir() if (path / ".git").exists())
     template = (MULTIVERSE_CONFIG_DIR / ".devcontainer" / "CLAUDE.md").read_text(encoding="utf-8")
     return Template(template).safe_substitute(
         version=version_dir.name,
@@ -1252,13 +1252,13 @@ def _get_protected_git_paths(multiverse_dir: Path) -> list[Path]:
     """Get what a bare repository holds that Git runs on your machine: its hooks and its configuration.
 
     Every dev container sees all the bare repositories, since the worktrees of all versions share them, and a hook or a
-    setting like `core.fsmonitor` or an alias would run the next time you use Git on your machine.
+    setting like `core.fsmonitor` or an alias would run the next time you use Git on your machine. A missing `hooks`
+    folder is created, since a bind mount needs something to mount.
     """
     paths: list[Path] = []
     for bare_dir in sorted((multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare")):
-        # A bind mount needs something to mount.
         (bare_dir / "hooks").mkdir(exist_ok=True)
-        paths += [path for name in ("config", "hooks") if (path := bare_dir / name).exists()]
+        paths += [bare_dir / "config", bare_dir / "hooks"]
     return paths
 
 
@@ -1317,3 +1317,9 @@ def _run(cmd: list[str], cwd: Path | None = None) -> None:
     :raises CalledProcessError: If the command failed.
     """
     subprocess.run(cmd, cwd=cwd, capture_output=True, check=True, text=True)
+
+
+def _get_error(error: CalledProcessError) -> str:
+    """Get the last line a failed command printed, which says why it failed, or else the error itself."""
+    lines = (error.stderr or "").strip().splitlines()
+    return lines[-1] if lines else str(error)

@@ -20,8 +20,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import requests
+from typer import Exit
 
-from odoo_toolkit.common import HTTP_HEADERS
+from odoo_toolkit.common import HTTP_HEADERS, print_error
 from odoo_toolkit.git_cli import Git, GitError
 
 CONFIG_FILE = "multiverse.toml"
@@ -129,15 +130,7 @@ def load_config(multiverse_dir: Path) -> dict[str, RepoSpec]:
     """
     specs = dict(KNOWN_REPOS)
     config_file = multiverse_dir / CONFIG_FILE
-    if not config_file.is_file():
-        return specs
-    try:
-        config = tomllib.loads(config_file.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as e:
-        msg = f"{config_file} is not valid TOML: {e}"
-        raise ConfigError(msg) from e
-
-    repos = config.get("repos", {})
+    repos = _read_config(multiverse_dir).get("repos", {})
     if not isinstance(repos, dict):
         msg = f"`repos` in {config_file} must be a table, like [repos.<name>]."
         raise ConfigError(msg)
@@ -158,11 +151,7 @@ def get_code_profile(multiverse_dir: Path) -> str | None:
     :param multiverse_dir: The multiverse directory.
     :return: The profile name, or None if there is none.
     """
-    try:
-        config = tomllib.loads((multiverse_dir / CONFIG_FILE).read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    code = config.get("code")
+    code = _read_config_or_nothing(multiverse_dir).get("code")
     profile = cast("dict[str, Any]", code).get("profile") if isinstance(code, dict) else None
     return profile if isinstance(profile, str) else None
 
@@ -183,11 +172,7 @@ def get_devcontainer_extras(multiverse_dir: Path) -> tuple[list[str], dict[str, 
     :param multiverse_dir: The multiverse directory.
     :return: The extensions and the settings, which are empty if there are none.
     """
-    try:
-        config = tomllib.loads((multiverse_dir / CONFIG_FILE).read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return [], {}
-    table = config.get("devcontainer")
+    table = _read_config_or_nothing(multiverse_dir).get("devcontainer")
     values = cast("dict[str, Any]", table) if isinstance(table, dict) else {}
     extensions = values.get("extensions")
     settings = values.get("settings")
@@ -201,14 +186,33 @@ def get_devcontainer_extras(multiverse_dir: Path) -> tuple[list[str], dict[str, 
 
 def get_configured_repos(multiverse_dir: Path) -> list[str]:
     """Get the names of the repositories with a `[repos.<name>]` table in `multiverse.toml`."""
+    repos = _read_config_or_nothing(multiverse_dir).get("repos", {})
+    return list(cast("dict[str, Any]", repos)) if isinstance(repos, dict) else []
+
+
+def _read_config(multiverse_dir: Path) -> dict[str, Any]:
+    """Read `multiverse.toml`, which may not exist.
+
+    :param multiverse_dir: The multiverse directory.
+    :raises ConfigError: If it can't be read or isn't valid TOML.
+    :return: Its content, which is empty without the file.
+    """
     config_file = multiverse_dir / CONFIG_FILE
     if not config_file.is_file():
-        return []
+        return {}
     try:
-        repos = tomllib.loads(config_file.read_text(encoding="utf-8")).get("repos", {})
-    except tomllib.TOMLDecodeError:
-        return []
-    return list(cast("dict[str, Any]", repos)) if isinstance(repos, dict) else []
+        return tomllib.loads(config_file.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        msg = f"{config_file} is not valid TOML: {e}"
+        raise ConfigError(msg) from e
+
+
+def _read_config_or_nothing(multiverse_dir: Path) -> dict[str, Any]:
+    """Read `multiverse.toml` for optional settings, which `load_config` reports the problems of."""
+    try:
+        return _read_config(multiverse_dir)
+    except ConfigError:
+        return {}
 
 
 def _apply_overrides(spec: RepoSpec, values: dict[str, Any], config_file: Path) -> RepoSpec:
@@ -366,6 +370,18 @@ def find_multiverse_dir(start: Path) -> Path | None:
     # Not `resolve()`, which would follow links out of the version directory.
     start = Path(os.path.abspath(start.expanduser()))  # noqa: PTH100
     return next((d for d in (start, *start.parents) if (d / WORKTREE_SOURCE_DIR).is_dir()), None)
+
+
+def require_version_dir() -> Path:
+    """Get the version directory you are in, or tell you to run the command in one.
+
+    :raises Exit: If you aren't in a version directory.
+    :return: The version directory.
+    """
+    if not (version_dir := find_version_dir()):
+        print_error(NOT_IN_VERSION_DIR)
+        raise Exit(1)
+    return version_dir
 
 
 def find_version_dir(start: Path | None = None) -> Path | None:

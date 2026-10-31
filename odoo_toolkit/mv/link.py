@@ -5,7 +5,7 @@ from typer import Argument, Exit, Typer
 
 from odoo_toolkit.common import print_command_title, print_error, print_success, print_warning
 
-from .config import NOT_IN_VERSION_DIR, find_version_dir, get_linked_repos
+from .config import get_linked_repos, require_version_dir
 from .setup import configure_language_server, link_repo, update_scanned_repos
 
 app = Typer()
@@ -22,7 +22,7 @@ def link(
     repository into a version, add the version to its `also_in` setting in `multiverse.toml`.
     """
     print_command_title(":link: Link Repository")
-    version_dir = _get_version_dir()
+    version_dir = require_version_dir()
     if not (version_dir.parent / repo / ".git").exists():
         print_error(f"[b]{repo}[/b] isn't cloned in [u]{version_dir.parent}[/u]. Set it up with [b]otk mv setup[/b].\n")
         raise Exit(1)
@@ -45,7 +45,7 @@ def unlink(
     Only the link is removed: the repository itself stays, and other versions keep using it.
     """
     print_command_title(":broken_chain: Unlink Repository")
-    version_dir = _get_version_dir()
+    version_dir = require_version_dir()
     if repo not in get_linked_repos(version_dir):
         if (version_dir / repo / ".git").is_dir():
             print_error(f"[b]{repo}[/b] lives in [u]{version_dir}[/u], since it runs on this version.\n")
@@ -70,11 +70,3 @@ def _update_configs(version_dir: Path) -> None:
             "The dev container still has the repositories it had. Update it with [b]otk mv setup --update-config[/b] "
             "on your machine, and rebuild it.\n",
         )
-
-
-def _get_version_dir() -> Path:
-    version_dir = find_version_dir()
-    if not version_dir:
-        print_error(NOT_IN_VERSION_DIR)
-        raise Exit(1)
-    return version_dir

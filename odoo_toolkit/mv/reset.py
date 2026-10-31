@@ -3,16 +3,15 @@ from typing import Annotated
 
 from typer import Exit, Option, Typer, confirm
 
-from odoo_toolkit.common import print, print_command_title, print_error, print_warning
-from odoo_toolkit.git_cli import Git
+from odoo_toolkit.common import print, print_command_title, print_warning
+from odoo_toolkit.git_cli import Git, GitError
 
-from .config import NOT_IN_VERSION_DIR, find_version_dir, get_repo_dirs, is_worktree
+from .config import get_repo_dirs, is_worktree, require_version_dir
 from .remotes import refresh_fetching
 from .repos import (
     Outcome,
     RepoResult,
     checkout_and_hard_reset,
-    count_local_commits,
     fetch_branch,
     get_default_branch,
     get_operation_in_progress,
@@ -54,10 +53,7 @@ def reset(
     """
     print_command_title(":arrows_counterclockwise: Reset Multiverse Repositories")
 
-    version_dir = find_version_dir()
-    if not version_dir:
-        print_error(NOT_IN_VERSION_DIR)
-        raise Exit(1)
+    version_dir = require_version_dir()
 
     repo_dirs = get_repo_dirs(version_dir, include_linked=include_linked)
     print(f"Resetting the repositories in [u]{version_dir}[/u]\n")
@@ -103,10 +99,14 @@ def check_repo(repo_dir: Path, branch: str) -> RepoResult:
     fetch_branch(repo, "origin", branch)
     if other_worktree := get_other_worktree_using_branch(repo, branch):
         return RepoResult(name, Outcome.FAILED, f"[b]{branch}[/b] is checked out in [u]{other_worktree}[/u]")
-    if count := count_local_commits(repo, branch, f"origin/{branch}"):
+    try:
         log = repo("log", "--format=%h %s", f"origin/{branch}..refs/heads/{branch}").splitlines()
-        shown = "".join(f"\n    [d]{line}[/d]" for line in log[:5]) + ("\n    [d]…[/d]" if count > len(log[:5]) else "")
-        return RepoResult(name, Outcome.WARNING, f"{count} commit(s) on [b]{branch}[/b]{shown}")
+    except GitError:
+        # There is no local branch yet.
+        log = []
+    if log:
+        shown = "".join(f"\n    [d]{line}[/d]" for line in log[:5]) + ("\n    [d]…[/d]" if len(log) > 5 else "")  # noqa: PLR2004
+        return RepoResult(name, Outcome.WARNING, f"{len(log)} commit(s) on [b]{branch}[/b]{shown}")
     return RepoResult(name, Outcome.UPDATED, "")
 
 
