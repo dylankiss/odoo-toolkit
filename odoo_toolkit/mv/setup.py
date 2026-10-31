@@ -34,6 +34,7 @@ from odoo_toolkit.dev.runtime import (
     SMTP_HOST,
     VOLUMES,
     check_mountable,
+    get_addons_paths,
     get_git_identity,
     get_odoo_args,
 )
@@ -760,6 +761,7 @@ def _configure_versions(
                 ),
             ),
             ("javascript", lambda: setup_js_tooling(version_dir)),
+            ("language server", lambda: configure_language_server(version_dir)),
             ("ruff", lambda: write_ruff_config(version_dir, reset=overwrite_config)),
             ("skills", lambda: link_skills(version_dir)),
         ]
@@ -783,7 +785,7 @@ def _configure_versions(
             branch: executor.submit(
                 configure,
                 branch,
-                progress.add_task(f"Configuring [b]{branch}[/b]", total=5 + vscode + has_devcontainer(branch)),
+                progress.add_task(f"Configuring [b]{branch}[/b]", total=6 + vscode + has_devcontainer(branch)),
             )
             for branch in branches
         }
@@ -936,10 +938,6 @@ def setup_python_env(version_dir: Path, *, python: str | None, requirements: lis
         error = (e.stderr or "").strip().splitlines()
         return RepoResult("python", Outcome.FAILED, f"creating the environment failed: {error[-1] if error else e}")
 
-    # The Odoo language server doesn't follow the venv's symlinked interpreter, so point it to the real path.
-    python_path = (venv_dir / "bin" / "python").absolute()
-    (version_dir / "odools.toml").write_text(f'[[config]]\npython_path = "{python_path}"\n', encoding="utf-8")
-
     failed = install_requirements(venv_dir / "bin" / "python", [path for path in requirements if path.is_file()])
     version = get_venv_python(venv_dir) or "?"
     if failed:
@@ -1039,6 +1037,10 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
         shutil.copyfile(tooling_dir / source, com_dir / target)
     try:
         _run(["npm", "install", "--silent"], cwd=com_dir)
+        # The Odoo language server needs `tsserver` for JavaScript, which Odoo's tooling doesn't install. Not saved, so
+        # it doesn't change the `package.json` that comes from Odoo. TypeScript 7 is a native rewrite without `tsserver`,
+        # so this is the last version that has it.
+        _run(["npm", "install", "--silent", "--no-save", "typescript@6"], cwd=com_dir)
     except CalledProcessError as e:
         error = (e.stderr or "").strip().splitlines()
         return RepoResult("javascript", Outcome.FAILED, f"npm install failed: {error[-1] if error else e}")
@@ -1061,6 +1063,33 @@ def setup_js_tooling(version_dir: Path) -> RepoResult:
         if not node_modules.is_symlink():
             node_modules.symlink_to(Path(os.path.relpath(com_dir, ent_dir)) / "node_modules", target_is_directory=True)
     return RepoResult("javascript", Outcome.UPDATED, "ESLint and type checking set up")
+
+
+def configure_language_server(version_dir: Path) -> RepoResult:
+    """Write the configuration of the Odoo language server for a version directory.
+
+    The server gets the interpreter of the `.venv` and the paths of Odoo and the addons explicitly, relative to the
+    workspace folder, which it expands: without them, it searches the whole version directory for them first, which
+    takes seconds over a mounted folder. And it gets the `tsserver` of the JavaScript tooling, because it only finds one
+    on the `PATH`, where there is none. That path is absolute, since it isn't known whether a command expands variables.
+    It is the same on your machine and in a dev container, which mounts the multiverse at the same path.
+
+    :param version_dir: The version directory.
+    :return: The result of writing the configuration.
+    """
+    lines = ["[[config]]"]
+    if (version_dir / ".venv" / "bin" / "python").exists():
+        lines.append('python_path = "${workspaceFolder}/.venv/bin/python"')
+    if (version_dir / "odoo" / "odoo" / "release.py").is_file():
+        lines.append('odoo_path = "${workspaceFolder}/odoo"')
+    if addons_paths := get_addons_paths(version_dir):
+        paths = (f'  "${{workspaceFolder}}/{path.relative_to(version_dir).as_posix()}",' for path in addons_paths)
+        lines += ["addons_paths = [", *paths, "]"]
+    tsserver = version_dir / "odoo" / "node_modules" / ".bin" / "tsserver"
+    if tsserver.exists():
+        lines.append(f'tsserver_command = "{tsserver.absolute()}"')
+    (version_dir / "odools.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return RepoResult("language server", Outcome.UPDATED, "wrote [b]odools.toml[/b]")
 
 
 def write_ruff_config(version_dir: Path, *, reset: bool) -> RepoResult:
@@ -1176,6 +1205,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "workspaceMount": f"source={multiverse_dir},target={multiverse_dir},type=bind",
         "workspaceFolder": str(version_dir),
         # Runs on your machine. The network only exists once the shared services are running, which `otk dev db` starts.
+        # Checking that they already run takes a fraction of a second, where starting them again takes seconds.
         "initializeCommand": (
             f"[ \"$(docker inspect -f '{{{{.State.Health.Status}}}}' {DB_HOST} 2>/dev/null)\" = healthy ] "
             f"&& [ \"$(docker inspect -f '{{{{.State.Running}}}}' {SMTP_HOST} 2>/dev/null)\" = true ] "
@@ -1207,7 +1237,6 @@ def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -
     template = (MULTIVERSE_CONFIG_DIR / ".devcontainer" / "CLAUDE.md").read_text(encoding="utf-8")
     return Template(template).safe_substitute(
         version=version_dir.name,
-        # Checking that they already run takes a fraction of a second, where starting them again takes seconds.
         multiverse_dir=version_dir.parent,
         version_dir=version_dir,
         repos=", ".join(f"`{repo}`" for repo in repos) or "`odoo`",

@@ -691,6 +691,10 @@ The command will basically do the following:
 
 6. Set up the JavaScript tooling for `odoo` and `enterprise` (located in the `tooling` directory inside the `web` module).
 
+   It also installs `typescript@6` (not saved in Odoo's `package.json`), because the Odoo language server needs `tsserver` for JavaScript and only looks for it on the `PATH`. TypeScript 7 has no `tsserver` anymore, so it stays on 6.
+
+   Then write `odools.toml`, the configuration of the Odoo language server: the `.venv` interpreter, the paths of `odoo` and every addons repository (relative to the workspace folder, so it works in a dev container too, and the server doesn't have to search the version directory for them), and the `tsserver` that was just installed.
+
 7. Write the [Visual Studio Code configuration](odoo_toolkit/multiverse_config/.vscode) in each version's `.vscode` directory: recommended extensions, settings using the version's `.venv`, and tasks and debug configurations to run Odoo with [`otk dev run`](#otk-dev-run), where `F5` runs it with the debugger.
 
 After all that is done, your directory structure should look like this with the default repositories selected:

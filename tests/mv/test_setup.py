@@ -1,5 +1,6 @@
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -232,11 +233,11 @@ def test_write_vscode_config(tmp_path: Path) -> None:
     # The interpreter is the one VS Code finds in `.venv`, so the dev container can use the image's instead.
     assert "python.defaultInterpreterPath" not in settings
     assert settings["git.scanRepositories"] == ["upgrade"]
-    launch = json.loads((version_dir / ".vscode" / "launch.json").read_text())
     # Vendored libraries are left out of searching and watching, but translations stay in, since people work on them.
     assert settings["search.exclude"]["**/static/lib"] is True
     assert settings["files.watcherExclude"]["**/static/lib/**"] is True
     assert "**/i18n/*.po" not in settings["search.exclude"]
+    launch = json.loads((version_dir / ".vscode" / "launch.json").read_text())
     tasks = json.loads((version_dir / ".vscode" / "tasks.json").read_text())
     run_and_debug = launch["configurations"][0]
     # F5 runs Odoo with the debugger, and the paths are the same in the container, so no mappings are needed.
@@ -262,6 +263,41 @@ def test_cli_reset_config_keeps_shared_repos_of_earlier_setup(tmp_path: Path, mo
     assert (root / "19.0" / "upgrade").is_symlink()
     settings = json.loads((root / "19.0" / ".vscode" / "settings.json").read_text())
     assert settings["git.scanRepositories"] == ["upgrade"]
+
+
+def test_configure_language_server_gives_it_its_paths(tmp_path: Path) -> None:
+    version_dir = tmp_path / "mv" / "19.0"
+    (version_dir / "odoo" / "odoo").mkdir(parents=True)
+    (version_dir / "odoo" / "odoo" / "release.py").write_text("")
+    for repo, modules_dir in (("odoo", "addons"), ("enterprise", "")):
+        module_dir = version_dir / repo / modules_dir / "some_module"
+        module_dir.mkdir(parents=True)
+        (module_dir / "__manifest__.py").write_text("{}")
+        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+    (version_dir / ".venv" / "bin").mkdir(parents=True)
+    (version_dir / ".venv" / "bin" / "python").write_text("")
+    (version_dir / "odoo" / "node_modules" / ".bin").mkdir(parents=True)
+    (version_dir / "odoo" / "node_modules" / ".bin" / "tsserver").write_text("")
+
+    assert mv_setup.configure_language_server(version_dir).outcome == Outcome.UPDATED
+
+    config = tomllib.loads((version_dir / "odools.toml").read_text())["config"][0]
+    # Relative to the workspace folder, so the same file works in a dev container. Enterprise comes first.
+    assert config["python_path"] == "${workspaceFolder}/.venv/bin/python"
+    assert config["odoo_path"] == "${workspaceFolder}/odoo"
+    assert config["addons_paths"] == ["${workspaceFolder}/enterprise", "${workspaceFolder}/odoo/addons"]
+    # It only looks for `tsserver` on the `PATH`, so it gets the one of the JavaScript tooling.
+    assert config["tsserver_command"] == str(version_dir / "odoo" / "node_modules" / ".bin" / "tsserver")
+
+
+def test_configure_language_server_leaves_out_what_is_not_there(tmp_path: Path) -> None:
+    version_dir = tmp_path / "mv" / "19.0"
+    version_dir.mkdir(parents=True)
+
+    mv_setup.configure_language_server(version_dir)
+
+    # An empty list of addons paths would turn the automatic detection off, and a missing `tsserver` the default on.
+    assert tomllib.loads((version_dir / "odools.toml").read_text())["config"] == [{}]
 
 
 def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -308,6 +344,11 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config["customizations"]["vscode"]["settings"]["python.defaultInterpreterPath"] == "/venv/main/bin/python"
     assert "--cap-drop=ALL" in config["runArgs"]
     assert "--name=otk-19.0-dev" in config["runArgs"]
+    # The services are only started when they don't run yet, which is quick to check.
+    command = config["initializeCommand"]
+    assert command.index("State.Health.Status") < command.index("otk dev db")
+    assert "otk-postgres" in command
+    assert "otk-mailpit" in command
     # Odoo's Ruff rules can be newer than the Ruff in the image of a version, so the extension brings its own.
     assert config["customizations"]["vscode"]["settings"]["ruff.importStrategy"] == "useBundled"
     assert "--network=otk" in config["runArgs"]
@@ -348,11 +389,6 @@ def test_write_devcontainer_config_tells_claude_how_the_container_works(
 
 def test_link_skills_reads_the_skills_in_the_repository(tmp_path: Path) -> None:
     version_dir = tmp_path / "mv" / "20.0"
-    # The services are only started when they don't run yet, which is quick to check.
-    command = config["initializeCommand"]
-    assert command.index("State.Health.Status") < command.index("otk dev db")
-    assert "otk-postgres" in command
-    assert "otk-mailpit" in command
     (version_dir / "odoo" / "skills" / "odoo-review").mkdir(parents=True)
     (version_dir / "odoo" / "skills" / "odoo-review" / "SKILL.md").write_text("---\nname: odoo-review\n---\n")
 
@@ -669,6 +705,28 @@ def test_existing_versions_are_the_default(tmp_path: Path) -> None:
     assert mv_setup.get_existing_versions(tmp_path) == ["18.0", "19.0", "master"]
     assert mv_setup.get_existing_versions(tmp_path / "new") == []
 
+
+
+def test_setup_js_tooling_installs_typescript_without_saving_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version_dir = tmp_path / "mv" / "19.0"
+    tooling_dir = version_dir / "odoo" / "addons" / "web" / "tooling"
+    tooling_dir.mkdir(parents=True)
+    for name in mv_setup.JS_TOOLING_FILES:
+        (tooling_dir / name).write_text("{}")
+    commands: list[tuple[list[str], Path | None]] = []
+    monkeypatch.setattr(mv_setup.shutil, "which", lambda _: "/usr/bin/npm")
+    monkeypatch.setattr(mv_setup, "_run", lambda cmd, cwd=None: commands.append((cmd, cwd)))
+
+    assert mv_setup.setup_js_tooling(version_dir).outcome == Outcome.UPDATED
+
+    # Odoo's tooling has no TypeScript, which the Odoo language server needs. Not saved in Odoo's `package.json`, and
+    # not version 7, which has no `tsserver`.
+    assert commands == [
+        (["npm", "install", "--silent"], version_dir / "odoo"),
+        (["npm", "install", "--silent", "--no-save", "typescript@6"], version_dir / "odoo"),
+    ]
 
 
 def test_install_requirements_tries_pip_for_what_uv_can_not_install(
