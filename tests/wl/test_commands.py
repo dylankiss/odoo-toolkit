@@ -73,7 +73,7 @@ def test_config_limits_a_l10n_module_to_its_languages(tmp_path: Path) -> None:
     config = WeblateConfig(tmp_path / ".weblate.json", {"*l10n_be*": ["nl", "fr"]})
     config.update_module(module, "odoo-19", [])
 
-    assert config.config["projects"]["odoo-19"][0]["language_regex"] == "^(fr|nl)$"
+    assert config.config["projects"]["odoo-19"][0].get("language_regex") == "^(fr|nl)$"
 
 
 class FakeTeamsApi:

@@ -716,8 +716,15 @@ def test_setup_js_tooling_installs_typescript_without_saving_it(
     for name in mv_setup.JS_TOOLING_FILES:
         (tooling_dir / name).write_text("{}")
     commands: list[tuple[list[str], Path | None]] = []
-    monkeypatch.setattr(mv_setup.shutil, "which", lambda _: "/usr/bin/npm")
-    monkeypatch.setattr(mv_setup, "_run", lambda cmd, cwd=None: commands.append((cmd, cwd)))
+
+    def which(_: str) -> str:
+        return "/usr/bin/npm"
+
+    def run(cmd: list[str], cwd: Path | None = None) -> None:
+        commands.append((cmd, cwd))
+
+    monkeypatch.setattr(mv_setup.shutil, "which", which)
+    monkeypatch.setattr(mv_setup, "_run", run)
 
     assert mv_setup.setup_js_tooling(version_dir).outcome == Outcome.UPDATED
 
