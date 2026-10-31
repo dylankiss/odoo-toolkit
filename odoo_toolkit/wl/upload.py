@@ -154,7 +154,11 @@ def _select_files(
         raise Exit(1) from e
     if unknown := sorted(path.name for (component, _), path in files.items() if component not in slugs):
         print_warning(f"Skipped files of components that aren't in [b]{project}[/b]: {', '.join(unknown)}")
-    return {key: path for key, path in files.items() if key[0] in slugs}
+    files = {key: path for key, path in files.items() if key[0] in slugs}
+    if not files:
+        print_error(f"No files to upload to [b]{project}[/b] have a component in the project.")
+        raise Exit(1)
+    return files
 
 
 def _find_files(project: str, language_codes: list[str]) -> dict[tuple[str, str], Path]:
