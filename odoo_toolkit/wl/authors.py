@@ -38,7 +38,7 @@ def get_weblate_settings(table: str) -> dict[str, Any]:
         msg = f"{config_file} is not valid TOML: {e}"
         raise ConfigError(msg) from e
     weblate = config.get("weblate", {})
-    values = cast("dict[str, Any]", weblate).get(table, {}) if isinstance(weblate, dict) else {}
+    values: object = cast("dict[str, Any]", weblate).get(table, {}) if isinstance(weblate, dict) else {}
     if not isinstance(values, dict):
         msg = f"[weblate.{table}] in {config_file} must be a table."
         raise ConfigError(msg)
