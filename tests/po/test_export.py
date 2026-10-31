@@ -6,6 +6,7 @@ import pytest
 from rich.progress import Progress
 from typer.testing import CliRunner
 
+from odoo_toolkit.dev import runtime
 from odoo_toolkit.main import app
 from odoo_toolkit.po import export
 from odoo_toolkit.po.common import DEFAULT_EXCLUDE, select_modules
@@ -155,10 +156,10 @@ def test_the_cause_of_a_failed_install_is_shown(capsys: pytest.CaptureFixture[st
 
 def test_servers_get_different_ports(monkeypatch: pytest.MonkeyPatch) -> None:
     # 8070 is taken, like by `otk dev run`.
-    def free_port(_: str, start: int) -> int:
-        return start + 1 if start == 8070 else start
+    def is_port_free(port: int, _host: str = "127.0.0.1") -> bool:
+        return port != 8070
 
-    monkeypatch.setattr(export, "_free_port", free_port)
+    monkeypatch.setattr(runtime, "is_port_free", is_port_free)
 
     assert export.free_ports("localhost", 8069, 4) == [8069, 8071, 8072, 8073]
 

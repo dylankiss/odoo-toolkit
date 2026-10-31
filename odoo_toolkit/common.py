@@ -3,7 +3,6 @@ import os
 import re
 from collections.abc import Callable, Collection, Iterable
 from contextlib import suppress
-from enum import Enum, auto
 from fnmatch import fnmatch
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -35,14 +34,6 @@ HTTP_HEADERS = {"User-Agent": USER_AGENT}
 console = Console(stderr=True, highlight=False)
 # Override the native print method to use the custom console
 print = console.print  # noqa: A001
-
-
-class Status(Enum):
-    """The status of a specific function call."""
-
-    SUCCESS = auto()
-    PARTIAL = auto()
-    FAILURE = auto()
 
 
 class TransientProgress(Progress):

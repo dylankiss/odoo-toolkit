@@ -38,7 +38,7 @@ TIMEOUT = 30
 
 # The user the images run as. UID 1000 matches the first user on most Linux machines, which avoids permission issues
 # on mounted source code.
-BUILD_ARGS = "ARG USERNAME=odoo\nARG USERUID=1000\nARG USERGID=1000\n"
+BUILD_ARGS = f"ARG USERNAME=odoo\nARG USERUID={DEFAULT_UID}\nARG USERGID={DEFAULT_UID}\n"
 # Odoo's own wkhtmltopdf build, which older Dockerfiles use, only exists for amd64. The official one with the patched Qt
 # exists for arm64 too.
 ODOO_WKHTMLTOPDF_PATTERN = re.compile(r"https://nightly\.odoo\.com/deb/(?P<release>\w+)/wkhtmltox_[^/\s]+_amd64\.deb")

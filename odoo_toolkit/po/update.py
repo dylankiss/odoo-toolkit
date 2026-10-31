@@ -1,4 +1,3 @@
-import os
 import shlex
 import shutil
 import subprocess
@@ -23,7 +22,7 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import process_modules, select_modules
+from .common import format_failures, format_po_written, process_modules, select_modules
 
 app = Typer()
 
@@ -108,7 +107,7 @@ def update(
         extra_addons_paths=extra_addons_paths,
     )
     if not selection.module_to_path:
-        print_error("The provided modules are not available! Nothing to update ...")
+        print_error("The provided modules are not available! Nothing to update ...\n")
         raise Exit(1)
 
     print(f"Modules to update translation files for: [b]{'[/b], [b]'.join(sorted(selection.module_to_path))}[/b]\n")
@@ -141,7 +140,7 @@ def update(
         ent_path=ent_path,
         extra_addons_paths=extra_addons_paths,
     )
-    failed_str = "\n".join(f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failures.items())
+    failed_str = format_failures(failures)
     print_error(
         f"Some translation files weren't updated:\n\n{failed_str}\n\n"
         "You can run the command again for them using:\n"
@@ -226,7 +225,7 @@ def _update_po_for_lang(
         except subprocess.CalledProcessError as e:
             return False, get_error_log_panel(e.stderr.decode().strip(), f"Updating {po_path.name} failed!")
         else:
-            return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
+            return True, format_po_written(po_path)
     else:
         # Fallback to using `polib` if `msgmerge` is not available.
         try:
@@ -242,4 +241,4 @@ def _update_po_for_lang(
         except (OSError, ValueError) as e:
             return False, get_error_log_panel(str(e), f"Updating {po_path.name} failed!")
         else:
-            return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
+            return True, format_po_written(po_path)

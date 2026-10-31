@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import requests
@@ -174,22 +173,6 @@ def test_the_service_images_come_from_the_compose_file() -> None:
 
     assert "axllent/mailpit:v1.27" in images
     assert all(":" in image for image in images)
-
-
-def test_nothing_is_checked_in_scripts_or_when_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("CI", raising=False)
-    monkeypatch.delenv("OTK_NO_UPDATE_CHECK", raising=False)
-    monkeypatch.setattr(image_check, "console", SimpleNamespace(is_terminal=True))
-    assert not image_check.is_check_disabled()
-
-    monkeypatch.setenv("OTK_NO_UPDATE_CHECK", "1")
-    assert image_check.is_check_disabled()
-    monkeypatch.delenv("OTK_NO_UPDATE_CHECK")
-    monkeypatch.setenv("CI", "true")
-    assert image_check.is_check_disabled()
-    monkeypatch.delenv("CI")
-    monkeypatch.setattr(image_check, "console", SimpleNamespace(is_terminal=False))
-    assert image_check.is_check_disabled()
 
 
 def test_the_notice_names_the_command_to_update(

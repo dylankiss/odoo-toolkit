@@ -1,6 +1,7 @@
 import csv
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -207,16 +208,6 @@ def get_odoo_lang(lang_code: str) -> str:
     return CLDR_TO_ODOO_LANG.get(lang_code, lang_code)
 
 
-def get_language_name(lang: str) -> str:
-    """Get the language name for a given language code.
-
-    :param lang: The language code to get the name for.
-    :return: The language name for the given language code, or the code itself if not found.
-    """
-    lang = get_cldr_lang(lang)
-    return CLDR_LANGUAGE_NAMES.get(lang, lang)
-
-
 def get_plural_forms(lang: str) -> str:
     """Get the plural forms rule for a given language code.
 
@@ -314,3 +305,13 @@ def process_modules(
                 failures[module] = failed
             progress.advance(task)
     return processed, failures
+
+
+def format_po_written(po_path: Path) -> str:
+    """Format the line that says a translation file was written."""
+    return f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
+
+
+def format_failures(failures: Mapping[str, Iterable[str]]) -> str:
+    """Format the languages that failed per module, one module per line."""
+    return "\n".join(f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failures.items())
