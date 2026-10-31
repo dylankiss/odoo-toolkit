@@ -21,10 +21,11 @@ from .common import (
     UploadConflicts,
     UploadFuzzy,
     UploadMethod,
-    WeblateApi,
     WeblateApiError,
     WeblateTranslationsUploadResponse,
     format_upload_counts,
+    get_weblate_api,
+    get_weblate_project_component_slugs,
     print_failures,
     run_concurrently,
 )
@@ -89,11 +90,7 @@ def upload(
     """
     print_command_title(":outbox_tray: Odoo Weblate PO Upload")
 
-    try:
-        weblate_api = WeblateApi()
-    except NameError as e:
-        print_error(str(e))
-        raise Exit(1) from e
+    weblate_api = get_weblate_api()
 
     # Weblate reads these from the form, next to the file.
     upload_data: dict[str, str] = {
@@ -110,23 +107,40 @@ def upload(
         print_error(f"No files named [b]{project}-<component>-<language>.po[/b] to upload in [u]{Path.cwd()}[/u].")
         raise Exit(1)
 
+    # The name only tells where the project ends if the component exists: `odoo-18-l10n-…` is also `odoo-18-…`.
+    try:
+        slugs = get_weblate_project_component_slugs(weblate_api, project)
+    except WeblateApiError as e:
+        print_error(f"Fetching the components of [b]{project}[/b] failed: {e.summary}", str(e))
+        raise Exit(1) from e
+    if unknown := sorted(path.name for (component, _), path in files.items() if component not in slugs):
+        print_warning(f"Skipped files of components that aren't in [b]{project}[/b]: {', '.join(unknown)}")
+        files = {key: path for key, path in files.items() if key[0] in slugs}
+
+    failures: dict[str, str] = {}
+    contents: dict[tuple[str, str], bytes] = {}
+    for key, path in files.items():
+        try:
+            contents[key] = path.read_bytes()
+        except OSError as e:
+            failures[f"{key[0]}/{key[1]}"] = f"could not be read: {e.strerror}"
+
     with TransientProgress() as progress:
-        task = progress.add_task("Uploading PO files", total=len(files))
+        task = progress.add_task("Uploading PO files", total=len(contents))
         results = run_concurrently(
-            sorted(files),
+            sorted(contents),
             lambda key: weblate_api.request(
                 WeblateTranslationsUploadResponse,
                 "POST",
                 WEBLATE_TRANSLATIONS_FILE_ENDPOINT.format(project=project, component=key[0], language=key[1]),
                 data=upload_data,
-                files={"file": (files[key].name, files[key].read_bytes())},
+                files={"file": (files[key].name, contents[key])},
             ),
             progress=progress,
             task_id=task,
         )
 
     counts = {"accepted": 0, "skipped": 0, "not_found": 0}
-    failures: dict[str, str] = {}
     for (component, language), result in results.items():
         if isinstance(result, WeblateApiError):
             failures[f"{component}/{language}"] = result.summary

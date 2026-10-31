@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from odoo_toolkit.common import TransientProgress
 from odoo_toolkit.main import app
 from odoo_toolkit.wl import common as wl_common
+from odoo_toolkit.wl import upload as wl_upload
 from odoo_toolkit.wl.common import (
     REQUEST_TIMEOUT,
     WeblateApi,
@@ -322,13 +323,19 @@ def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPa
     # Another project's file, and another language's.
     (tmp_path / "odoo-18-account-fr.po").write_bytes(b"")
     (tmp_path / "odoo-19-account-nl.po").write_bytes(b"")
+    # The file of a project whose name starts with this one's, `odoo-19-l10n`, which looks like component `l10n-…`.
+    (tmp_path / "odoo-19-l10n-l10n_be-fr.po").write_bytes(b"")
     sent: list[tuple[tuple[object, ...], dict[str, Any]]] = []
 
     def request(_: WeblateApi, *args: object, **kwargs: Any) -> dict[str, int]:  # noqa: ANN401
         sent.append((args, kwargs))
         return {"accepted": 1, "skipped": 0, "not_found": 0, "total": 1}
 
+    def get_slugs(_api: WeblateApi, _project: str) -> set[str]:
+        return {"account", "sale"}
+
     monkeypatch.setattr(WeblateApi, "request", request)
+    monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", get_slugs)
 
     result = CliRunner().invoke(
         app, ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
@@ -348,3 +355,4 @@ def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPa
     }
     assert "params" not in kwargs
     assert "Updated 1 and skipped 0 translation(s)." in result.output
+    assert "odoo-19-l10n-l10n_be-fr.po" in result.output

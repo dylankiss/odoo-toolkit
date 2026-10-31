@@ -16,9 +16,9 @@ from odoo_toolkit.common import (
 from odoo_toolkit.po.common import get_cldr_lang
 
 from .common import (
-    WeblateApi,
     WeblateApiError,
     fetch_language_files,
+    get_weblate_api,
     get_weblate_project_component_slugs,
     po_has_entries,
     print_failures,
@@ -72,11 +72,7 @@ def download(
     """
     print_command_title(":inbox_tray: Odoo Weblate PO Download")
 
-    try:
-        weblate_api = WeblateApi()
-    except NameError as e:
-        print_error(str(e))
-        raise Exit(1) from e
+    weblate_api = get_weblate_api()
 
     language_codes = sorted({get_cldr_lang(lang) for lang in normalize_list_option(languages)})
     try:
