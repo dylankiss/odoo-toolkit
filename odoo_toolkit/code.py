@@ -6,7 +6,13 @@ from urllib.parse import quote
 from typer import Argument, Exit, Option
 
 from .common import print_error
-from .mv.config import NOT_IN_VERSION_DIR, find_multiverse_dir, find_version_dir, get_code_profile, get_current_dir
+from .mv.config import (
+    find_multiverse_dir,
+    find_version_dir,
+    get_code_profile,
+    get_current_dir,
+    require_version_dir,
+)
 
 
 def code(
@@ -52,9 +58,8 @@ def code(
         if not version_dir.is_dir() or find_version_dir(version_dir) != version_dir:
             print_error(f"There is no version directory [b]{version}[/b] in [u]{multiverse_dir}[/u].\n")
             raise Exit(1)
-    elif not (version_dir := find_version_dir()):
-        print_error(NOT_IN_VERSION_DIR)
-        raise Exit(1)
+    else:
+        version_dir = require_version_dir()
 
     profile = profile or get_code_profile(version_dir.parent)
     target = [str(version_dir)]

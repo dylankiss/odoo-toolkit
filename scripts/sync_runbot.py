@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 
 from odoo_toolkit.common import HTTP_HEADERS
+from odoo_toolkit.mv.config import VERSION_PATTERN
 from odoo_toolkit.versions import VERSIONS_FILE, version_sort_key
 
 RUNBOT_URL = "https://runbot.odoo.com"
@@ -31,7 +32,6 @@ CELL_PATTERN = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL)
 HEADER_PATTERN = re.compile(r"<th[^>]*>(.*?)</th>", re.DOTALL)
 DOCKERFILE_LINK_PATTERN = re.compile(r'href="/runbot/dockerfile\?id=(\d+)"[^>]*>\s*([^<]+?)\s*<')
 FROM_PATTERN = re.compile(r"^FROM\s+ubuntu:(\S+)", re.MULTILINE)
-VERSION_NAME_PATTERN = re.compile(r"master|saas-\d+\.\d+|\d+\.\d+")
 
 
 @dataclass(frozen=True)
@@ -133,8 +133,8 @@ def main() -> int:
     versions = [
         version
         for version in parse_versions_page(fetch(VERSIONS_URL))
-        # Names that aren't versions sort last, like `master`, so only keep the ones that look like versions.
-        if version_sort_key(version.name) >= MIN_VERSION and VERSION_NAME_PATTERN.fullmatch(version.name)
+        # Runbot also lists names that aren't versions, which sort last like `master`, so only keep the versions.
+        if version_sort_key(version.name) >= MIN_VERSION and VERSION_PATTERN.fullmatch(version.name)
     ]
     if not versions:
         print("No supported versions found on runbot. Has the page layout changed?", file=sys.stderr)

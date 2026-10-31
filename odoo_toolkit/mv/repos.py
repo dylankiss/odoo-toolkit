@@ -149,14 +149,6 @@ def fetch_branch(repo: Git, remote: str, branch: str) -> None:
     repo("fetch", remote, branch_refspec(remote, branch))
 
 
-def count_local_commits(repo: Git, branch: str, upstream: str) -> int:
-    """Count the commits of a local branch that its upstream doesn't have, or 0 if either doesn't exist."""
-    try:
-        return int(repo("rev-list", "--count", f"{upstream}..refs/heads/{branch}"))
-    except GitError:
-        return 0
-
-
 def checkout_branch(repo: Git, remote: str, branch: str) -> bool:
     """Check out a branch, creating it to track the remote branch if it doesn't exist locally.
 
@@ -262,19 +254,25 @@ def run_on_repos(
     repo_dirs: list[Path],
     operation: Callable[[Path], RepoResult],
     description: str,
+    *,
+    names: dict[Path, str] | None = None,
 ) -> list[RepoResult]:
     """Run an operation on every repository in parallel, turning unexpected errors into failed results.
 
     :param repo_dirs: The repositories to run the operation on.
     :param operation: The operation to run, given the repository directory.
     :param description: The progress bar description.
+    :param names: The names to report the repositories under, if not their directory name, like for bare ones.
     :return: The results, in the order of the given repositories.
     """
+    names = names or {}
     results: dict[Path, RepoResult] = {}
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
         task = progress.add_task(description, total=len(repo_dirs))
         futures = {
-            executor.submit(run_safely, repo_dir.name, lambda repo_dir=repo_dir: operation(repo_dir)): repo_dir
+            executor.submit(
+                run_safely, names.get(repo_dir, repo_dir.name), lambda repo_dir=repo_dir: operation(repo_dir),
+            ): repo_dir
             for repo_dir in repo_dirs
         }
         for future in as_completed(futures):
