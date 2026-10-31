@@ -15,7 +15,6 @@ from functools import cache
 from http.client import HTTPConnection, HTTPSConnection
 from operator import itemgetter
 from pathlib import Path
-from socket import socket
 from subprocess import DEVNULL, PIPE, Popen
 from typing import Annotated
 
@@ -42,11 +41,12 @@ from odoo_toolkit.dev.common import ensure_image, start_services
 from odoo_toolkit.dev.images import Arch, get_native_arch
 from odoo_toolkit.dev.runtime import (
     DB_HOST,
-    ODOO_PORT,
     VOLUMES,
     RunOptions,
     build_run_command,
     check_mountable,
+    find_free_port,
+    get_container_args,
     get_container_name,
     get_git_identity,
     get_image_tag,
@@ -371,6 +371,10 @@ def export(  # noqa: C901, PLR0912, PLR0915
             start_services()
 
         servers: list[_Server] = []
+        odoo_version = get_odoo_version(odoo_repo_path)
+        # The same for every server, and each takes a command to find out.
+        git_identity: dict[str, str] = get_git_identity() if container else {}
+        ssh_agent = get_ssh_agent() if container else None
         server_types = {t: modules for t, modules in modules_per_server_type.items() if modules[0]}
         ports = free_ports(host, port, len(server_types))
         for (server_type, (modules_to_export, modules_to_install)), server_port in zip(
@@ -388,7 +392,6 @@ def export(  # noqa: C901, PLR0912, PLR0915
                 "--limit-time-cpu", "99999999",
                 "--limit-time-real", "99999999",
             ]
-            odoo_version = get_odoo_version(odoo_repo_path)
             if odoo_version and odoo_version >= WITH_DEMO_VERSION:
                 odoo_cmd.append("--with-demo")
             server = _Server(
@@ -400,7 +403,15 @@ def export(  # noqa: C901, PLR0912, PLR0915
                 odoo_cmd=odoo_cmd,
             )
             if container:
-                _run_in_container(server, container, port=server_port, arch=arch, keep_db=keep_db)
+                _run_in_container(
+                    server,
+                    container,
+                    port=server_port,
+                    arch=arch,
+                    keep_db=keep_db,
+                    git_identity=git_identity,
+                    ssh_agent=ssh_agent,
+                )
             else:
                 _run_locally(
                     server,
@@ -517,25 +528,36 @@ def _get_addons_path(server_type: ServerType, com: Path, ent: Path, extra: list[
     return ",".join(str(path) for path in paths)
 
 
-def _run_in_container(server: _Server, container: _Container, *, port: int, arch: Arch, keep_db: bool) -> None:
-    """Make a server run in the version's Docker image, with the PostgreSQL of `otk dev`."""
+def _run_in_container(
+    server: _Server,
+    container: _Container,
+    *,
+    port: int,
+    arch: Arch,
+    keep_db: bool,
+    git_identity: dict[str, str],
+    ssh_agent: Path | None,
+) -> None:
+    """Make a server run in the version's Docker image, with the PostgreSQL of `otk dev`.
+
+    :param git_identity: The Git identity to commit with in the container.
+    :param ssh_agent: The SSH agent socket to forward, or None if there is none.
+    """
     options = RunOptions(
         version_dir=container.version_dir,
         version=container.version,
         port=port,
-        # Odoo listens on its usual port in the container, published on the free port we found. Since saas-19.1,
-        # Odoo only listens on the container's localhost by default, which Docker can't publish.
-        command=[*server.odoo_cmd, "--http-interface=0.0.0.0", f"--http-port={ODOO_PORT}", f"--db_host={DB_HOST}",
-                 "--db_user=odoo", "--db_password=odoo"],
+        # Odoo listens on its usual port in the container, published on the free port we found.
+        command=[*server.odoo_cmd, *get_container_args()],
         arch=arch,
         role="export",
     )
     server.odoo_cmd = build_run_command(
         options,
         multiverse_dir=container.multiverse_dir,
-        git_identity=get_git_identity(),
+        git_identity=git_identity,
         tty=False,
-        ssh_agent=get_ssh_agent(),
+        ssh_agent=ssh_agent,
     )
     # Stopping `docker run` doesn't stop the container.
     server.stop_cmd = ["docker", "rm", "--force", get_container_name(options)]
@@ -1057,34 +1079,27 @@ def find_dependents(addons_paths: Iterable[Path], include_module: Callable[[str]
 def _get_full_install_modules_per_server_type(
     com_modules_path: Path,
     ent_modules_path: Path,
-    include_path: Callable[[Path], bool] = lambda _: True,
+    include_path: Callable[[Path], bool],
 ) -> dict[ServerType, set[str]]:
-    """Get all modules to install per server type for .pot export with `full_install = True`."""
+    """Get all modules to install per server type for .pot export with `full_install = True`.
+
+    :param com_modules_path: The `addons` folder of Odoo Community.
+    :param ent_modules_path: The Odoo Enterprise repository.
+    :param include_path: Whether to include the module at a path.
+    :return: The modules to install per server type.
+    """
     modules: dict[ServerType, set[str]] = defaultdict(set)
-
-    for m in (f.parent.name for f in com_modules_path.glob("*/__manifest__.py")):
-        if not include_path(com_modules_path / m):
-            # Skip module if it doesn't pass the filter.
-            continue
-        # Add each Community module to the right server types.
-        if is_l10n_module(m):
-            modules[ServerType.L10N].add(m)
-        else:
-            modules[ServerType.COM].add(m)
-            modules[ServerType.ENT].add(m)
-            modules[ServerType.CUSTOM].add(m)
-
-    for m in (f.parent.name for f in ent_modules_path.glob("*/__manifest__.py")):
-        if not include_path(ent_modules_path / m):
-            # Skip module if it doesn't pass the filter.
-            continue
-        # Add each Enterprise module to the right server types.
-        if is_l10n_module(m):
-            modules[ServerType.L10N].add(m)
-        else:
-            modules[ServerType.ENT].add(m)
-            modules[ServerType.CUSTOM].add(m)
-
+    # Localizations get a server of their own. Community modules also go on the Enterprise and custom servers, and
+    # Enterprise modules on the custom one.
+    for modules_path, server_types in (
+        (com_modules_path, (ServerType.COM, ServerType.ENT, ServerType.CUSTOM)),
+        (ent_modules_path, (ServerType.ENT, ServerType.CUSTOM)),
+    ):
+        for m in (f.parent.name for f in modules_path.glob("*/__manifest__.py")):
+            if not include_path(modules_path / m):
+                continue
+            for server_type in (ServerType.L10N,) if is_l10n_module(m) else server_types:
+                modules[server_type].add(m)
     return modules
 
 
@@ -1092,22 +1107,12 @@ def free_ports(host: str, start_port: int, count: int) -> list[int]:
     """Find free ports for several servers, each one after the previous: finding a free port doesn't reserve it."""
     ports: list[int] = []
     for _ in range(count):
-        ports.append(_free_port(host, ports[-1] + 1 if ports else start_port))
+        start = ports[-1] + 1 if ports else start_port
+        if (port := find_free_port(start, attempts=65536, host=host)) is None:
+            print_error(f"There is no free port on [b]{host}[/b] from port {start} on.\n")
+            raise Exit(1)
+        ports.append(port)
     return ports
-
-
-def _free_port(host: str, start_port: int) -> int:
-    """Find the first free port on the host starting from the provided port."""
-    for port in range(start_port, 65536):
-        with socket() as s:
-            try:
-                s.bind((host, port))
-            except OSError:
-                continue
-            else:
-                return port
-    print_error(f"There is no free port on [b]{host}[/b] from port {start_port} on.\n")
-    raise Exit(1)
 
 
 def _print_command_for_copy(command: Sequence[str | Path]) -> None:

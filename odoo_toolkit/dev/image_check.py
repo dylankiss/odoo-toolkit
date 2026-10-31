@@ -5,7 +5,6 @@ unnoticed. The registry is asked once a day per image, and the answer is compare
 """
 
 import json
-import os
 import re
 import subprocess
 import time
@@ -16,8 +15,8 @@ from typing import cast
 
 import requests
 
-from odoo_toolkit.common import HTTP_HEADERS, console, print
-from odoo_toolkit.update_check import CHECK_INTERVAL, DISABLE_VARIABLE, get_cache_file
+from odoo_toolkit.common import HTTP_HEADERS, print
+from odoo_toolkit.update_check import CHECK_INTERVAL, REQUEST_TIMEOUT, RETRY_AFTER, get_cache_dir, is_check_disabled
 from odoo_toolkit.versions import OdooVersion
 
 from .runtime import COMPOSE_FILE, get_image_tag
@@ -32,15 +31,12 @@ MANIFEST_TYPES = (
 )
 # How long a command waits for the registry before it goes on without a notice, to not slow it down.
 WAIT_FOR_CHECK = 2.0
-REQUEST_TIMEOUT = 3
-# How long a failed check is remembered, so being offline doesn't slow down every command.
-RETRY_AFTER = 60 * 60
 _cache_lock = Lock()
 
 
 def get_cache_path() -> Path:
     """Get the file the digests of the registry are remembered in."""
-    return get_cache_file().parent / "image-digests.json"
+    return get_cache_dir() / "image-digests.json"
 
 
 def parse_image(image: str) -> tuple[str, str] | None:
@@ -178,16 +174,6 @@ def find_outdated_images(images: list[str], *, now: float | None = None) -> list
     return [image for image in images if outdated.get(image)]
 
 
-def is_check_disabled() -> bool:
-    """Check whether nothing should be checked: in scripts, in CI, for shell completion, or if you turned it off."""
-    return bool(
-        os.environ.get(DISABLE_VARIABLE)
-        or os.environ.get("CI")
-        or "_OTK_COMPLETE" in os.environ
-        or not console.is_terminal,
-    )
-
-
 def notify_outdated_images(version: OdooVersion | None = None) -> None:
     """Tell about newer builds of the Odoo image of a version, if one is given, and of the shared services.
 
@@ -195,11 +181,13 @@ def notify_outdated_images(version: OdooVersion | None = None) -> None:
     """
     if is_check_disabled():
         return
-    odoo_image = get_image_tag(version) if version else None
-    for image in find_outdated_images([*([odoo_image] if odoo_image else []), *get_service_images()]):
-        if image == odoo_image:
+    images = get_service_images()
+    if version:
+        images.insert(0, get_image_tag(version))
+    for image in find_outdated_images(images):
+        if version and image == get_image_tag(version):
             print(
-                f"[dim]A newer build of the [b]{version.name if version else ''}[/b] image is available. Get it with "
+                f"[dim]A newer build of the [b]{version.name}[/b] image is available. Get it with "
                 "[b]otk dev run --pull[/b] or [b]otk dev shell --pull[/b], and rebuild your dev container.[/dim]",
             )
         else:

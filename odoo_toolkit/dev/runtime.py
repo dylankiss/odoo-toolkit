@@ -143,14 +143,9 @@ def get_odoo_args(
     addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
     args = [
         f"--addons-path={','.join(str(path) for path in addons_paths)}",
-        f"--db_host={DB_HOST}",
-        "--db_user=odoo",
-        "--db_password=odoo",
+        *get_container_args(),
         f"--smtp={SMTP_HOST}",
         "--smtp-port=1025",
-        # Since saas-19.1, Odoo only listens on the container's localhost by default, which Docker can't publish.
-        "--http-interface=0.0.0.0",
-        f"--http-port={ODOO_PORT}",
         f"--data-dir={VOLUMES['otk-filestore']}",
         # Don't stop requests while you're paused in the debugger.
         "--limit-time-cpu=99999",
@@ -159,6 +154,18 @@ def get_odoo_args(
     if upgrade and (upgrade_paths := get_upgrade_paths(version_dir)):
         args.append(f"--upgrade-path={','.join(str(path) for path in upgrade_paths)}")
     return args
+
+
+def get_container_args() -> list[str]:
+    """Get the Odoo options that connect Odoo in a container to the shared PostgreSQL, and let Docker publish it."""
+    return [
+        f"--db_host={DB_HOST}",
+        "--db_user=odoo",
+        "--db_password=odoo",
+        # Since saas-19.1, Odoo only listens on the container's localhost by default, which Docker can't publish.
+        "--http-interface=0.0.0.0",
+        f"--http-port={ODOO_PORT}",
+    ]
 
 
 def build_odoo_command(options: RunOptions) -> list[str]:
@@ -302,18 +309,18 @@ def get_user_ids() -> tuple[int, int] | None:
     return (os.getuid(), os.getgid()) if sys.platform == "linux" else None
 
 
-def is_port_free(port: int) -> bool:
-    """Check whether a port on your machine is free to publish a container port on."""
+def is_port_free(port: int, host: str = "127.0.0.1") -> bool:
+    """Check whether a port on your machine is free for a server, like a container port to publish."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        # Like a server, ignore the connections of a stopped container that are still closing.
+        # Like a server, ignore the connections of a stopped server that are still closing.
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            sock.bind(("127.0.0.1", port))
+            sock.bind((host, port))
         except OSError:
             return False
     return True
 
 
-def find_free_port(start: int, attempts: int = 20) -> int | None:
+def find_free_port(start: int, attempts: int = 20, host: str = "127.0.0.1") -> int | None:
     """Find the first free port from a given one."""
-    return next((port for port in range(start, start + attempts) if is_port_free(port)), None)
+    return next((port for port in range(start, min(start + attempts, 65536)) if is_port_free(port, host)), None)

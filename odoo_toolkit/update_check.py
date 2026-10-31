@@ -18,6 +18,10 @@ CHECK_INTERVAL = 24 * 60 * 60
 WAIT_FOR_CHECK = 1.0
 # Set it to anything to never check for a new version of the toolkit, or of the Docker images of `otk dev`.
 DISABLE_VARIABLE = "OTK_NO_UPDATE_CHECK"
+# Seconds to wait for an answer: a check is only a courtesy.
+REQUEST_TIMEOUT = 3
+# How long a failed check is remembered, so being offline doesn't slow down every command.
+RETRY_AFTER = 60 * 60
 
 
 def is_installed_from_index() -> bool:
@@ -31,10 +35,24 @@ def is_installed_from_index() -> bool:
         return False
 
 
+def get_cache_dir() -> Path:
+    """Get the folder the toolkit remembers what it checked in, in `$XDG_CACHE_HOME` or `~/.cache`."""
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "odoo-toolkit"
+
+
 def get_cache_file() -> Path:
     """Get the file the latest known version is remembered in."""
-    cache_dir = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return cache_dir / "odoo-toolkit" / "latest-version.json"
+    return get_cache_dir() / "latest-version.json"
+
+
+def is_check_disabled() -> bool:
+    """Check whether nothing should be checked: in scripts, in CI, for shell completion, or if you turned it off."""
+    return bool(
+        os.environ.get(DISABLE_VARIABLE)
+        or os.environ.get("CI")
+        or "_OTK_COMPLETE" in os.environ
+        or not console.is_terminal,
+    )
 
 
 def parse_version(version: str) -> tuple[int, ...] | None:
@@ -62,16 +80,18 @@ def get_latest_version(cache_file: Path, *, now: float | None = None) -> str | N
     with suppress(OSError, ValueError, KeyError, TypeError):
         cached = json.loads(cache_file.read_text(encoding="utf-8"))
         if now - float(cached["checked"]) < CHECK_INTERVAL:
-            return str(cached["version"])
+            return None if cached["version"] is None else str(cached["version"])
     try:
-        response = requests.get(LATEST_VERSION_URL, headers=HTTP_HEADERS, timeout=3)
+        response = requests.get(LATEST_VERSION_URL, headers=HTTP_HEADERS, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
-        latest = str(response.json()["info"]["version"])
+        latest: str | None = str(response.json()["info"]["version"])
+        checked = now
     except (requests.RequestException, ValueError, KeyError, TypeError):
-        return None
+        # Remembered for a while too, so being offline doesn't slow down every command.
+        latest, checked = None, now - CHECK_INTERVAL + RETRY_AFTER
     with suppress(OSError):
         cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps({"checked": now, "version": latest}), encoding="utf-8")
+        cache_file.write_text(json.dumps({"checked": checked, "version": latest}), encoding="utf-8")
     return latest
 
 
@@ -81,14 +101,7 @@ def check_for_update(ctx: Context) -> None:
     Nothing is checked in scripts, in CI, for shell completion, or for a toolkit that isn't installed from PyPI, like a
     development version.
     """
-    if (
-        os.environ.get(DISABLE_VARIABLE)
-        or os.environ.get("CI")
-        or "_OTK_COMPLETE" in os.environ
-        or not console.is_terminal
-        or parse_version(VERSION) is None
-        or not is_installed_from_index()
-    ):
+    if is_check_disabled() or parse_version(VERSION) is None or not is_installed_from_index():
         return
 
     latest: list[str] = []

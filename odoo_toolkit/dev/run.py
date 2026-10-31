@@ -35,6 +35,10 @@ class Platform(StrEnum):
     ARM64 = "arm64"
 
 
+BuildOption = Annotated[bool, Option("--build", help="Build the image on your machine instead of pulling it.")]
+PullOption = Annotated[bool, Option("--pull", help="Pull the latest image, even if you have one already.")]
+
+
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def run(
     context: Context,
@@ -75,8 +79,8 @@ def run(
             "several times.",
         ),
     ] = EMPTY_LIST,
-    build: Annotated[bool, Option("--build", help="Build the image on your machine instead of pulling it.")] = False,
-    pull: Annotated[bool, Option("--pull", help="Pull the latest image, even if you have one already.")] = False,
+    build: BuildOption = False,
+    pull: PullOption = False,
     db_port: Annotated[
         int | None,
         Option(
@@ -158,8 +162,8 @@ def run(
 
 @app.command()
 def shell(
-    build: Annotated[bool, Option("--build", help="Build the image on your machine instead of pulling it.")] = False,
-    pull: Annotated[bool, Option("--pull", help="Pull the latest image, even if you have one already.")] = False,
+    build: BuildOption = False,
+    pull: PullOption = False,
     platform: Annotated[
         Platform | None,
         Option("--platform", help="Use the image of this architecture. Defaults to the architecture of this machine."),

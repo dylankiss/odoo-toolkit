@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import requests
@@ -77,14 +78,40 @@ def test_get_latest_version_asks_pypi_once_a_day(tmp_path: Path, monkeypatch: py
     assert len(requested) == 2
 
 
-def test_get_latest_version_without_pypi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def get(_url: str, **_kwargs: object) -> FakeResponse:
+def test_get_latest_version_without_pypi_is_not_asked_again_at_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def get(url: str, **_kwargs: object) -> FakeResponse:
+        calls.append(url)
         raise requests.ConnectionError
 
     monkeypatch.setattr(update_check.requests, "get", get)
+    cache_file = tmp_path / "latest-version.json"
 
-    assert update_check.get_latest_version(tmp_path / "latest-version.json") is None
-    assert not (tmp_path / "latest-version.json").exists()
+    assert update_check.get_latest_version(cache_file, now=1000.0) is None
+    # Offline, every command would otherwise wait for PyPI again, but an hour later it's asked again.
+    assert update_check.get_latest_version(cache_file, now=1000.0 + 600) is None
+    assert len(calls) == 1
+    update_check.get_latest_version(cache_file, now=1000.0 + update_check.RETRY_AFTER + 1)
+    assert len(calls) == 2
+
+
+def test_nothing_is_checked_in_scripts_or_when_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("OTK_NO_UPDATE_CHECK", raising=False)
+    monkeypatch.setattr(update_check, "console", SimpleNamespace(is_terminal=True))
+    assert not update_check.is_check_disabled()
+
+    monkeypatch.setenv("OTK_NO_UPDATE_CHECK", "1")
+    assert update_check.is_check_disabled()
+    monkeypatch.delenv("OTK_NO_UPDATE_CHECK")
+    monkeypatch.setenv("CI", "true")
+    assert update_check.is_check_disabled()
+    monkeypatch.delenv("CI")
+    monkeypatch.setattr(update_check, "console", SimpleNamespace(is_terminal=False))
+    assert update_check.is_check_disabled()
 
 
 def test_version_is_printed_on_stdout() -> None:

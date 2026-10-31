@@ -21,7 +21,15 @@ from odoo_toolkit.common import (
     print_warning,
 )
 
-from .common import ODOO_LANGUAGES, get_nplurals, get_plural_forms, process_modules, select_modules
+from .common import (
+    ODOO_LANGUAGES,
+    format_failures,
+    format_po_written,
+    get_nplurals,
+    get_plural_forms,
+    process_modules,
+    select_modules,
+)
 
 app = Typer()
 
@@ -107,7 +115,7 @@ def create(
         extra_addons_paths=extra_addons_paths,
     )
     if not selection.module_to_path:
-        print_error("The provided modules are not available! Nothing to create ...")
+        print_error("The provided modules are not available! Nothing to create ...\n")
         raise Exit(1)
 
     print(f"Modules to create translation files for: [b]{'[/b], [b]'.join(sorted(selection.module_to_path))}[/b]\n")
@@ -125,7 +133,7 @@ def create(
     if not processed:
         print_warning("There were no .pot files to create translation files from.\n")
     elif failures:
-        failed_str = "\n".join(f"- [b]{module}[/b]: {', '.join(langs)}" for module, langs in failures.items())
+        failed_str = format_failures(failures)
         print_error(f"Some translation files weren't created:\n\n{failed_str}\n")
         raise Exit(1)
     else:
@@ -167,7 +175,7 @@ def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[b
         except OSError as e:
             return False, get_error_log_panel(str(e), f"Creating {po_path.name} failed!")
         else:
-            return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
+            return True, format_po_written(po_path)
     else:
         # Fallback to using `polib` if `msginit` is not available.
         try:
@@ -186,4 +194,4 @@ def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[b
         except (OSError, ValueError) as e:
             return False, get_error_log_panel(str(e), f"Creating {po_path.name} failed!")
         else:
-            return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
+            return True, format_po_written(po_path)
