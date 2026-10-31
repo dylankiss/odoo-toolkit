@@ -47,6 +47,8 @@ def stop(
     else:
         print_success("No Odoo container is running" + (f" for [b]{version}[/b]." if version else "."))
     if include_services:
-        stop_services()
+        if error := stop_services():
+            print_error("Stopping PostgreSQL, Mailpit and pgAdmin failed.", error)
+            raise Exit(1)
         print_success("Stopped PostgreSQL, Mailpit and pgAdmin.")
     print()

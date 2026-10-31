@@ -3,8 +3,11 @@ from pathlib import Path
 
 import pytest
 import requests
+from typer.testing import CliRunner
 
 from odoo_toolkit import update_check
+from odoo_toolkit.common import VERSION
+from odoo_toolkit.main import app
 
 
 class FakeResponse:
@@ -82,3 +85,11 @@ def test_get_latest_version_without_pypi(tmp_path: Path, monkeypatch: pytest.Mon
 
     assert update_check.get_latest_version(tmp_path / "latest-version.json") is None
     assert not (tmp_path / "latest-version.json").exists()
+
+
+def test_version_is_printed_on_stdout() -> None:
+    result = CliRunner().invoke(app, ["--version"])
+
+    # So `$(otk --version)` gets it, while the other output goes to stderr.
+    assert result.exit_code == 0
+    assert result.stdout.strip() == VERSION

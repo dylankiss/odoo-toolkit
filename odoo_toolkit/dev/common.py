@@ -3,6 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import requests
 from typer import Exit
 
 from odoo_toolkit.common import TransientProgress, print, print_error, print_warning
@@ -94,13 +95,18 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
         raise Exit(1)
 
 
-def stop_services() -> None:
-    """Stop the shared services. Their data stays in their volumes."""
-    subprocess.run(
+def stop_services() -> str | None:
+    """Stop the shared services. Their data stays in their volumes.
+
+    :return: Why stopping them failed, or None if it worked.
+    """
+    result = subprocess.run(
         ["docker", "compose", "--file", str(COMPOSE_FILE), "--profile", "pgadmin", "down"],
         capture_output=True,
+        text=True,
         check=False,
     )
+    return (result.stderr.strip() or "Docker Compose failed.") if result.returncode else None
 
 
 def ensure_image(version: OdooVersion, *, build: bool, arch: Arch, pull: bool = False) -> None:
@@ -116,38 +122,64 @@ def ensure_image(version: OdooVersion, *, build: bool, arch: Arch, pull: bool = 
     tag = get_image_tag(version)
     user_ids = get_user_ids()
     # On Linux, the image must run as your user, while the ones on Docker Hub run as 1000.
-    uid = str(user_ids[0]) if user_ids and user_ids[0] != DEFAULT_UID else str(DEFAULT_UID)
+    uid = user_ids[0] if user_ids else DEFAULT_UID
 
     def is_usable() -> bool:
         labels = get_image_labels(tag, arch) or {}
-        return labels.get(LAYOUT_LABEL) == LAYOUT_VERSION and labels.get(UID_LABEL, str(DEFAULT_UID)) == uid
+        return labels.get(LAYOUT_LABEL) == LAYOUT_VERSION and labels.get(UID_LABEL, str(DEFAULT_UID)) == str(uid)
 
     if build:
-        emulated = " It runs emulated on this machine, so this takes long." if arch != get_native_arch() else ""
-        print(f"Building [b]{tag}[/b] for {arch}.{emulated}\n")
-        try:
-            build_image(version.image, arch, user_ids=user_ids if uid != str(DEFAULT_UID) else None)
-        except subprocess.CalledProcessError as e:
-            print_error("Building the image failed. See the output above.")
-            raise Exit(1) from e
+        _build(version, arch, user_ids if uid != DEFAULT_UID else None)
+    elif uid != DEFAULT_UID:
+        if pull:
+            print_warning(
+                f"The images on Docker Hub run as user ID {DEFAULT_UID}, but yours is {uid}, so there is nothing to "
+                "pull. Rebuild yours with [b]--build[/b].\n",
+            )
     # Only pull an image of this toolkit: pulling replaces what the tag points to locally, like an image you built.
-    elif (pull or not is_usable()) and uid == str(DEFAULT_UID):
-        if get_remote_image_layout(tag, arch) == LAYOUT_VERSION:
-            _pull(tag, arch)
-        elif pull:
-            print_warning(f"Docker Hub has no {arch} image of [b]{tag}[/b] for this version of the toolkit.\n")
+    elif pull or not is_usable():
+        if get_remote_image_layout(tag, arch) != LAYOUT_VERSION:
+            if pull:
+                print_warning(f"Docker Hub has no {arch} image of [b]{tag}[/b] for this version of the toolkit.\n")
+        elif not _pull(tag, arch) and not is_usable():
+            # Why is already printed.
+            raise Exit(1)
     if not is_usable():
         reason = (
             f"The images on Docker Hub run as user ID {DEFAULT_UID}, but yours is {uid}."
-            if uid != str(DEFAULT_UID)
+            if uid != DEFAULT_UID
             else f"There is no {arch} image for Odoo [b]{version.name}[/b] for this version of the toolkit yet."
         )
         print_error(f"{reason} Build one on your machine with [b]--build[/b].\n")
         raise Exit(1)
 
 
-def _pull(tag: str, arch: Arch) -> None:
-    """Pull an image, showing why it failed if it did."""
+def _build(version: OdooVersion, arch: Arch, user_ids: tuple[int, int] | None) -> None:
+    """Build the image of an Odoo version on this machine.
+
+    :param version: The Odoo version.
+    :param arch: The architecture to build for.
+    :param user_ids: The user and group IDs the image runs as, or None for the ones of the images on Docker Hub.
+    :raises Exit: If building failed.
+    """
+    emulated = " It runs emulated on this machine, so this takes long." if arch != get_native_arch() else ""
+    print(f"Building [b]{get_image_tag(version)}[/b] for {arch}.{emulated}\n")
+    try:
+        build_image(version.image, arch, user_ids=user_ids)
+    except subprocess.CalledProcessError as e:
+        print_error("Building the image failed. See the output above.")
+        raise Exit(1) from e
+    except (requests.RequestException, ValueError) as e:
+        # Adapting the image to arm64 needs to look up what Google publishes, and can't adapt everything.
+        print_error("Preparing the image failed.", str(e))
+        raise Exit(1) from e
+
+
+def _pull(tag: str, arch: Arch) -> bool:
+    """Pull an image, showing why it failed if it did.
+
+    :return: Whether it was pulled.
+    """
     with TransientProgress() as progress:
         progress.add_task(f"Pulling {tag} for {arch}", total=None)
         result = subprocess.run(
@@ -155,6 +187,7 @@ def _pull(tag: str, arch: Arch) -> None:
         )
     if result.returncode:
         print_error(f"Pulling [b]{tag}[/b] failed.", result.stderr.strip())
+    return not result.returncode
 
 
 def get_run_containers(version: str | None = None, role: Role | None = "run") -> list[str]:

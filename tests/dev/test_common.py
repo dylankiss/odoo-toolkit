@@ -12,9 +12,17 @@ TAG = "dylankiss/odoo-dev:19.0"
 class FakeDocker:
     """Stand in for the Docker commands `ensure_image` runs."""
 
-    def __init__(self, monkeypatch: pytest.MonkeyPatch, *, local: dict[str, str] | None, remote: str | None) -> None:
+    def __init__(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        local: dict[str, str] | None,
+        remote: str | None,
+        pull_fails: bool = False,
+    ) -> None:
         self.local = local
         self.remote = remote
+        self.pull_fails = pull_fails
         self.pulled: list[str] = []
         self.built: list[Any] = []
         monkeypatch.setattr(dev_common, "check_docker", lambda: None)
@@ -29,9 +37,12 @@ class FakeDocker:
     def remote_layout(self, *_: object) -> str | None:
         return self.remote
 
-    def pull(self, tag: str, _: str) -> None:
+    def pull(self, tag: str, _: str) -> bool:
         self.pulled.append(tag)
+        if self.pull_fails:
+            return False
         self.local = {dev_common.LAYOUT_LABEL: self.remote or ""}
+        return True
 
     def build(self, image: str, arch: str, *, user_ids: tuple[int, int] | None) -> None:
         self.built.append((image, arch, user_ids))
@@ -58,6 +69,37 @@ def test_old_images_are_never_pulled(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(dev_common.Exit):
         dev_common.ensure_image(get_versions()["19.0"], build=False, arch="arm64")
     assert docker.pulled == []
+
+
+def test_a_failed_pull_says_so_once(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(dev_common, "get_user_ids", lambda: None)
+    FakeDocker(monkeypatch, local=None, remote="2", pull_fails=True)
+
+    with pytest.raises(dev_common.Exit):
+        dev_common.ensure_image(get_versions()["19.0"], build=False, arch="arm64")
+    # The pull printed why it failed, so there's no second message saying there is no image.
+    assert "There is no" not in capsys.readouterr().err
+
+
+def test_a_failed_pull_keeps_the_image_you_have(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dev_common, "get_user_ids", lambda: None)
+    FakeDocker(monkeypatch, local={dev_common.LAYOUT_LABEL: "2"}, remote="2", pull_fails=True)
+
+    dev_common.ensure_image(get_versions()["19.0"], build=False, arch="arm64", pull=True)
+
+
+def test_preparing_an_image_can_fail_without_a_traceback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dev_common, "get_user_ids", lambda: None)
+    FakeDocker(monkeypatch, local=None, remote=None)
+
+    def build(*_: object, **__: object) -> None:
+        msg = "still downloads amd64 packages"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(dev_common, "build_image", build)
+
+    with pytest.raises(dev_common.Exit):
+        dev_common.ensure_image(get_versions()["19.0"], build=True, arch="arm64")
 
 
 def test_linux_users_other_than_1000_build_their_own_image(monkeypatch: pytest.MonkeyPatch) -> None:

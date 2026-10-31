@@ -164,6 +164,8 @@ def _create_po_for_lang(lang: str, pot_path: Path, module_path: Path) -> tuple[b
             po_path.write_text(EMPTY_PLURALS_PATTERN.sub(lambda _: empty_plurals, content), encoding="utf-8")
         except subprocess.CalledProcessError as e:
             return False, get_error_log_panel(e.stderr.decode().strip(), f"Creating {po_path.name} failed!")
+        except OSError as e:
+            return False, get_error_log_panel(str(e), f"Creating {po_path.name} failed!")
         else:
             return True, f"[d]{po_path.parent}{os.sep}[/d][b]{po_path.name}[/b] :white_check_mark:"
     else:
