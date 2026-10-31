@@ -233,6 +233,10 @@ def test_write_vscode_config(tmp_path: Path) -> None:
     assert "python.defaultInterpreterPath" not in settings
     assert settings["git.scanRepositories"] == ["upgrade"]
     launch = json.loads((version_dir / ".vscode" / "launch.json").read_text())
+    # Vendored libraries are left out of searching and watching, but translations stay in, since people work on them.
+    assert settings["search.exclude"]["**/static/lib"] is True
+    assert settings["files.watcherExclude"]["**/static/lib/**"] is True
+    assert "**/i18n/*.po" not in settings["search.exclude"]
     tasks = json.loads((version_dir / ".vscode" / "tasks.json").read_text())
     run_and_debug = launch["configurations"][0]
     # F5 runs Odoo with the debugger, and the paths are the same in the container, so no mappings are needed.

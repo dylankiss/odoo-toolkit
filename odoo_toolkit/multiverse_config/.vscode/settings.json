@@ -185,11 +185,16 @@
     "python.terminal.activateEnvInCurrentTerminal": true,
     "ruff.enable": true,
     "ruff.format.preview": true,
+    "files.watcherExclude": {
+        "**/node_modules/**": true,
+        "**/static/lib/**": true
+    },
     "search.exclude": {
         "**/.github": true,
         "**/.venv": true,
         "**/.vscode": true,
-        "**/node_modules": true
+        "**/node_modules": true,
+        "**/static/lib": true
     },
     "xml.codeLens.enabled": true,
     "xml.format.closingBracketNewLine": true,
