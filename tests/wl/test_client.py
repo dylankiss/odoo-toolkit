@@ -4,17 +4,13 @@ import threading
 import zipfile
 from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
 from requests import PreparedRequest, ReadTimeout, Response
-from typer.testing import CliRunner
 
-from odoo_toolkit.common import TransientProgress
-from odoo_toolkit.main import app
+from odoo_toolkit.common import USER_AGENT, TransientProgress
 from odoo_toolkit.wl import common as wl_common
-from odoo_toolkit.wl import upload as wl_upload
 from odoo_toolkit.wl.common import (
     REQUEST_TIMEOUT,
     WeblateApi,
@@ -22,6 +18,7 @@ from odoo_toolkit.wl.common import (
     WeblateConnectionError,
     WeblateRateLimiter,
 )
+from tests.wl.conftest import configure_token
 
 
 def make_response(status: int, *, headers: dict[str, str] | None = None, body: bytes = b"{}") -> Response:
@@ -98,7 +95,7 @@ def weblate(monkeypatch: pytest.MonkeyPatch) -> Iterator[type[FakeWeblate]]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     monkeypatch.setattr(wl_common, "WEBLATE_URL", f"http://127.0.0.1:{server.server_address[1]}")
-    monkeypatch.setattr(wl_common, "WEBLATE_API_TOKEN", "secret")
+    configure_token(monkeypatch)
     no_waiting(monkeypatch)
     yield FakeWeblate
     server.shutdown()
@@ -226,13 +223,13 @@ def test_downloads_are_retried_after_a_server_error(weblate: type[FakeWeblate]) 
     assert weblate.requests == ["GET", "GET", "GET"]
 
 
+@pytest.mark.usefixtures("weblate_token")
 def test_unreachable_weblate_becomes_a_weblate_error(monkeypatch: pytest.MonkeyPatch) -> None:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     # Nothing listens on the port anymore.
     monkeypatch.setattr(wl_common, "WEBLATE_URL", f"http://127.0.0.1:{port}")
-    monkeypatch.setattr(wl_common, "WEBLATE_API_TOKEN", "secret")
     no_waiting(monkeypatch)
 
     with pytest.raises(WeblateConnectionError, match="couldn't connect"):
@@ -250,8 +247,8 @@ def test_error_summary_and_hidden_upload_body() -> None:
     assert "xxxx" not in str(error)
 
 
+@pytest.mark.usefixtures("weblate_token")
 def test_every_request_has_a_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(wl_common, "WEBLATE_API_TOKEN", "secret")
     timeouts: list[Any] = []
 
     def request(*_: object, **kwargs: Any) -> Response:  # noqa: ANN401
@@ -310,49 +307,9 @@ def test_zip_extraction_uses_the_file_names_of_odoo() -> None:
     assert wl_common.extract_po_files_from_zip(buffer.getvalue(), {"sale"}) == {"sale": b"content"}
 
 
-def test_cli_copy_invalid_arguments_exit_with_an_error() -> None:
-    result = CliRunner().invoke(app, ["wl", "copy", "-p", "odoo-19", "-l", "fr,nl", "-L", "de"])
-    assert result.exit_code == 1
-    assert "exactly one source language" in result.output
+@pytest.mark.usefixtures("weblate_token")
+def test_weblate_api_sends_user_agent_and_bearer_token() -> None:
+    api = WeblateApi()
 
-
-def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(wl_common, "WEBLATE_API_TOKEN", "secret")
-    (tmp_path / "odoo-19-account-fr.po").write_bytes(b'msgid "a"\nmsgstr "b"\n')
-    # Another project's file, and another language's.
-    (tmp_path / "odoo-18-account-fr.po").write_bytes(b"")
-    (tmp_path / "odoo-19-account-nl.po").write_bytes(b"")
-    # The file of a project whose name starts with this one's, `odoo-19-l10n`, which looks like component `l10n-…`.
-    (tmp_path / "odoo-19-l10n-l10n_be-fr.po").write_bytes(b"")
-    sent: list[tuple[tuple[object, ...], dict[str, Any]]] = []
-
-    def request(_: WeblateApi, *args: object, **kwargs: Any) -> dict[str, int]:  # noqa: ANN401
-        sent.append((args, kwargs))
-        return {"accepted": 1, "skipped": 0, "not_found": 0, "total": 1}
-
-    def get_slugs(_api: WeblateApi, _project: str) -> set[str]:
-        return {"account", "sale"}
-
-    monkeypatch.setattr(WeblateApi, "request", request)
-    monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", get_slugs)
-
-    result = CliRunner().invoke(
-        app, ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
-    )
-
-    assert result.exit_code == 0, result.output
-    # Only the file of this project and language.
-    assert len(sent) == 1
-    args, kwargs = sent[0]
-    assert args[1:] == ("POST", "/api/translations/odoo-19/account/fr/file/")
-    assert kwargs["data"] == {
-        "method": "suggest",
-        "conflicts": "ignore",
-        "fuzzy": "process",
-        "author_name": "Ann",
-        "author_email": "ann@example.com",
-    }
-    assert "params" not in kwargs
-    assert "Updated 1 and skipped 0 translation(s)." in result.output
-    assert "odoo-19-l10n-l10n_be-fr.po" in result.output
+    assert api.session.headers["User-Agent"] == USER_AGENT
+    assert api.session.headers["Authorization"] == "Bearer secret"

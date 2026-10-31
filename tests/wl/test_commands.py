@@ -5,24 +5,14 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from odoo_toolkit.common import get_config_file, normalize_list_option
+from odoo_toolkit.common import get_config_file
 from odoo_toolkit.main import app
-from odoo_toolkit.po.common import get_cldr_lang, get_odoo_lang
 from odoo_toolkit.wl import common as wl_common
 from odoo_toolkit.wl import update_teams as wl_update_teams
+from odoo_toolkit.wl import upload as wl_upload
 from odoo_toolkit.wl.authors import ConfigError
+from odoo_toolkit.wl.common import WeblateApi
 from odoo_toolkit.wl.config import WeblateConfig, get_l10n_language_map
-
-
-def test_normalize_list_option_drops_empty_items() -> None:
-    assert normalize_list_option(["fr, nl,", "de"]) == ["fr", "nl", "de"]
-
-
-def test_language_codes_of_weblate_and_odoo() -> None:
-    assert get_cldr_lang("zh_CN") == "zh_Hans"
-    assert get_odoo_lang("zh_Hans") == "zh_CN"
-    assert get_odoo_lang("sr_Latn") == "sr@latin"
-    assert get_odoo_lang("fr") == "fr"
 
 
 def test_config_forgets_the_languages_of_modules_without_them(tmp_path: Path) -> None:
@@ -142,3 +132,51 @@ def test_update_teams_changes_nothing_for_unknown_projects(teams_api: FakeTeamsA
     assert result.exit_code == 1
     assert "odoo-91" in result.output
     assert teams_api.changes == []
+
+
+def test_cli_copy_invalid_arguments_exit_with_an_error() -> None:
+    result = CliRunner().invoke(app, ["wl", "copy", "-p", "odoo-19", "-l", "fr,nl", "-L", "de"])
+    assert result.exit_code == 1
+    assert "exactly one source language" in result.output
+
+
+@pytest.mark.usefixtures("weblate_token")
+def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "odoo-19-account-fr.po").write_bytes(b'msgid "a"\nmsgstr "b"\n')
+    # Another project's file, and another language's.
+    (tmp_path / "odoo-18-account-fr.po").write_bytes(b"")
+    (tmp_path / "odoo-19-account-nl.po").write_bytes(b"")
+    # The file of a project whose name starts with this one's, `odoo-19-l10n`, which looks like component `l10n-…`.
+    (tmp_path / "odoo-19-l10n-l10n_be-fr.po").write_bytes(b"")
+    sent: list[tuple[tuple[object, ...], dict[str, Any]]] = []
+
+    def request(_: WeblateApi, *args: object, **kwargs: Any) -> dict[str, int]:  # noqa: ANN401
+        sent.append((args, kwargs))
+        return {"accepted": 1, "skipped": 0, "not_found": 0, "total": 1}
+
+    def get_slugs(_api: WeblateApi, _project: str) -> set[str]:
+        return {"account", "sale"}
+
+    monkeypatch.setattr(WeblateApi, "request", request)
+    monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", get_slugs)
+
+    result = CliRunner().invoke(
+        app, ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Only the file of this project and language.
+    assert len(sent) == 1
+    args, kwargs = sent[0]
+    assert args[1:] == ("POST", "/api/translations/odoo-19/account/fr/file/")
+    assert kwargs["data"] == {
+        "method": "suggest",
+        "conflicts": "ignore",
+        "fuzzy": "process",
+        "author_name": "Ann",
+        "author_email": "ann@example.com",
+    }
+    assert "params" not in kwargs
+    assert "Updated 1 and skipped 0 translation(s)." in result.output
+    assert "odoo-19-l10n-l10n_be-fr.po" in result.output

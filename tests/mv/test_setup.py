@@ -12,10 +12,7 @@ from odoo_toolkit.mv import config as mv_config
 from odoo_toolkit.mv import setup as mv_setup
 from odoo_toolkit.mv.config import KNOWN_REPOS
 from odoo_toolkit.mv.repos import Outcome, RepoResult
-
-
-def git(cwd: Path, *args: str, check: bool = True) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True).stdout.strip()
+from tests.mv.conftest import git, make_version_dir, run_setup
 
 
 def stub_slow_steps(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -37,8 +34,13 @@ def stub_slow_steps(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return calls
 
 
+def get_source_dir(tmp_path: Path, repo: str = "odoo") -> Path:
+    """Get where the bare clone of a versioned repository goes, in the multiverse of a test."""
+    return tmp_path / "mv" / ".worktree-source" / repo
+
+
 @pytest.fixture
-def remotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def github(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Create local GitHub-like remotes, and clone from them.
 
     - `odoo/odoo` has version branches, and staging and forward-port branches that must not be fetched.
@@ -76,8 +78,8 @@ def remotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return remotes_dir
 
 
-def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> None:
-    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+def test_clone_bare_repo_configures_remotes(tmp_path: Path, github: Path) -> None:
+    repo_dir = get_source_dir(tmp_path)
 
     result = mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
 
@@ -90,7 +92,7 @@ def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> No
     assert git(bare, "config", "--get-all", "remote.dev.fetch") == "+refs/heads/*-test:refs/remotes/dev/*-test"
     # Only the default branch is cloned as a local branch.
     assert git(bare, "for-each-ref", "--format=%(refname)", "refs/heads") == "refs/heads/master"
-    assert git(bare, "remote", "get-url", "dev") == f"file://{remotes}/odoo-dev/odoo.git"
+    assert git(bare, "remote", "get-url", "dev") == f"file://{github}/odoo-dev/odoo.git"
     assert git(bare, "remote", "get-url", "--push", "origin") == "NO_PUSH_TRY_DEV_REPO"
     assert git(bare, "config", "remote.origin.partialclonefilter") == "blob:none"
     assert (repo_dir / ".git").read_text() == "gitdir: ./.bare\n"
@@ -100,9 +102,9 @@ def test_clone_bare_repo_configures_remotes(tmp_path: Path, remotes: Path) -> No
     assert git(bare, "config", "--get-all", "remote.dev.fetch") == "+refs/heads/*-abcd:refs/remotes/dev/*-abcd"
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_clone_bare_repo_with_full_history(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+    repo_dir = get_source_dir(tmp_path)
 
     result = mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir, full_history=True)
 
@@ -112,9 +114,9 @@ def test_clone_bare_repo_with_full_history(tmp_path: Path) -> None:
     assert not git(bare, "rev-list", "--objects", "--all", "--missing=print", "--filter-print-omitted").count("?")
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_clone_bare_repo_completes_a_partial_clone(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+    repo_dir = get_source_dir(tmp_path)
     mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
     bare = repo_dir / ".bare"
     assert git(bare, "rev-list", "--objects", "--all", "--missing=print").count("?")
@@ -130,9 +132,9 @@ def test_clone_bare_repo_completes_a_partial_clone(tmp_path: Path) -> None:
     assert mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir, full_history=True).outcome == Outcome.SKIPPED
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_add_worktree_tracks_origin(tmp_path: Path) -> None:
-    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+    repo_dir = get_source_dir(tmp_path)
     mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
     worktree = tmp_path / "mv" / "19.0" / "odoo"
 
@@ -254,15 +256,14 @@ def test_write_vscode_config(tmp_path: Path) -> None:
     assert mv_setup.write_vscode_config(version_dir, reset=True).outcome == Outcome.UPDATED
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_cli_reset_config_keeps_shared_repos_of_earlier_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
-    runner = CliRunner()
-    assert runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo", "-r", "upgrade"]).exit_code == 0
+    assert run_setup(root, "-b", "19.0", "-r", "odoo", "-r", "upgrade").exit_code == 0
 
     # Setting up only `odoo` again must not drop the `upgrade` link from the configuration.
-    result = runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo", "--reset-config"])
+    result = run_setup(root, "-b", "19.0", "-r", "odoo", "--reset-config")
 
     assert result.exit_code == 0, result.output
     assert (root / "19.0" / "upgrade").is_symlink()
@@ -271,14 +272,9 @@ def test_cli_reset_config_keeps_shared_repos_of_earlier_setup(tmp_path: Path, mo
 
 
 def test_configure_language_server_gives_it_its_paths(tmp_path: Path) -> None:
-    version_dir = tmp_path / "mv" / "19.0"
+    version_dir = make_version_dir(tmp_path / "mv")
     (version_dir / "odoo" / "odoo").mkdir(parents=True)
     (version_dir / "odoo" / "odoo" / "release.py").write_text("")
-    for repo, modules_dir in (("odoo", "addons"), ("enterprise", "")):
-        module_dir = version_dir / repo / modules_dir / "some_module"
-        module_dir.mkdir(parents=True)
-        (module_dir / "__manifest__.py").write_text("{}")
-        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
     (version_dir / ".venv" / "bin").mkdir(parents=True)
     (version_dir / ".venv" / "bin" / "python").write_text("")
     (version_dir / "odoo" / "node_modules" / ".bin").mkdir(parents=True)
@@ -308,12 +304,7 @@ def test_configure_language_server_leaves_out_what_is_not_there(tmp_path: Path) 
 def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mv_setup, "get_git_identity", lambda: {"GIT_AUTHOR_NAME": "Abcd"})
     multiverse_dir = tmp_path / "mv"
-    version_dir = multiverse_dir / "19.0"
-    for repo, modules_dir in (("odoo", "addons"), ("enterprise", "")):
-        module_dir = version_dir / repo / modules_dir / "some_module"
-        module_dir.mkdir(parents=True)
-        (module_dir / "__manifest__.py").write_text("{}")
-        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+    version_dir = make_version_dir(multiverse_dir)
     (version_dir / ".vscode").mkdir()
     bare_dir = multiverse_dir / ".worktree-source" / "odoo" / ".bare"
     bare_dir.mkdir(parents=True)
@@ -375,10 +366,7 @@ def test_write_devcontainer_config_tells_claude_how_the_container_works(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(mv_setup, "get_git_identity", dict)
-    version_dir = tmp_path / "mv" / "19.0"
-    for repo in ("odoo", "enterprise"):
-        (version_dir / repo).mkdir(parents=True)
-        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+    version_dir = make_version_dir(tmp_path / "mv")
 
     mv_setup.write_devcontainer_config(version_dir, reset=False)
 
@@ -466,10 +454,7 @@ def test_link_skills_keeps_your_own_skills_folder(tmp_path: Path) -> None:
 def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def get_git_identity() -> dict[str, str]:
-        return {}
-
-    monkeypatch.setattr(mv_setup, "get_git_identity", get_git_identity)
+    monkeypatch.setattr(mv_setup, "get_git_identity", dict)
     version_dir = tmp_path / "mv" / "19.0"
     version_dir.mkdir(parents=True)
     (tmp_path / "mv" / "multiverse.toml").write_text(
@@ -507,7 +492,7 @@ def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
     assert not (version_dir / ".devcontainer").exists()
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_cli_setup_keeps_the_branch_suffix_you_gave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
@@ -521,16 +506,16 @@ def test_cli_setup_keeps_the_branch_suffix_you_gave(tmp_path: Path, monkeypatch:
     assert git(root / ".worktree-source" / "odoo" / ".bare", "config", "otk.branchSuffix") == "abcd"
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_cli_setup_devcontainer_is_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
     runner = CliRunner()
 
-    assert runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]).exit_code == 0
+    assert run_setup(root, "-b", "19.0", "-r", "odoo").exit_code == 0
     assert not (root / "19.0" / ".devcontainer").exists()
 
-    result = runner.invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo", "--devcontainer"])
+    result = run_setup(root, "-b", "19.0", "-r", "odoo", "--devcontainer")
 
     assert result.exit_code == 0, result.output
     assert (root / "19.0" / ".devcontainer" / "devcontainer.json").is_file()
@@ -582,14 +567,12 @@ def test_get_venv_python(tmp_path: Path) -> None:
     assert mv_setup.get_venv_python(tmp_path / "missing") is None
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
 
-    result = CliRunner().invoke(
-        app, ["mv", "setup", "-d", str(root), "-b", "19.0,master", "-r", "odoo", "-r", "upgrade"],
-    )
+    result = run_setup(root, "-b", "19.0,master", "-r", "odoo", "-r", "upgrade")
 
     assert result.exit_code == 0, result.output
     assert git(root / "19.0" / "odoo", "rev-parse", "--abbrev-ref", "HEAD") == "19.0"
@@ -604,33 +587,31 @@ def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert (root / ".worktree-source" / "odoo" / ".bare" / graph_chain).is_file()
     assert (root / "upgrade" / ".git" / graph_chain).is_file()
     # Running it again changes nothing and still succeeds.
-    assert CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]).exit_code == 0
+    assert run_setup(root, "-b", "19.0", "-r", "odoo").exit_code == 0
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_cli_setup_only_adds_worktrees_in_the_configured_versions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
     root.mkdir()
     (root / "multiverse.toml").write_text('[repos.odoo]\nversions = ["19.0"]\n')
 
-    result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,master", "-r", "odoo"])
+    result = run_setup(root, "-b", "19.0,master", "-r", "odoo")
 
     assert result.exit_code == 0, result.output
     assert (root / "19.0" / "odoo" / ".git").is_file()
     assert not (root / "master" / "odoo").exists()
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 def test_cli_setup_places_pinned_repos_in_the_version_they_run_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
     root.mkdir()
     (root / "multiverse.toml").write_text('[repos.i18n-apps]\nkind = "pinned"\n')
 
-    result = CliRunner().invoke(
-        app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0", "-r", "odoo,upgrade,odoofin,i18n-apps,mobile"],
-    )
+    result = run_setup(root, "-b", "19.0,20.0", "-r", "odoo,upgrade,odoofin,i18n-apps,mobile")
 
     assert result.exit_code == 0, result.output
     # i18n-apps runs on 20.0, detected from its manifests. It lives there, and is linked from the multiverse directory.
@@ -650,13 +631,13 @@ def test_cli_setup_places_pinned_repos_in_the_version_they_run_on(tmp_path: Path
     assert (root / "19.0" / "upgrade").is_symlink()
     assert (root / "20.0" / "upgrade").is_symlink()
     # Running it again without `-r` keeps everything that is set up.
-    result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0"])
+    result = run_setup(root, "-b", "19.0,20.0")
     assert result.exit_code == 0, result.output
     assert (root / "20.0" / "i18n-apps" / ".git").is_dir()
 
     # When it runs on another version, it moves there, and the versions in `also_in` link to it.
     (root / "multiverse.toml").write_text('[repos.i18n-apps]\nkind = "pinned"\nruns_on = "19.0"\nalso_in = ["20.0"]\n')
-    result = CliRunner().invoke(app, ["mv", "setup", "-d", str(root), "-b", "19.0,20.0"])
+    result = run_setup(root, "-b", "19.0,20.0")
     assert result.exit_code == 0, result.output
     assert (root / "19.0" / "i18n-apps" / ".git").is_dir()
     assert (root / "i18n-apps").readlink() == Path("19.0/i18n-apps")
@@ -683,7 +664,7 @@ def test_place_pinned_repo(tmp_path: Path) -> None:
     assert (tmp_path / "odoofin").readlink() == Path("19.0/odoofin")
 
 
-def test_follow_default_branch(tmp_path: Path, remotes: Path) -> None:
+def test_follow_default_branch(tmp_path: Path, github: Path) -> None:
     clone_dir = tmp_path / "mv" / "odoofin"
     result = mv_setup.clone_repo(KNOWN_REPOS["odoofin"], clone_dir)
     assert result.message == "cloned on [b]18.0[/b]"
@@ -695,7 +676,7 @@ def test_follow_default_branch(tmp_path: Path, remotes: Path) -> None:
     ]
     assert mv_setup.follow_default_branch(repo, "odoofin").outcome == Outcome.SKIPPED
 
-    git(remotes / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")
+    git(github / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")
     result = mv_setup.follow_default_branch(repo, "odoofin")
 
     assert result.outcome == Outcome.UPDATED
@@ -703,12 +684,12 @@ def test_follow_default_branch(tmp_path: Path, remotes: Path) -> None:
     assert repo.upstream() == ("origin", "19.0")
 
 
-def test_follow_default_branch_leaves_your_work_alone(tmp_path: Path, remotes: Path) -> None:
+def test_follow_default_branch_leaves_your_work_alone(tmp_path: Path, github: Path) -> None:
     clone_dir = tmp_path / "mv" / "odoofin"
     mv_setup.clone_repo(KNOWN_REPOS["odoofin"], clone_dir)
     repo = Git(clone_dir)
     (clone_dir / "requirements.txt").write_text("changed")
-    git(remotes / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")
+    git(github / "odoo" / "odoofin.git", "symbolic-ref", "HEAD", "refs/heads/19.0")
 
     result = mv_setup.follow_default_branch(repo, "odoofin")
 
@@ -776,12 +757,12 @@ def test_install_requirements_tries_pip_for_what_uv_can_not_install(
     assert installed == [("uv", "good"), ("python", "old-archive")]
 
 
-@pytest.mark.usefixtures("remotes")
+@pytest.mark.usefixtures("github")
 @pytest.mark.parametrize("git_version", [(2, 39), (2, 49)])
 def test_complete_clone_works_with_and_without_backfill(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_version: tuple[int, int],
 ) -> None:
-    repo_dir = tmp_path / "mv" / ".worktree-source" / "odoo"
+    repo_dir = get_source_dir(tmp_path)
     mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)
     monkeypatch.setattr(mv_setup, "get_git_version", lambda: git_version)
     bare = Git(repo_dir / ".bare")
