@@ -1,9 +1,9 @@
 from typing import Annotated
 
-from typer import Context, Exit, Option, Typer
+from typer import Context, Exit, Option, Typer, echo
 
 from .code import code
-from .common import VERSION, print
+from .common import VERSION
 from .dev import app as dev_app
 from .mv import app as mv_app
 from .po import app as po_app
@@ -29,6 +29,7 @@ def main(
     This toolkit contains several useful tools for Odoo development.
     """  # noqa: D400, D415
     if version:
-        print(VERSION if VERSION != "unknown" else "Version could not be detected")
+        # On stdout, unlike the other output, so `$(otk --version)` gets it.
+        echo(VERSION if VERSION != "unknown" else "Version could not be detected")
         raise Exit
     check_for_update(ctx)

@@ -20,6 +20,7 @@ from subprocess import DEVNULL, PIPE, Popen
 from typing import Annotated
 
 from polib import pofile
+from rich.markup import escape
 from rich.progress import Progress, TaskID
 from rich.table import Table
 from typer import Argument, Exit, Option, Typer
@@ -27,6 +28,7 @@ from typer import Argument, Exit, Option, Typer
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
+    console,
     get_odoo_version,
     is_l10n_module,
     print,
@@ -57,7 +59,6 @@ from .common import select_modules
 
 HTTPS_PORT = 443
 WITH_DEMO_VERSION = 18.3
-DEFAULT_RETRY_COMMAND_MAX_WIDTH = 100
 # Seconds to wait for each answer of the Odoo server, so a stuck server doesn't make us wait forever. Generous, since
 # exporting a big module like `base` takes a while.
 XMLRPC_TIMEOUT = 1800
@@ -465,12 +466,17 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
         print(f"{server.formatted} Database [b]{server.database}[/b] has been kept to re-use or inspect later :white_check_mark:\n")
     elif data.database_created:
         for drop_cmd in server.drop_cmds:
-            result = subprocess.run(drop_cmd, env=server.env or None, capture_output=True, text=True, check=False)
-            if result.returncode:
+            try:
+                result = subprocess.run(drop_cmd, env=server.env or None, capture_output=True, text=True, check=False)
+                error = result.stderr.strip() if result.returncode else None
+            except OSError as e:
+                # Like `dropdb` that isn't installed.
+                error = str(e)
+            if error is not None:
                 print_error(
                     f"{server.formatted} Deleting database [b]{server.database}[/b] failed. You can try deleting it "
                     "manually.",
-                    result.stderr.strip(),
+                    error,
                 )
                 _print_command_for_copy(drop_cmd)
                 break
@@ -1108,7 +1114,8 @@ def _free_port(host: str, start_port: int) -> int:
 def _print_command_for_copy(command: Sequence[str | Path]) -> None:
     """Print the retry command wrapped to avoid terminal soft-wrap during copy."""
     print("[b]Retry command:[/b]")
-    print(_format_wrapped_retry_command(command))
+    # Not as markup, since a command can contain brackets, and wrapped already.
+    print(escape(_format_wrapped_retry_command(command)), highlight=False, soft_wrap=True)
 
 
 def _format_wrapped_retry_command(cmd: Sequence[str | Path]) -> str:
@@ -1130,9 +1137,5 @@ def _format_wrapped_retry_command(cmd: Sequence[str | Path]) -> str:
 
 
 def _get_retry_command_max_width() -> int:
-    """Get the available terminal width with a sane fallback for non-interactive runs."""
-    try:
-        columns = os.get_terminal_size().columns
-    except OSError:
-        return DEFAULT_RETRY_COMMAND_MAX_WIDTH
-    return max(columns, 40)
+    """Get the width of the console the command is printed to, which is a default one when it isn't a terminal."""
+    return max(console.width, 40)

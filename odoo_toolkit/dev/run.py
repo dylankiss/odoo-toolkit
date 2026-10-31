@@ -10,7 +10,7 @@ from odoo_toolkit.common import EMPTY_LIST, normalize_list_option, print, print_
 from odoo_toolkit.mv.config import get_repo_dirs
 from odoo_toolkit.versions import OdooVersion
 
-from .common import ensure_image, get_run_containers, get_version_dir, start_services
+from .common import check_docker, ensure_image, get_run_containers, get_version_dir, start_services
 from .image_check import notify_outdated_images
 from .images import Arch, get_native_arch
 from .runtime import (
@@ -172,6 +172,7 @@ def shell(
     """
     version_dir, version = get_version_dir()
     tty = sys.stdin.isatty()
+    check_docker()
     if running := get_run_containers(version.name):
         _exec(["docker", "exec", "--interactive", *(["--tty"] if tty else []), running[0], "bash"])
 

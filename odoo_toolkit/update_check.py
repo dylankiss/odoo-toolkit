@@ -16,7 +16,7 @@ LATEST_VERSION_URL = "https://pypi.org/pypi/odoo-toolkit/json"
 CHECK_INTERVAL = 24 * 60 * 60
 # How long a command waits for a check that's still running when it ends, to not slow it down.
 WAIT_FOR_CHECK = 1.0
-# Set it to anything to never check for a new version.
+# Set it to anything to never check for a new version of the toolkit, or of the Docker images of `otk dev`.
 DISABLE_VARIABLE = "OTK_NO_UPDATE_CHECK"
 
 
