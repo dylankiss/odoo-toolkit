@@ -16,10 +16,11 @@ from requests import HTTPError, JSONDecodeError, Response, Session
 from requests import Timeout as RequestsTimeout
 from requests.adapters import HTTPAdapter
 from rich.progress import TaskID
+from typer import Exit
 from urllib3 import BaseHTTPResponse
 from urllib3.util.retry import Retry
 
-from odoo_toolkit.common import USER_AGENT, TransientProgress, print, print_warning
+from odoo_toolkit.common import USER_AGENT, TransientProgress, print, print_error, print_warning
 
 WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
@@ -56,8 +57,8 @@ WEBLATE_RATE_LIMIT_RESERVE = 20
 # requests in flight while others wait on the server, which is what actually saturates the allowed rate.
 WEBLATE_MAX_WORKERS = 10
 
-# Seconds to wait for a connection, and for the next bytes of a response. Generous, since autotranslating or
-# exporting a large project can take minutes.
+# Seconds to wait for a connection, and for the next bytes of a response. Generous, since exporting or importing a
+# large project can take minutes.
 REQUEST_TIMEOUT = (15, 600)
 TOO_MANY_REQUESTS = 429
 NOT_FOUND = 404
@@ -378,16 +379,33 @@ class WeblateConnectionError(WeblateApiError):
         return f"{self.summary}: {self.error}\n  Request URL: {self.url}"
 
 
+class WeblateTokenMissingError(Exception):
+    """The Weblate API token isn't set in the environment."""
+
+
+def get_weblate_api() -> "WeblateApi":
+    """Get a client of the Weblate API, or tell how to configure it.
+
+    :raises Exit: If the API token isn't set.
+    :return: The client.
+    """
+    try:
+        return WeblateApi()
+    except WeblateTokenMissingError as e:
+        print_error(str(e))
+        raise Exit(1) from e
+
+
 class WeblateApi:
     """A wrapper for making calls to the Weblate API."""
 
     def __init__(self) -> None:
         """Initialize a WeblateApi object.
 
-        :raises NameError: If the WEBLATE_API_TOKEN in the environment is falsy.
+        :raises WeblateTokenMissingError: If `WEBLATE_API_TOKEN` isn't set in the environment.
         """
         if not WEBLATE_API_TOKEN:
-            raise NameError(WEBLATE_ERR_1)
+            raise WeblateTokenMissingError(WEBLATE_ERR_1)
         self.base_url = WEBLATE_URL
         self.session = Session()
         self.session.headers.update({"Authorization": f"Bearer {WEBLATE_API_TOKEN}", "User-Agent": USER_AGENT})

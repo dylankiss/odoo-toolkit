@@ -27,6 +27,7 @@ from .common import (
     clean_po_header,
     fetch_language_files,
     format_upload_counts,
+    get_weblate_api,
     get_weblate_project_component_slugs,
     po_has_translations,
     print_failures,
@@ -137,11 +138,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
     }
     upload_data |= resolve_author(author, email)
 
-    try:
-        weblate_api = WeblateApi()
-    except NameError as e:
-        print_error(str(e))
-        raise Exit(1) from e
+    weblate_api = get_weblate_api()
 
     if not dest_projects:
         dest_projects = [src_project]
@@ -162,7 +159,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
 
     if not any(components_per_dest.values()):
         print_warning("No components to copy. None of the source components exist in the destination project(s).")
-        return
+        raise Exit(1)
 
     # Only the source components that at least one destination project can receive are worth downloading.
     needed_src_components = {

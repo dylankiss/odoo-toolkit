@@ -99,8 +99,32 @@ def teams_api(monkeypatch: pytest.MonkeyPatch) -> FakeTeamsApi:
         {"id": 1, "name": "French", "project_selection": 0, "language_selection": 0, "defining_project": None},
         {"id": 2, "name": "French all", "project_selection": 1, "language_selection": 0, "defining_project": None},
     ])
-    monkeypatch.setattr(wl_update_teams, "WeblateApi", lambda: api)
+    monkeypatch.setattr(wl_update_teams, "get_weblate_api", lambda: api)
     return api
+
+
+def test_update_teams_refuses_values_without_a_sign(teams_api: FakeTeamsApi) -> None:
+    result = CliRunner().invoke(app, ["wl", "update-teams", "French*", "-l", "fr", "-p", "public,odoo-19"])
+
+    # `fr` and `odoo-19` would change nothing, while `public` is a selection.
+    assert result.exit_code == 1
+    output = " ".join(result.output.split())
+    assert "-l fr, -p odoo-19" in output
+    assert teams_api.changes == []
+
+
+def test_config_reports_a_broken_weblate_json(tmp_path: Path) -> None:
+    module = tmp_path / "sale"
+    (module / "i18n").mkdir(parents=True)
+    (module / "i18n" / "sale.pot").write_text("")
+    (module / "__manifest__.py").write_text("{}")
+    (tmp_path / ".weblate.json").write_text("{not json")
+
+    result = CliRunner().invoke(app, ["wl", "config", "sale", "-p", "odoo-19", "--addons-path", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "could not be loaded" in result.output
+    assert not isinstance(result.exception, ValueError)
 
 
 def test_update_teams_leaves_teams_with_all_projects_alone(teams_api: FakeTeamsApi) -> None:

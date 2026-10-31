@@ -64,7 +64,7 @@ class WeblateConfigError(Exception):
     """Custom exception for WeblateConfig errors."""
 
     def __init__(self, file_path: Path, error_type: Literal["load", "save"]) -> None:
-        """Initialize a WeblateConfigError for loading `file_path`."""
+        """Initialize a WeblateConfigError for loading or saving `file_path`."""
         match error_type:
             case "load":
                 super().__init__(f"The configuration file '{file_path}' could not be loaded.")
@@ -162,7 +162,7 @@ class WeblateConfig:
 
         try:
             self.file_path.write_text(f"{json.dumps(sort_config(self.config), indent=4)}\n")
-        except (OSError, json.JSONDecodeError) as e:
+        except OSError as e:
             raise WeblateConfigError(self.file_path, "save") from e
 
     def clear(self, project: str) -> None:
@@ -243,7 +243,7 @@ def _update_addons_config(
 
     try:
         weblate_config = WeblateConfig(weblate_config_path)
-    except ConfigError as e:
+    except (ConfigError, WeblateConfigError) as e:
         print_error("Config file update failed.\n", str(e))
         raise Exit(1) from e
     if reset:
@@ -481,7 +481,8 @@ def config_odoo(
         print_error(str(e))
         raise Exit(1) from e
 
-    print(f"Detected Odoo version: [b]{raw_odoo_version}[/b]")
+    if not odoo_version:
+        print(f"Detected Odoo version: [b]{raw_odoo_version}[/b]")
     print(f"Using Weblate project suffix: [b]{normalized_odoo_version}[/b]\n")
 
     project = f"odoo-{normalized_odoo_version}"

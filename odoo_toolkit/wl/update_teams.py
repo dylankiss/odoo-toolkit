@@ -28,6 +28,7 @@ from .common import (
     WeblateApi,
     WeblateApiError,
     WeblateGroupResponse,
+    get_weblate_api,
 )
 
 app = Typer()
@@ -99,11 +100,18 @@ def update_teams(
     projects = normalize_list_option(projects)
     roles = normalize_list_option(roles)
 
-    try:
-        weblate_api = WeblateApi()
-    except NameError as e:
-        print_error(str(e))
-        raise Exit(1) from e
+    # Values without a sign would otherwise be ignored without a word.
+    if invalid := [
+        *(f"-l {item}" for item in languages if not _is_change(item) and item not in LANGUAGE_SELECTIONS),
+        *(f"-p {item}" for item in projects if not _is_change(item) and item not in PROJECT_SELECTIONS),
+        *(f"-r {item}" for item in roles if not _is_change(item)),
+    ]:
+        print_error(
+            f"Prefix the values with [b]+[/b] to add them or [b]-[/b] to remove them: [b]{'[/b], [b]'.join(invalid)}[/b].\n",
+        )
+        raise Exit(1)
+
+    weblate_api = get_weblate_api()
 
     selections: dict[str, int] = {}
     if "all" in languages:
@@ -135,6 +143,11 @@ def update_teams(
         failed = not _update_team(weblate_api, team, selections, changes) or failed
     if failed:
         raise Exit(1)
+
+
+def _is_change(item: str) -> bool:
+    """Check whether a value adds (`+`) or removes (`-`) something."""
+    return item[:1] in {"+", "-"} and len(item) > 1
 
 
 def _parse_changes(items: list[str], convert: Callable[[str], str] = str) -> tuple[set[str], set[str]]:
@@ -175,9 +188,12 @@ def _update_team(api: WeblateApi, team: WeblateGroupResponse, selections: dict[s
     team_id = team["id"]
     done: list[str] = []
     errors: list[str] = []
+    current = cast("dict[str, Any]", team)
     if selections:
         _apply(api, "selection", "PATCH", WEBLATE_GROUP_ENDPOINT.format(group=team_id), selections, done, errors)
-    current = cast("dict[str, Any]", team) | selections
+        if not errors:
+            # Only what Weblate accepted decides which lists are left as they are.
+            current |= selections
 
     for list_name, (add_endpoint, remove_endpoint, field, selection) in LISTS.items():
         to_add, to_remove = changes[list_name]
