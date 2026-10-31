@@ -67,7 +67,7 @@ def run(
             "--volume",
             "-v",
             help="Mount a file or folder of your machine in the container, like `~/etc-odoo:/etc/odoo:ro`. Can be "
-            "used several times.",
+            "used several times. A path starting with `~` or `.` is made absolute, and the path must exist.",
         ),
     ] = EMPTY_LIST,
     env: Annotated[

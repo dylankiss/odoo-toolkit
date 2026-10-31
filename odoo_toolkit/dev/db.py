@@ -28,7 +28,11 @@ def db(
     pgadmin: Annotated[bool, Option("--pgadmin", help="Start pgAdmin as well, on http://localhost:5050.")] = False,
     pull: Annotated[
         bool,
-        Option("--pull", help="Pull newer builds of the images first. A service whose image changed is recreated."),
+        Option(
+            "--pull",
+            help="Pull newer builds of the images first. A service whose image changed is recreated, which keeps its "
+            "data.",
+        ),
     ] = False,
 ) -> None:
     """Start :elephant: PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.

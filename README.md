@@ -83,6 +83,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk mv link`](#otk-mv-link)     | Link a shared or pinned repository into the current Odoo Multiverse version directory.            |
 | [`otk mv unlink`](#otk-mv-unlink) | Unlink a shared or pinned repository from the current Odoo Multiverse version directory.          |
 | [`otk mv cleanup`](#otk-mv-cleanup) | Remove the branches the Odoo Multiverse repositories don't need, and reclaim their disk space. |
+| [`otk code`](#otk-code)           | Open an Odoo Multiverse version directory in Visual Studio Code.                               |
 
 
 ## Odoo Translation Files (`otk po`)
@@ -127,7 +128,7 @@ $ otk po export --local --db-username odoo "account_*" mrp sale
 
 ### Options
 
-* `-x, --exclude TEXT`: Exclude these modules from being installed and exported. `default` stands for localizations, themes, hardware and test modules.
+* `-x, --exclude TEXT`: Exclude these modules from being installed and exported, or `default` for localizations, themes, hardware and tests.
 * `-f, --path-filter PATH`: Only include modules within these paths.
 * `--help`: Show this message and exit.
 
@@ -184,8 +185,8 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 
 ### Options
 
-* `-l, --language TEXT`: Create .po files for these language codes, or `all`.  **[required]**
-* `-x, --exclude TEXT`: Exclude these modules from being created. `default` stands for localizations, themes, hardware and test modules.
+* `-l, --language TEXT`: Create .po files for these language codes, or `all` available languages in Odoo.  **[required]**
+* `-x, --exclude TEXT`: Exclude these modules from being created, or `default` for localizations, themes, hardware and tests.
 * `-f, --path-filter PATH`: Only include modules within these paths.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
@@ -223,7 +224,7 @@ $ otk po update -l nl -l fr account account_accountant
 
 * `-l, --language TEXT`: Update .po files for these language codes, or `all`.  [default: `all`]
 * `-t, --only-translated`: Only keep translated terms in the updated `.po` files, removing all untranslated terms.
-* `-x, --exclude TEXT`: Exclude these modules from being updated. `default` stands for localizations, themes, hardware and test modules.
+* `-x, --exclude TEXT`: Exclude these modules from being updated, or `default` for localizations, themes, hardware and tests.
 * `-f, --path-filter PATH`: Only include modules within these paths.
 * `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
@@ -440,7 +441,7 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 
 ### Arguments
 
-* `MODULES...`: Include these Odoo modules in `.weblate.json`, or either `all`, `community`, or `enterprise`.  **[required]**
+* `MODULES...`: Include these Odoo modules (supports glob patterns) in `.weblate.json`, or either `all`, `community`, `enterprise`, `community-l10n`, or `enterprise-l10n`.  **[required]**
 
 ### Options
 
@@ -477,7 +478,7 @@ $ otk wl config-odoo -v saas-18.2
 
 ### Options
 
-* `-v, --odoo-version TEXT`: The Odoo branch/version to configure, like `18.0`, `18`, `saas-18.2`, `18.2`, `s18-2`, or `master`. If omitted, it is detected from the current directory path.
+* `-v, --odoo-version TEXT`: The Odoo branch/version to configure, like `18.0`, `18`, `saas-18.2`, `18.2`, `s18-2`, or `master`. If omitted, it is detected from the Community path (or one of its parent folders).
 * `--com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `--ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `--addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
@@ -503,7 +504,7 @@ $ otk wl copy [OPTIONS]
 e.g.
 
 ```console
-$ otk wl copy -p odoo-18 -l pt_BR -L pt -o translate
+$ otk wl copy -p odoo-18 -l pt_BR -L pt -m translate
 $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 ```
 
@@ -515,10 +516,11 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 * `-L, --dest-language TEXT`: The language code to copy translations to.
 * `-c, --src-component TEXT`: The Weblate components to copy translations from.
 * `-C, --dest-component TEXT`: The Weblate component to copy translations to.
-* `-a, --author TEXT`: The author of the uploaded translations: the short name of a translator in your configuration file (see [`otk wl authors`](#otk-wl-authors)), or a full name. If not set, the API key user will be used.
+* `-q, --query TEXT`: Specify which strings need to be copied over by using a Weblate search string. Copies all translated strings if not specified.
+* `-a, --author TEXT`: The author of the uploaded translations: the short name of a translator in your configuration file (see [`otk wl authors`](#otk-wl-authors)), or a full name. If not set, the user of the API token is the author.
 * `-e, --email TEXT`: The author's email, for an author that isn't in your configuration file. Weblate finds the author's account by it.
-* `-m, --method [translate|approve|suggest]`: Specify what the upload should do. Either upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
-* `-o, --overwrite [ignore|replace-translated|replace-approved]`: Specify what the upload should do. Either don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
+* `-m, --method [translate|approve|suggest]`: Upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
+* `-o, --overwrite [ignore|replace-translated|replace-approved]`: Don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
 * `--help`: Show this message and exit.
 
 
@@ -604,7 +606,7 @@ $ otk wl upload -p odoo-19 -l fr -m suggest
 * `-p, --project TEXT`: The Weblate project to upload translations to.  **[required]**
 * `-l, --language TEXT`: The languages to upload translations for. At least one language must be specified.  **[required]**
 * `-c, --component TEXT`: The Weblate components to upload translations to. You can use glob patterns. Uploads all matching files if none are specified.
-* `-a, --author TEXT`: The author of the uploaded translations: the short name of a translator in your configuration file (see [`otk wl authors`](#otk-wl-authors)), or a full name. If not set, the API key user will be used.
+* `-a, --author TEXT`: The author of the uploaded translations: the short name of a translator in your configuration file (see [`otk wl authors`](#otk-wl-authors)), or a full name. If not set, the user of the API token is the author.
 * `-e, --email TEXT`: The author's email, for an author that isn't in your configuration file. Weblate finds the author's account by it.
 * `-m, --method [translate|approve|suggest]`: Upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
 * `-o, --overwrite [ignore|replace-translated|replace-approved]`: Don't overwrite existing translations (`ignore`), overwrite only non-reviewed translations (`replace-translated`), or overwrite even approved translations (`replace-approved`).  [default: `ignore`]
@@ -618,7 +620,7 @@ The author is only used if your API key's user may set it (the "Define author of
 
 **Work with an Odoo Multiverse environment.**
 
-The following commands allow you to set up and Odoo Multiverse environment and perform several useful actions inside the environment.
+The following commands allow you to set up an Odoo Multiverse environment and perform several useful actions inside the environment.
 
 > [!WARNING]
 > **Upgrading from 3.x:** version 4.0 changes how the multiverse is laid out and fetched. The easiest way to upgrade is to set up a new multiverse. If you keep your existing one:
@@ -639,7 +641,7 @@ The easiest way to set this up is by creating a directory for your multiverse se
 > [!IMPORTANT]
 > Make sure you have set up your GitHub SSH key beforehand in order to clone the repositories, and installed [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and `npm`.
 
-You can run the command as many times as you want. It only adds what's missing, and never touches your own files. Pass `--update-config` to overwrite the configuration files with the latest ones, or `--reset-config` to recreate the Python environments as well. Without `-b` or `-r`, it updates the versions and repositories that are already set up.
+You can run the command as many times as you want. It only adds what's missing and keeps the files it generates up to date (like `odools.toml` and the JavaScript tooling), without touching your own files. Pass `--update-config` to overwrite the configuration files with the latest ones, or `--reset-config` to recreate the Python environments as well. Without `-b` or `-r`, it updates the versions and repositories that are already set up.
 
 ### Repositories
 
@@ -656,7 +658,7 @@ You can set up any repository, also from another GitHub owner (like `-r odoo-ps/
 
 Shared, pinned and standalone repositories follow their default branch on GitHub: when it changes, the next setup switches to it, unless you're on another branch or have uncommitted changes.
 
-A pinned repository runs on the Odoo version of its default branch (like `18.0`), or, if that's not a version, on the version of its modules' manifests (like `20.0` for `20.0.1.0`). `internal` runs on the version odoo.com runs on, which is looked up on odoo.com every time you run the setup. It lives in that version's directory, and is linked from the multiverse directory, so it's reachable at the same place as the other repositories. Use [`otk mv link`](#otk-mv-link) to also link it into another version while you work on code that interacts with it.
+A pinned repository runs on the Odoo version of the branch it's on (like `18.0`, or `19.0` for `19.0-fix-something`), or, if that's not a version, on the version of its modules' manifests (like `20.0` for `20.0.1.0`). `internal` runs on the version odoo.com runs on, which is looked up on odoo.com every time you run the setup. It lives in that version's directory, and is linked from the multiverse directory, so it's reachable at the same place as the other repositories. Use [`otk mv link`](#otk-mv-link) to also link it into another version while you work on code that interacts with it.
 
 Describe pinned repositories and exceptions in a `multiverse.toml` file in the multiverse directory. Its repositories are set up by default:
 
@@ -686,11 +688,11 @@ The command will basically do the following:
 
 2. Clone the other repositories to the root of your multiverse directory, on their default branch. Pinned repositories then move into the version directory they run on, with a link at the root, so editors and language servers (like the Odoo one) see a regular folder. When the version a pinned repository runs on changes, the next setup moves it.
 
-3. Create a directory per version, and add a worktree of every versioned repository in it, tracking the version's branch on `origin`.
+3. Create a directory per version, and add a worktree of every versioned repository in it, tracking the version's branch on `origin`. Then write the commit graph of every repository, which makes `git log` and `git blame` fast on repositories as large as Odoo.
 
 4. Link each shared repository into each version directory, and each pinned repository into the versions in its `also_in` setting (using relative links).
 
-5. Set up a Python virtual environment in the `.venv` directory of each version with [`uv`](https://docs.astral.sh/uv/), using the same Python version as [Runbot](https://runbot.odoo.com/runbot/versions). It contains all requirements of `odoo`, `documentation` and the linked pinned repositories, the ones they need but don't pin (like a `setuptools` that still has the `pkg_resources` the documentation's Sphinx imports), and the recommended ones in [`requirements.txt`](odoo_toolkit/multiverse_config/requirements.txt). Requirements that fail to build on your machine are reported, but don't fail the setup, since Odoo runs in Docker.
+5. Set up a Python virtual environment in the `.venv` directory of each version with [`uv`](https://docs.astral.sh/uv/), using the same Python version as [Runbot](https://runbot.odoo.com/runbot/versions). It contains all requirements of `odoo`, `documentation` and the linked repositories, the ones they need but don't pin (like a `setuptools` that still has the `pkg_resources` the documentation's Sphinx imports), and the recommended ones in [`requirements.txt`](odoo_toolkit/multiverse_config/requirements.txt). Requirements that fail to build on your machine are reported, but don't fail the setup, since Odoo runs in Docker.
    *You can use this environment from the version directory using `source .venv/bin/activate`.*
 
 6. Set up the JavaScript tooling for `odoo` and `enterprise` (located in the `tooling` directory inside the `web` module).
@@ -699,7 +701,9 @@ The command will basically do the following:
 
    Then write `odools.toml`, the configuration of the Odoo language server: the `.venv` interpreter, the paths of `odoo` and every addons repository (relative to the workspace folder, so it works in a dev container too, and the server doesn't have to search the version directory for them), and the `tsserver` that was just installed.
 
-7. Write the [Visual Studio Code configuration](odoo_toolkit/multiverse_config/.vscode) in each version's `.vscode` directory: recommended extensions, settings using the version's `.venv`, and tasks and debug configurations to run Odoo with [`otk dev run`](#otk-dev-run), where `F5` runs it with the debugger.
+7. Write a `ruff.toml` that extends the rules of `odoo` for the other repositories, and link Odoo's [skills](#otk-mv-setup) into `.claude/skills`.
+
+8. Write the [Visual Studio Code configuration](odoo_toolkit/multiverse_config/.vscode) in each version's `.vscode` directory: recommended extensions, settings using the version's `.venv`, and tasks and debug configurations to run Odoo with [`otk dev run`](#otk-dev-run), where `F5` runs it with the debugger. With `--devcontainer`, also write the [dev container](#dev-container) configuration.
 
 After all that is done, your directory structure should look like this with the default repositories selected:
 

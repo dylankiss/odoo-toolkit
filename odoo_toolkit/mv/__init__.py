@@ -18,6 +18,6 @@ app.add_typer(cleanup_app)
 def callback() -> None:
     """Work with an :ringed_planet: Odoo Multiverse environment.
 
-    The following commands allow you to set up and Odoo Multiverse environment and perform several useful actions inside
+    The following commands allow you to set up an Odoo Multiverse environment and perform several useful actions inside
     the environment.
     """
