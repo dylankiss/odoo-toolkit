@@ -344,6 +344,11 @@ def test_write_devcontainer_config_tells_claude_how_the_container_works(
 
 def test_link_skills_reads_the_skills_in_the_repository(tmp_path: Path) -> None:
     version_dir = tmp_path / "mv" / "20.0"
+    # The services are only started when they don't run yet, which is quick to check.
+    command = config["initializeCommand"]
+    assert command.index("State.Health.Status") < command.index("otk dev db")
+    assert "otk-postgres" in command
+    assert "otk-mailpit" in command
     (version_dir / "odoo" / "skills" / "odoo-review").mkdir(parents=True)
     (version_dir / "odoo" / "skills" / "odoo-review" / "SKILL.md").write_text("---\nname: odoo-review\n---\n")
 

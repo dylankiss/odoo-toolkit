@@ -1177,7 +1177,9 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "workspaceFolder": str(version_dir),
         # Runs on your machine. The network only exists once the shared services are running, which `otk dev db` starts.
         "initializeCommand": (
-            f"otk dev db > /dev/null 2>&1 || docker network inspect {NETWORK} > /dev/null 2>&1 "
+            f"[ \"$(docker inspect -f '{{{{.State.Health.Status}}}}' {DB_HOST} 2>/dev/null)\" = healthy ] "
+            f"&& [ \"$(docker inspect -f '{{{{.State.Running}}}}' {SMTP_HOST} 2>/dev/null)\" = true ] "
+            f"|| otk dev db > /dev/null 2>&1 || docker network inspect {NETWORK} > /dev/null 2>&1 "
             "|| { echo 'Run `otk dev db` first.' >&2; exit 1; }"
         ),
         "runArgs": [
@@ -1205,6 +1207,7 @@ def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -
     template = (MULTIVERSE_CONFIG_DIR / ".devcontainer" / "CLAUDE.md").read_text(encoding="utf-8")
     return Template(template).safe_substitute(
         version=version_dir.name,
+        # Checking that they already run takes a fraction of a second, where starting them again takes seconds.
         multiverse_dir=version_dir.parent,
         version_dir=version_dir,
         repos=", ".join(f"`{repo}`" for repo in repos) or "`odoo`",
