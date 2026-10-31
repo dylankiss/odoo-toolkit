@@ -180,3 +180,22 @@ def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPa
     assert "params" not in kwargs
     assert "Updated 1 and skipped 0 translation(s)." in result.output
     assert "odoo-19-l10n-l10n_be-fr.po" in result.output
+
+
+@pytest.mark.usefixtures("weblate_token")
+def test_cli_upload_fails_when_all_files_have_unknown_components(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "odoo-19-unknown-fr.po").write_bytes(b"")
+
+    def get_slugs(_api: WeblateApi, _project: str) -> set[str]:
+        return set()
+
+    monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", get_slugs)
+
+    result = CliRunner().invoke(app, ["wl", "upload", "-p", "odoo-19", "-l", "fr"])
+
+    assert result.exit_code == 1
+    assert "odoo-19-unknown-fr.po" in result.output
+    assert "No files to upload" in result.output
