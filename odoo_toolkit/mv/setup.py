@@ -38,7 +38,7 @@ from odoo_toolkit.dev.runtime import (
     get_odoo_args,
 )
 from odoo_toolkit.git_cli import CloneProgress, Git, GitError, clone, get_git_version, run_with_progress
-from odoo_toolkit.versions import get_versions
+from odoo_toolkit.versions import get_versions, version_sort_key
 
 from .config import (
     CONFIG_FILE,
@@ -761,6 +761,7 @@ def _configure_versions(
             ),
             ("javascript", lambda: setup_js_tooling(version_dir)),
             ("ruff", lambda: write_ruff_config(version_dir, reset=overwrite_config)),
+            ("skills", lambda: link_skills(version_dir)),
         ]
         if vscode:
             steps.append(
@@ -782,7 +783,7 @@ def _configure_versions(
             branch: executor.submit(
                 configure,
                 branch,
-                progress.add_task(f"Configuring [b]{branch}[/b]", total=4 + vscode + has_devcontainer(branch)),
+                progress.add_task(f"Configuring [b]{branch}[/b]", total=5 + vscode + has_devcontainer(branch)),
             )
             for branch in branches
         }
@@ -816,6 +817,45 @@ def link_repos(version_dir: Path, names: list[str]) -> RepoResult:
     if not linked:
         return RepoResult("links", Outcome.SKIPPED, "none")
     return RepoResult("links", Outcome.UPDATED, f"linked [b]{'[/b], [b]'.join(linked)}[/b]")
+
+
+def link_skills(version_dir: Path) -> RepoResult:
+    """Link the skills of the Odoo repository into the `.claude/skills` folder of a version directory.
+
+    Claude Code finds its project skills there, and with a link it reads them in the repository: they are the ones of
+    the branch, and a skill that is added there is available at once. Only the newest versions have skills, so an older
+    version links to the skills of the newest version that has them.
+
+    :param version_dir: The version directory.
+    :return: The result of linking.
+    """
+    link = version_dir / ".claude" / "skills"
+    # A link is relative to the folder it is in, which is `.claude`.
+    if (version_dir / "odoo" / "skills").is_dir():
+        target, source = Path("..") / "odoo" / "skills", "its own"
+    else:
+        others = [
+            path
+            for path in version_dir.parent.iterdir()
+            if path != version_dir and VERSION_PATTERN.fullmatch(path.name) and (path / "odoo" / "skills").is_dir()
+        ]
+        if not others:
+            return RepoResult("skills", Outcome.SKIPPED, "no skills in this multiverse")
+        newest = max(others, key=lambda path: version_sort_key(path.name))
+        target, source = Path("..") / ".." / newest.name / "odoo" / "skills", f"the ones of [b]{newest.name}[/b]"
+
+    if link.is_symlink():
+        if link.readlink() == target:
+            return RepoResult("skills", Outcome.SKIPPED, "already linked")
+        # Only the links of this toolkit are replaced, like when the version gets skills of its own.
+        if not re.fullmatch(r"\.\./odoo/skills|\.\./\.\./[^/]+/odoo/skills", link.readlink().as_posix()):
+            return RepoResult("skills", Outcome.WARNING, "[b].claude/skills[/b] links elsewhere, so it is kept")
+        link.unlink()
+    elif link.exists():
+        return RepoResult("skills", Outcome.WARNING, "[b].claude/skills[/b] already exists, so Odoo's skills aren't linked")
+    link.parent.mkdir(exist_ok=True)
+    link.symlink_to(target)
+    return RepoResult("skills", Outcome.UPDATED, f"linked [b].claude/skills[/b] to {source}")
 
 
 def link_repo(version_dir: Path, name: str) -> bool:
@@ -1126,7 +1166,8 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # Code reads its user instructions, so nothing in the container can change it.
     instructions_file = config_file.parent / "CLAUDE.md"
     instructions_file.write_text(
-        _get_devcontainer_instructions(version_dir, odoo_args=launch["args"][:-2]), encoding="utf-8",
+        _get_devcontainer_instructions(version_dir, odoo_args=launch["args"][:-2]),
+        encoding="utf-8",
     )
 
     config: dict[str, Any] = {

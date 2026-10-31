@@ -342,6 +342,77 @@ def test_write_devcontainer_config_tells_claude_how_the_container_works(
     assert "$" not in instructions
 
 
+def test_link_skills_reads_the_skills_in_the_repository(tmp_path: Path) -> None:
+    version_dir = tmp_path / "mv" / "20.0"
+    (version_dir / "odoo" / "skills" / "odoo-review").mkdir(parents=True)
+    (version_dir / "odoo" / "skills" / "odoo-review" / "SKILL.md").write_text("---\nname: odoo-review\n---\n")
+
+    assert mv_setup.link_skills(version_dir).outcome == Outcome.UPDATED
+
+    link = version_dir / ".claude" / "skills"
+    # A relative link, which Claude Code follows to the repository, so nothing is copied.
+    assert link.readlink() == Path("..") / "odoo" / "skills"
+    assert (link / "odoo-review" / "SKILL.md").is_file()
+    # A skill that is added later is there at once, and linking again changes nothing.
+    (version_dir / "odoo" / "skills" / "odoo-git").mkdir()
+    assert (link / "odoo-git").is_dir()
+    assert mv_setup.link_skills(version_dir).outcome == Outcome.SKIPPED
+
+
+def test_link_skills_links_older_versions_to_the_newest_skills(tmp_path: Path) -> None:
+    multiverse_dir = tmp_path / "mv"
+    for name in ("19.0", "20.0", "master"):
+        (multiverse_dir / name / "odoo").mkdir(parents=True)
+    for name in ("20.0", "master"):
+        (multiverse_dir / name / "odoo" / "skills" / "odoo-git").mkdir(parents=True)
+    version_dir = multiverse_dir / "19.0"
+
+    assert mv_setup.link_skills(version_dir).outcome == Outcome.UPDATED
+
+    link = version_dir / ".claude" / "skills"
+    # `master` is the newest, and the link is relative to the `.claude` folder.
+    assert link.readlink() == Path("..") / ".." / "master" / "odoo" / "skills"
+    assert (link / "odoo-git").is_dir()
+    assert mv_setup.link_skills(version_dir).outcome == Outcome.SKIPPED
+    # When the version gets skills of its own, it follows them.
+    (version_dir / "odoo" / "skills").mkdir()
+    assert mv_setup.link_skills(version_dir).outcome == Outcome.UPDATED
+    assert link.readlink() == Path("..") / "odoo" / "skills"
+
+
+def test_link_skills_leaves_a_multiverse_without_skills_alone(tmp_path: Path) -> None:
+    version_dir = tmp_path / "mv" / "17.0"
+    (version_dir / "odoo").mkdir(parents=True)
+
+    result = mv_setup.link_skills(version_dir)
+
+    assert result.outcome == Outcome.SKIPPED
+    assert not (version_dir / ".claude").exists()
+
+
+def test_link_skills_keeps_a_link_you_made_yourself(tmp_path: Path) -> None:
+    version_dir = tmp_path / "mv" / "20.0"
+    (version_dir / "odoo" / "skills").mkdir(parents=True)
+    (version_dir / ".claude").mkdir()
+    (version_dir / ".claude" / "skills").symlink_to(tmp_path / "my-skills")
+
+    result = mv_setup.link_skills(version_dir)
+
+    assert result.outcome == Outcome.WARNING
+    assert (version_dir / ".claude" / "skills").readlink() == tmp_path / "my-skills"
+
+
+def test_link_skills_keeps_your_own_skills_folder(tmp_path: Path) -> None:
+    version_dir = tmp_path / "mv" / "20.0"
+    (version_dir / "odoo" / "skills").mkdir(parents=True)
+    (version_dir / ".claude" / "skills").mkdir(parents=True)
+
+    result = mv_setup.link_skills(version_dir)
+
+    assert result.outcome == Outcome.WARNING
+    assert not (version_dir / ".claude" / "skills").is_symlink()
+
+
 def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
