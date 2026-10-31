@@ -221,7 +221,6 @@ def export(  # noqa: C901, PLR0912, PLR0915
         str,
         Option(
             "--password",
-            "-p",
             help="Specify the password to log in to Odoo.",
             rich_help_panel="Odoo Server Options",
         ),

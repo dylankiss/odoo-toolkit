@@ -366,7 +366,7 @@ def config(
     ] = EMPTY_LIST,
     path_filters: Annotated[
         list[Path],
-        Option("--path-filter", "-f", help="Only add or update modules within these paths."),
+        Option("--path-filter", help="Only add or update modules within these paths."),
     ] = EMPTY_LIST,
     languages: Annotated[
         list[str],
@@ -379,13 +379,12 @@ def config(
         ),
     ] = EMPTY_LIST,
     reset: Annotated[
-        bool, Option("--reset", "-r", help="Reset the config file for the given project and only add the given modules."),
+        bool, Option("--reset", help="Reset the config file for the given project and only add the given modules."),
     ] = False,
     com_path: Annotated[
         Path,
         Option(
             "--com-path",
-            "-c",
             help="Specify the path to your Odoo Community repository.",
         ),
     ] = Path("odoo"),
@@ -393,7 +392,6 @@ def config(
         Path,
         Option(
             "--ent-path",
-            "-e",
             help="Specify the path to your Odoo Enterprise repository.",
         ),
     ] = Path("enterprise"),
@@ -401,7 +399,6 @@ def config(
         list[Path],
         Option(
             "--addons-path",
-            "-a",
             help="Specify extra addons paths if your modules are not in Community or Enterprise.",
         ),
     ] = EMPTY_LIST,
@@ -449,7 +446,6 @@ def config_odoo(
         Path,
         Option(
             "--com-path",
-            "-c",
             help="Specify the path to your Odoo Community repository.",
         ),
     ] = Path("odoo"),
@@ -457,7 +453,6 @@ def config_odoo(
         Path,
         Option(
             "--ent-path",
-            "-e",
             help="Specify the path to your Odoo Enterprise repository.",
         ),
     ] = Path("enterprise"),
@@ -465,7 +460,6 @@ def config_odoo(
         list[Path],
         Option(
             "--addons-path",
-            "-a",
             help="Specify extra addons paths if your modules are not in Community or Enterprise.",
         ),
     ] = EMPTY_LIST,
