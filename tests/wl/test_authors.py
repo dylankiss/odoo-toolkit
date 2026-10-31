@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from odoo_toolkit.common import get_config_file
 from odoo_toolkit.main import app
 from odoo_toolkit.wl.authors import ConfigError, complete_author, get_authors, resolve_author
 
@@ -14,10 +15,9 @@ mary = { name = "Mary Smith", email = "mary.smith@example.com" }
 
 
 @pytest.fixture
-def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    path = tmp_path / "odoo-toolkit" / "config.toml"
-    path.parent.mkdir()
+def config_file() -> Path:
+    path = get_config_file()
+    path.parent.mkdir(parents=True)
     path.write_text(CONFIG)
     return path
 
@@ -51,8 +51,7 @@ def test_authors_need_a_name_and_an_email(config_file: Path, author: str) -> Non
         get_authors()
 
 
-def test_without_config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+def test_without_config_file() -> None:
     assert get_authors() == {}
     assert "There are no authors" in CliRunner().invoke(app, ["wl", "authors"]).output
 

@@ -2,13 +2,31 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner, Result
 
 from odoo_toolkit.git_cli import Git
+from odoo_toolkit.main import app
 from odoo_toolkit.mv.remotes import configure_fetching
 
 
-def git(cwd: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+def git(cwd: Path, *args: str, check: bool = True) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=check, capture_output=True, text=True).stdout.strip()
+
+
+def make_version_dir(multiverse_dir: Path, version: str = "19.0") -> Path:
+    """Lay out a version directory with Community and Enterprise worktrees that each have a module."""
+    version_dir = multiverse_dir / version
+    for repo, modules_dir in (("odoo", "addons"), ("enterprise", "")):
+        module_dir = version_dir / repo / modules_dir / "some_module"
+        module_dir.mkdir(parents=True)
+        (module_dir / "__manifest__.py").write_text("{}")
+        (version_dir / repo / ".git").write_text("gitdir: elsewhere\n")
+    return version_dir
+
+
+def run_setup(multiverse_dir: Path, *args: str) -> Result:
+    """Run `otk mv setup` for a multiverse."""
+    return CliRunner().invoke(app, ["mv", "setup", "-d", str(multiverse_dir), *args])
 
 
 def commit(work_dir: Path, filename: str, content: str = "content") -> str:
