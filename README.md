@@ -143,7 +143,7 @@ $ otk po export --local --db-username odoo "account_*" mrp sale
 * `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `-u, --username TEXT`: Specify the username to log in to Odoo.  [default: `admin`]
-* `-p, --password TEXT`: Specify the password to log in to Odoo.  [default: `admin`]
+* `--password TEXT`: Specify the password to log in to Odoo.  [default: `admin`]
 * `--host TEXT`: Specify the hostname of your Odoo server.  [default: `localhost`]
 * `--port INTEGER`: Specify the port of your Odoo server.  [default: `8069`, or the first free one after that when `--start-server`]
 
@@ -446,12 +446,12 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 
 * `-p, --project TEXT`: Specify the Weblate project slug.  **[required]**
 * `-x, --exclude TEXT`: Exclude these modules from being added or updated.
-* `-f, --path-filter PATH`: Only add or update modules within these paths.
+* `--path-filter PATH`: Only add or update modules within these paths.
 * `-l, --language TEXT`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate. If you want the specific PO file languages added as a filter, use `filter`.
-* `-r, --reset`: Reset the config file for the given project and only add the given modules.
-* `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
-* `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `--reset`: Reset the config file for the given project and only add the given modules.
+* `--com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
+* `--ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `--addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -478,9 +478,9 @@ $ otk wl config-odoo -v saas-18.2
 ### Options
 
 * `-v, --odoo-version TEXT`: The Odoo branch/version to configure, like `18.0`, `18`, `saas-18.2`, `18.2`, `s18-2`, or `master`. If omitted, it is detected from the current directory path.
-* `-c, --com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
-* `-e, --ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `--com-path PATH`: Specify the path to your Odoo Community repository.  [default: `odoo`]
+* `--ent-path PATH`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
+* `--addons-path PATH`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
