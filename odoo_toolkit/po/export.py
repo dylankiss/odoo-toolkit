@@ -231,7 +231,10 @@ def export(  # noqa: C901, PLR0912, PLR0915
     ] = "localhost",
     port: Annotated[
         int,
-        Option(help="Specify the port of your Odoo server.", rich_help_panel="Odoo Server Options"),
+        Option(
+            help="Specify the port of your Odoo server. When starting servers, they use the first free ports from it.",
+            rich_help_panel="Odoo Server Options",
+        ),
     ] = 8069,
     database: Annotated[
         str,
