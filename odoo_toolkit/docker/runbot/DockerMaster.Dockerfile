@@ -11,7 +11,7 @@ USER root
 # Install debian packages
 RUN set -x ; \
     apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-transport-https build-essential ca-certificates curl faketime file fonts-freefont-ttf fonts-noto-cjk gawk gnupg gsfonts libldap2-dev libjpeg9-dev libsasl2-dev libxslt1-dev lsb-release npm ocrmypdf sed sudo unzip xfonts-75dpi zip zlib1g-dev \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-transport-https build-essential ca-certificates curl faketime file fonts-freefont-ttf fonts-noto-cjk gawk gnupg gsfonts libldap2-dev libjpeg9-dev libsasl2-dev libxslt1-dev lsb-release npm ocrmypdf sed sudo unzip zstd xfonts-75dpi zip zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Setup postgresql server
@@ -44,7 +44,7 @@ ENV NODE_PATH=/usr/lib/node_modules/
 ENV npm_config_prefix=/usr
 
 # RUN npm install
-RUN npm install --force -g rtlcss@3.4.0 es-check@6.0.0 eslint@8.1.0 prettier@2.7.1 eslint-config-prettier@8.5.0 eslint-plugin-prettier@4.2.1
+RUN npm install --force -g rtlcss@3.4.0 eslint@10.12.0 @eslint/compat@2.1.1 @eslint/js@10.0.1 eslint-config-prettier@10.1.8 eslint-plugin-diff@2.1.7 eslint-plugin-prettier@4.2.5 globals@17.13.0 prettier@2.8.8 @eslint/css@2.0.0
 
 # Install branch debian/control with latest postgresql-client with values {"odoo_branch": "master", "os_release_name": "`lsb_release -s -c`"}
 # This layer updates the repository list to get the latest postgresql-client, mainly needed if the host postgresql version is higher than the default version of the docker os
