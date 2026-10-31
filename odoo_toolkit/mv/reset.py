@@ -69,8 +69,8 @@ def reset(
         for repo_dir in repo_dirs
     }
     checks = run_on_repos(repo_dirs, lambda repo_dir: check_repo(repo_dir, branches[repo_dir]), "Fetching")
-    if failed := [check for check in checks if check.outcome == Outcome.FAILED]:
-        print_results(failed, version_dir)
+    if any(check.outcome == Outcome.FAILED for check in checks):
+        print_results(checks, version_dir)
         raise Exit(1)
     if (local_work := [check for check in checks if check.outcome == Outcome.WARNING]) and not yes:
         print_warning("These commits only exist on your machine, and would be discarded:")

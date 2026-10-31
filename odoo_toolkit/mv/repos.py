@@ -315,9 +315,12 @@ def print_result_table(results: list[RepoResult]) -> None:
     print(table, "")
 
 
-def print_results(results: list[RepoResult], version_dir: Path) -> bool:
+def print_results(results: list[RepoResult], version_dir: Path, *, error: str | None = None) -> bool:
     """Print a summary table of the results, followed by any stashed changes and how to restore them.
 
+    :param results: The results of the operation on each repository.
+    :param version_dir: The version directory the repositories are in.
+    :param error: Why the operation as a whole failed, even if no repository did, printed instead of "Done.".
     :return: True if every operation succeeded or was skipped, False if any failed.
     """
     print_result_table(results)
@@ -334,6 +337,8 @@ def print_results(results: list[RepoResult], version_dir: Path) -> bool:
     failed = [result for result in results if result.outcome == Outcome.FAILED]
     if failed:
         print_error(f"{len(failed)} of {len(results)} repositories failed.\n")
-    else:
+    if error:
+        print_error(f"{error}\n")
+    elif not failed:
         print_success("Done.\n")
-    return not failed
+    return not failed and not error

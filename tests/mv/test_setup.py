@@ -185,6 +185,11 @@ def test_link_repos_uses_relative_links(tmp_path: Path) -> None:
     assert (version_dir / "upgrade").readlink() == Path("../upgrade")
     assert (version_dir / "upgrade").resolve() == (tmp_path / "mv" / "upgrade").resolve()
     assert not (version_dir / "upgrade-util").is_symlink()
+    # A link of your own, to another clone, is kept.
+    (version_dir / "upgrade").unlink()
+    (version_dir / "upgrade").symlink_to(tmp_path / "elsewhere")
+    mv_setup.link_repos(version_dir, ["upgrade"])
+    assert (version_dir / "upgrade").readlink() == tmp_path / "elsewhere"
 
 
 def test_write_ruff_config(tmp_path: Path) -> None:
@@ -500,6 +505,20 @@ def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
 
     assert result == RepoResult("devcontainer", Outcome.WARNING, "The multiverse can't be here.")
     assert not (version_dir / ".devcontainer").exists()
+
+
+@pytest.mark.usefixtures("remotes")
+def test_cli_setup_keeps_the_branch_suffix_you_gave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stub_slow_steps(monkeypatch)
+    root = tmp_path / "mv"
+    setup = ["mv", "setup", "-d", str(root), "-b", "19.0", "-r", "odoo"]
+    runner = CliRunner()
+
+    assert runner.invoke(app, [*setup, "--branch-suffix", "abcd"]).exit_code == 0
+    assert runner.invoke(app, setup).exit_code == 0
+
+    # Without the option, the remembered suffix stays, instead of the one of your Git email.
+    assert git(root / ".worktree-source" / "odoo" / ".bare", "config", "otk.branchSuffix") == "abcd"
 
 
 @pytest.mark.usefixtures("remotes")

@@ -777,7 +777,7 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 ### Options
 
 * `-b, --branches TEXT`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Defaults to the ones already set up, or every supported version for a new multiverse.
-* `-r, --repositories TEXT`: The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. Defaults to the ones already set up, or `odoo`, `enterprise`, `design-themes`, `upgrade` and `upgrade-util` for a new multiverse, plus the ones in `multiverse.toml`.
+* `-r, --repositories TEXT`: The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. Defaults to the ones already set up, or `odoo`, `enterprise`, `design-themes`, `upgrade` and `upgrade-util` for a new multiverse, plus the ones in `multiverse.toml`. A repository the toolkit doesn't know, like the one above, is only set up again later if it has a `[repos.<name>]` table there.
 * `-d, --multiverse-dir PATH`: The directory to set up the multiverse in. Defaults to this directory.
 * `--update-config`: Overwrite the configuration files of every version, like the Visual Studio Code and dev container ones, to get the latest from the toolkit. The Python virtual environments are kept.
 * `--reset-config`: Recreate the Python virtual environments as well as overwriting the configuration files of every version.

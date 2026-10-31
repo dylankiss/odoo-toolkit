@@ -1,4 +1,4 @@
-"""Decide which branches the bare repositories fetch, and clean up the ones they don't need.
+"""Decide which branches the repositories of a multiverse fetch, and clean up the ones they don't need.
 
 Every remote fetches the branches your local branches track: the versions you set up, and the branches you switched
 to, as long as they still exist on GitHub. On top of that, `origin` fetches its default branch, and your own branches
@@ -107,13 +107,13 @@ def get_existing_branches(repo: Git, remote: str, branches: set[str]) -> set[str
 
 
 def configure_fetching(repo: Git, *, branch_suffix: str | None) -> bool:
-    """Configure which branches the remotes of a bare repository fetch, and Git's speed-ups for large repositories.
+    """Configure which branches the remotes of a repository fetch, and Git's speed-ups for large repositories.
 
     Every remote fetches the branches the local branches track, as long as they exist on GitHub: fetching a branch
     that was deleted there fails the whole fetch. On top of that, `origin` fetches its default branch, and your own
     branches are fetched from `dev`, or from `origin` when the repository has no `dev` remote.
 
-    :param repo: The bare repository.
+    :param repo: The bare repository, or the clone of a repository that isn't versioned.
     :param branch_suffix: The suffix of your own branches, or None for the remembered one.
     :return: Whether the fetched branches changed.
     """
@@ -173,12 +173,12 @@ def fetch_on_demand(repo: Git, remote: str, branch: str) -> None:
 
 
 def plan_cleanup(repo: Git) -> CleanupPlan:
-    """Find the references a bare repository doesn't need anymore.
+    """Find the references a repository doesn't need anymore.
 
     Only references that don't hold any work are listed: local branches that aren't checked out in a worktree and
     whose commits all exist on a remote, and remote-tracking branches the remotes don't fetch anymore.
 
-    :param repo: The bare repository.
+    :param repo: The bare repository, or the clone of a repository that isn't versioned.
     :return: The references to delete.
     """
     plan = CleanupPlan()
@@ -201,7 +201,8 @@ def plan_cleanup(repo: Git) -> CleanupPlan:
     # these commits.
     revisions = "".join(f"^{ref}\n" for ref in kept_remote_refs)
     local_only = set(repo("rev-list", "--stdin", "--branches", stdin=revisions).split())
-    default_branch = repo("symbolic-ref", "--short", "HEAD")
+    # A clone has its own branch checked out, which is in `checked_out`, and a bare repository its default branch.
+    default_branch = get_known_default_branch(repo)
 
     for line in repo("for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads").splitlines():
         commit, branch = line.split(" ", 1)

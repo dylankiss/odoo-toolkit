@@ -111,6 +111,16 @@ def test_plan_cleanup_only_removes_what_holds_no_work(multiverse: Path, bare: Gi
     assert "fix/master" not in bare("for-each-ref", "--format=%(refname)", "refs/remotes/dev")
 
 
+def test_plan_cleanup_keeps_the_default_branch_of_a_clone(tmp_path: Path, remotes: dict[str, Path]) -> None:
+    clone = tmp_path / "clone"
+    git(tmp_path, "clone", "-q", str(remotes["origin"]), str(clone))
+    git(clone, "checkout", "-q", "--detach")
+    repo = Git(clone)
+
+    # A clone's HEAD can be detached, and its default branch isn't necessarily checked out.
+    assert "master" not in plan_cleanup(repo).local_branches
+
+
 def test_cli_cleanup(multiverse: Path, bare: Git, monkeypatch: pytest.MonkeyPatch) -> None:
     bare("branch", "mirror", "origin/19.0")
     monkeypatch.chdir(multiverse / "19.0")
