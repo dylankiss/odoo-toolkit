@@ -923,3 +923,9 @@ $ otk code [OPTIONS] [VERSION]
 * `-p, --profile <str>`: The Visual Studio Code profile to open it with, like `Odoo`. Defaults to `profile` in the `[code]` table of `multiverse.toml`. A profile that doesn't exist yet is created empty.
 * `--local`: Open it on your machine, even if it has a dev container.
 * `--help`: Show this message and exit.
+
+## License
+
+Odoo Toolkit is licensed under the [MIT License](LICENSE).
+
+It includes files of other projects, which keep their own licenses: the Unicode CLDR data in `odoo_toolkit/po/cldr-common-48.2` (see [its license](odoo_toolkit/po/cldr-common-48.2/LICENSE)), and the Runbot Dockerfiles in `odoo_toolkit/docker/runbot` and the Ruff configuration in `odoo_toolkit/multiverse_config/ruff-odoo.toml`, which come from Odoo.
