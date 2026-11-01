@@ -66,5 +66,14 @@ typeCheckingMode = "strict"
 dev = [
     "pyright[nodejs]==1.1.414",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff==0.17.3",
 ]
+
+[tool.coverage.run]
+source = ["odoo_toolkit"]
+
+[tool.coverage.report]
+# Report only: which modules lack tests, without failing the build.
+skip_covered = true
+show_missing = false

@@ -29,9 +29,21 @@ jobs:
         python: ["3.12", "3.14"]
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
+    env:
+      # One run reports the coverage, which is the same on every platform.
+      REPORT_COVERAGE: ${{ matrix.os == 'ubuntu-24.04' && matrix.python == '3.14' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python }}
-      - run: uv run pytest -q
+      # The coverage report shows which modules lack tests, without failing the build.
+      - run: uv run pytest -q --cov --cov-report=term --cov-report=xml
+      # Codecov comments the coverage on pull requests, with the change against master and links to the files.
+      - if: env.REPORT_COVERAGE == 'true'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # Codecov being down mustn't fail the build.
+          fail_ci_if_error: false
