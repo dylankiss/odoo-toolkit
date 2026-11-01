@@ -1,0 +1,14 @@
+# Coverage is reported on pull requests, but never fails them.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  # Comment on every pull request, also when the total doesn't move, for the coverage of the changed lines.
+  require_changes: false
