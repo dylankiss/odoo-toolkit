@@ -8,7 +8,7 @@ from rich.tree import Tree
 from typer.testing import CliRunner
 
 from odoo_toolkit.main import app
-from odoo_toolkit.po.common import get_cldr_lang, get_odoo_lang, get_plural_forms, update_module_po
+from odoo_toolkit.po.common import get_cldr_lang, get_plural_forms, update_module_po
 from odoo_toolkit.po.update import get_retry_command, is_translated
 
 PO_FILE = r"""msgid ""
@@ -170,8 +170,7 @@ def test_cli_create_uses_the_plural_rules_of_weblate(
     assert [len(entry.msgstr_plural) for entry in po if entry.msgid_plural] == [3]
 
 
-def test_language_codes_of_weblate_and_odoo() -> None:
+def test_language_codes_of_weblate() -> None:
     assert get_cldr_lang("zh_CN") == "zh_Hans"
-    assert get_odoo_lang("zh_Hans") == "zh_CN"
-    assert get_odoo_lang("sr_Latn") == "sr@latin"
-    assert get_odoo_lang("fr") == "fr"
+    assert get_cldr_lang("sr@latin") == "sr_Latn"
+    assert get_cldr_lang("fr") == "fr"

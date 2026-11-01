@@ -196,17 +196,11 @@ ODOO_TO_CLDR_LANG = {
     "zh_CN": "zh_Hans",
     "zh_TW": "zh_Hant",
 }
-CLDR_TO_ODOO_LANG = {cldr: odoo for odoo, cldr in ODOO_TO_CLDR_LANG.items()}
 
 
 def get_cldr_lang(lang_code: str) -> str:
     """Convert an Odoo language code to the CLDR one, which Weblate uses, like `zh_Hans` for `zh_CN`."""
     return ODOO_TO_CLDR_LANG.get(lang_code, lang_code)
-
-
-def get_odoo_lang(lang_code: str) -> str:
-    """Convert a CLDR language code to the Odoo one, used in the `.po` file names, like `zh_CN` for `zh_Hans`."""
-    return CLDR_TO_ODOO_LANG.get(lang_code, lang_code)
 
 
 def get_plural_forms(lang: str) -> str:

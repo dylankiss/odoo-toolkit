@@ -101,8 +101,8 @@ def link_repos(version_dir: Path, names: list[str]) -> RepoResult:
         return RepoResult(
             "links",
             Outcome.WARNING,
-            f"[b]{'[/b], [b]'.join(blocked)}[/b] already exist as regular folders, so they aren't linked. "
-            "Remove them to link them.",
+            f"[b]{'[/b], [b]'.join(blocked)}[/b] already exist as regular folders, so they aren't linked: remove "
+            "them to link them",
         )
     if not linked:
         return RepoResult("links", Outcome.SKIPPED, "none")
@@ -191,7 +191,7 @@ def place_pinned_repo(multiverse_dir: Path, name: str, version: str) -> RepoResu
         return RepoResult(
             name,
             Outcome.WARNING,
-            f"[u]{repo_dir}[/u] already exists as a regular folder, so it can't move there. Remove it to move it.",
+            f"[u]{repo_dir}[/u] already exists as a regular folder, so it can't move there: remove it to move it",
         )
     repo_dir.parent.mkdir(exist_ok=True)
     current_dir.rename(repo_dir)
@@ -231,8 +231,8 @@ def setup_python_env(version_dir: Path, *, python: str | None, requirements: lis
         return RepoResult(
             "python",
             Outcome.WARNING,
-            f"Python {version}; could not install [b]{'[/b], [b]'.join(failed)}[/b]. Only code completion for these "
-            "is affected, since Odoo runs in Docker.",
+            f"Python {version}, without [b]{'[/b], [b]'.join(failed)}[/b], which only affects code completion, "
+            "since Odoo runs in Docker",
         )
     return RepoResult("python", Outcome.UPDATED, f"Python {version} with all requirements")
 

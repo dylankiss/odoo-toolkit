@@ -142,8 +142,8 @@ def _get_size(repo: Git) -> int:
 
 
 def _format_bytes(size: float) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
+    for unit in ("B", "KiB", "MiB", "GiB"):
         if size < 1024:  # noqa: PLR2004
             return f"{size:.1f} {unit}"
         size /= 1024
-    return f"{size:.1f} TB"
+    return f"{size:.1f} TiB"
