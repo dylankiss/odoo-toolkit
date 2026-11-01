@@ -3,7 +3,12 @@ from typing import Annotated
 
 from typer import Exit, Option, Typer
 
-from odoo_toolkit.common import print, print_command_title, print_error, print_success
+from odoo_toolkit.common import (
+    console,
+    print_command_title,
+    print_error,
+    print_success,
+)
 from odoo_toolkit.mv.config import find_version_dir
 
 from .common import check_docker, get_run_containers, stop_services
@@ -52,4 +57,4 @@ def stop(
             print_error("Stopping PostgreSQL, Mailpit and pgAdmin failed.", error)
             raise Exit(1)
         print_success("Stopped PostgreSQL, Mailpit and pgAdmin.")
-    print()
+    console.print()

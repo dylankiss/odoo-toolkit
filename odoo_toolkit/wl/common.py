@@ -20,7 +20,13 @@ from typer import Exit, Option
 from urllib3 import BaseHTTPResponse
 from urllib3.util.retry import Retry
 
-from odoo_toolkit.common import HTTP_HEADERS, TransientProgress, print, print_error, print_warning
+from odoo_toolkit.common import (
+    HTTP_HEADERS,
+    TransientProgress,
+    console,
+    print_error,
+    print_warning,
+)
 
 WEBLATE_URL = environ.get("WEBLATE_URL", "https://translate.odoo.com")
 WEBLATE_API_TOKEN = environ.get("WEBLATE_API_TOKEN")
@@ -749,4 +755,4 @@ def print_failures(failures: Mapping[str, str]) -> None:
     for item, reason in sorted(failures.items()):
         by_reason.setdefault(reason, []).append(item)
     for reason, items in by_reason.items():
-        print(f"  {reason}: {', '.join(items)}")
+        console.print(f"  {reason}: {', '.join(items)}")

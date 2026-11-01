@@ -32,8 +32,6 @@ HTTP_HEADERS = {"User-Agent": USER_AGENT}
 
 # The console object to print all messages on stderr by default
 console = Console(stderr=True, highlight=False)
-# Override the native print method to use the custom console
-print = console.print  # noqa: A001
 
 
 class TransientProgress(Progress):
@@ -57,7 +55,7 @@ def print_command_title(title: str) -> None:
 
     :param title: The title to render
     """
-    print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
+    console.print(Panel.fit(title, style="bold magenta", border_style="bold magenta"), "")
 
 
 def print_header(header: str) -> None:
@@ -65,7 +63,7 @@ def print_header(header: str) -> None:
 
     :param header: The header text to render
     """
-    print(Panel.fit(header, style="bold cyan", border_style="bold cyan"), "")
+    console.print(Panel.fit(header, style="bold cyan", border_style="bold cyan"), "")
 
 
 def print_error(error_msg: str, stacktrace: str | None = None) -> None:
@@ -74,9 +72,9 @@ def print_error(error_msg: str, stacktrace: str | None = None) -> None:
     :param error_msg: The error message to render
     :param stacktrace: The stacktrace to render, defaults to None
     """
-    print(f":exclamation_mark: {error_msg}", style="red")
+    console.print(f":exclamation_mark: {error_msg}", style="red")
     if stacktrace:
-        print("", Panel(stacktrace, title="Logs", title_align="left", style="red", border_style="bold red"))
+        console.print("", Panel(stacktrace, title="Logs", title_align="left", style="red", border_style="bold red"))
 
 
 def print_warning(warning_msg: str) -> None:
@@ -84,7 +82,7 @@ def print_warning(warning_msg: str) -> None:
 
     :param warning_msg: The warning to render
     """
-    print(f":warning: {warning_msg}", style="yellow")
+    console.print(f":warning: {warning_msg}", style="yellow")
 
 
 def print_success(success_msg: str) -> None:
@@ -92,7 +90,7 @@ def print_success(success_msg: str) -> None:
 
     :param success_msg: The success message to render
     """
-    print(f":white_check_mark: {success_msg}", style="green")
+    console.print(f":white_check_mark: {success_msg}", style="green")
 
 
 def print_indent(content: str, indentation: int = 1) -> None:
@@ -101,7 +99,7 @@ def print_indent(content: str, indentation: int = 1) -> None:
     :param content: The content to render with indentation
     :param indentation: The number of characters to indent
     """
-    print(Padding(content, (0, 0, 0, indentation)))
+    console.print(Padding(content, (0, 0, 0, indentation)))
 
 
 def print_panel(content: str, title: str | None = None) -> None:
@@ -110,7 +108,7 @@ def print_panel(content: str, title: str | None = None) -> None:
     :param content: The content to render in the panel
     :param title: The title to render on the panel, defaults to None
     """
-    print(Panel.fit(content, title=title, title_align="left"))
+    console.print(Panel.fit(content, title=title, title_align="left"))
 
 
 def get_error_log_panel(error_logs: str, title: str = "Error") -> Panel:

@@ -24,7 +24,6 @@ extend-exclude = ["odoo_toolkit/multiverse_config/ruff-odoo.toml"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "A004",     # builtin-import-shadowing: `print` is shadowed by Rich's on purpose
     "COM812",   # missing-trailing-comma: the formatter decides, and Ruff advises against both
     "CPY001",   # missing-copyright-notice: the license covers the whole project
     "D100",     # undocumented-public-module

@@ -9,7 +9,12 @@ from pathlib import Path
 from rich.console import RenderableType
 from rich.tree import Tree
 
-from odoo_toolkit.common import TransientProgress, get_valid_modules_to_path_mapping, normalize_list_option, print
+from odoo_toolkit.common import (
+    TransientProgress,
+    console,
+    get_valid_modules_to_path_mapping,
+    normalize_list_option,
+)
 from odoo_toolkit.mv.config import get_default_repo_path
 
 # The modules `-x default` excludes: localizations, themes, hardware and tests.
@@ -293,7 +298,7 @@ def process_modules(
                 module_tree=module_tree,
                 description=description,
             )
-            print(module_tree, "")
+            console.print(module_tree, "")
             if failed is not None:
                 processed += 1
             if failed:

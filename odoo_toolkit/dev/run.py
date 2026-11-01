@@ -6,7 +6,13 @@ from typing import Annotated
 
 from typer import Context, Exit, Option, Typer
 
-from odoo_toolkit.common import EMPTY_LIST, normalize_list_option, print, print_error, print_warning
+from odoo_toolkit.common import (
+    EMPTY_LIST,
+    console,
+    normalize_list_option,
+    print_error,
+    print_warning,
+)
 from odoo_toolkit.mv.config import get_repo_dirs
 from odoo_toolkit.versions import OdooVersion
 
@@ -158,8 +164,10 @@ def run(
     addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
     addons = ", ".join(str(path.relative_to(version_dir)) for path in addons_paths)
     # Visual Studio Code's task waits for these lines, so they must not wrap.
-    print(f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False, soft_wrap=True)
-    print(f"otk: addons path: {addons}", highlight=False, soft_wrap=True)
+    console.print(
+        f"otk: starting Odoo {version.name} ({arch}) on http://localhost:{port}", highlight=False, soft_wrap=True
+    )
+    console.print(f"otk: addons path: {addons}", highlight=False, soft_wrap=True)
     _exec(command)
 
 

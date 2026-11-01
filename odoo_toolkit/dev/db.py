@@ -3,7 +3,12 @@ from typing import Annotated
 
 from typer import Option, Typer
 
-from odoo_toolkit.common import print, print_command_title, print_panel, print_success
+from odoo_toolkit.common import (
+    console,
+    print_command_title,
+    print_panel,
+    print_success,
+)
 
 from .common import DEFAULT_DB_PORT, get_db_port, start_services
 from .image_check import notify_outdated_images
@@ -51,7 +56,7 @@ def db(
         "Mailpit: [b]http://localhost:8025[/b]" + ("\npgAdmin: [b]http://localhost:5050[/b]" if pgadmin else ""),
         "Connection Details",
     )
-    print(
+    console.print(
         "\nTo connect without options, from an Odoo on your machine as well as from tools like [b]psql[/b], add this to "
         "your shell profile (like [u]~/.zshrc[/u]):\n"
         f"  [b]export PGHOST=localhost PGUSER=odoo{'' if port == DEFAULT_DB_PORT else f' PGPORT={port}'}[/b]",
@@ -60,8 +65,8 @@ def db(
         ["docker", "volume", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=False
     )
     if OLD_DB_VOLUME in volumes.stdout.split():
-        print(
+        console.print(
             f"\nThe databases of odoo-toolkit 3.x (PostgreSQL 17) are still in the [b]{OLD_DB_VOLUME}[/b] volume. "
             f"Once you don't need them anymore, remove it with [b]docker volume rm {OLD_DB_VOLUME}[/b].",
         )
-    print()
+    console.print()

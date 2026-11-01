@@ -9,7 +9,11 @@ from threading import Thread
 import requests
 from typer import Context
 
-from .common import HTTP_HEADERS, VERSION, console, print
+from .common import (
+    HTTP_HEADERS,
+    VERSION,
+    console,
+)
 
 LATEST_VERSION_URL = "https://pypi.org/pypi/odoo-toolkit/json"
 # How long a check stays valid, so PyPI is asked once a day at most.
@@ -116,7 +120,7 @@ def check_for_update(ctx: Context) -> None:
     def notify() -> None:
         thread.join(WAIT_FOR_CHECK)
         if latest and is_newer(latest[0], VERSION):
-            print(
+            console.print(
                 f"\n[dim]A new version of odoo-toolkit is available: {VERSION} → [b]{latest[0]}[/b]. "
                 "Upgrade with [b]uv tool upgrade odoo-toolkit[/b] or [b]pipx upgrade odoo-toolkit[/b].[/dim]",
             )

@@ -15,7 +15,10 @@ from typing import cast
 
 import requests
 
-from odoo_toolkit.common import HTTP_HEADERS, print
+from odoo_toolkit.common import (
+    HTTP_HEADERS,
+    console,
+)
 from odoo_toolkit.update_check import CHECK_INTERVAL, REQUEST_TIMEOUT, RETRY_AFTER, get_cache_dir, is_check_disabled
 from odoo_toolkit.versions import OdooVersion
 
@@ -186,9 +189,11 @@ def notify_outdated_images(version: OdooVersion | None = None) -> None:
         images.insert(0, get_image_tag(version))
     for image in find_outdated_images(images):
         if version and image == get_image_tag(version):
-            print(
+            console.print(
                 f"[dim]A newer build of the [b]{version.name}[/b] image is available. Get it with "
                 "[b]otk dev run --pull[/b] or [b]otk dev shell --pull[/b], and rebuild your dev container.[/dim]",
             )
         else:
-            print(f"[dim]A newer build of [b]{image}[/b] is available. Get it with [b]otk dev db --pull[/b].[/dim]")
+            console.print(
+                f"[dim]A newer build of [b]{image}[/b] is available. Get it with [b]otk dev db --pull[/b].[/dim]"
+            )

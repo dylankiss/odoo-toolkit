@@ -10,7 +10,9 @@ from string import Template
 from subprocess import CalledProcessError
 from typing import Any
 
-from odoo_toolkit.common import print
+from odoo_toolkit.common import (
+    console,
+)
 from odoo_toolkit.dev.images import DOCKER_REPOSITORY
 from odoo_toolkit.dev.runtime import (
     CLAUDE_DIR,
@@ -559,7 +561,7 @@ def _get_protected_git_paths(multiverse_dir: Path) -> list[Path]:
 
 def print_devcontainer_notes() -> None:
     """Explain what a dev container doesn't cover, and the settings that only you can change."""
-    print(
+    console.print(
         "[b]Dev containers[/b] are opened with [b]Dev Containers: Reopen in Container[/b]. They only isolate windows "
         "opened that way, not agents started from a terminal on your machine.\n\n"
         "Visual Studio Code shares your Git credential helper and Git config with every dev container, which a project "

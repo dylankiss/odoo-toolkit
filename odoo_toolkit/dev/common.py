@@ -6,7 +6,12 @@ from pathlib import Path
 import requests
 from typer import Exit
 
-from odoo_toolkit.common import TransientProgress, print, print_error, print_warning
+from odoo_toolkit.common import (
+    TransientProgress,
+    console,
+    print_error,
+    print_warning,
+)
 from odoo_toolkit.mv.config import require_version_dir
 from odoo_toolkit.versions import OdooVersion, get_versions
 
@@ -166,7 +171,7 @@ def _build(version: OdooVersion, arch: Arch, user_ids: tuple[int, int] | None) -
     :raises Exit: If building failed.
     """
     emulated = " It runs emulated on this machine, so this takes long." if arch != get_native_arch() else ""
-    print(f"Building [b]{get_image_tag(version)}[/b] for {arch}.{emulated}\n")
+    console.print(f"Building [b]{get_image_tag(version)}[/b] for {arch}.{emulated}\n")
     try:
         build_image(version.image, arch, user_ids=user_ids)
     except subprocess.CalledProcessError as e:
