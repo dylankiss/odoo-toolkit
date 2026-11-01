@@ -79,7 +79,8 @@ def test_get_latest_version_asks_pypi_once_a_day(tmp_path: Path, monkeypatch: py
 
 
 def test_get_latest_version_without_pypi_is_not_asked_again_at_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
 

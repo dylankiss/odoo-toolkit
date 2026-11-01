@@ -226,7 +226,6 @@ RETRY = WeblateRetry(
 )
 
 
-
 class WeblateComponentData(TypedDict, total=False):
     """The parts of a Weblate component the toolkit uses, from the API and in `.weblate.json`."""
 
@@ -257,7 +256,6 @@ class WeblateTranslationsUploadResponse(TypedDict):
     skipped: int
     accepted: int
     total: int
-
 
 
 class WeblateApiError(Exception):
@@ -313,7 +311,7 @@ class WeblateApiError(Exception):
             code = err.get("code", "N/A")
             detail = err.get("detail", "No details provided.")
             attr = err.get("attr", "")
-            error_list.append(f"  ({i+1}) Field: '{attr}' | Code: '{code}' | Detail: '{detail}'")
+            error_list.append(f"  ({i + 1}) Field: '{attr}' | Code: '{code}' | Detail: '{detail}'")
         return "\n".join(error_list)
 
 

@@ -162,14 +162,18 @@ def test_write_commit_graph(tmp_path: Path) -> None:
     chain = repo_dir / ".git" / "objects" / "info" / "commit-graphs" / "commit-graph-chain"
 
     assert mv_setup.write_commit_graph(Git(repo_dir), "repo") == RepoResult(
-        "repo", Outcome.UPDATED, "commit graph written",
+        "repo",
+        Outcome.UPDATED,
+        "commit graph written",
     )
     assert chain.is_file()
     # Without new commits, there's nothing to do.
     assert mv_setup.write_commit_graph(Git(repo_dir), "repo").outcome == Outcome.SKIPPED
     git(repo_dir, "commit", "-q", "--allow-empty", "-m", "second")
     assert mv_setup.write_commit_graph(Git(repo_dir), "repo") == RepoResult(
-        "repo", Outcome.UPDATED, "commit graph updated",
+        "repo",
+        Outcome.UPDATED,
+        "commit graph updated",
     )
 
 
@@ -322,7 +326,8 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # What runs on your machine later can't be changed from the container, if it exists: there is no `.venv` here.
     read_only = [mount for mount in config["mounts"] if mount.endswith("readonly")]
     assert read_only[:2] == [
-        f"source={version_dir / name},target={version_dir / name},type=bind,readonly" for name in (".devcontainer", ".vscode")
+        f"source={version_dir / name},target={version_dir / name},type=bind,readonly"
+        for name in (".devcontainer", ".vscode")
     ]
     # The hooks and configuration of the bare repositories, which every version shares, are Git's way to run code later.
     assert read_only[2:4] == [
@@ -363,7 +368,8 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_write_devcontainer_config_tells_claude_how_the_container_works(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(mv_setup, "get_git_identity", dict)
     version_dir = make_version_dir(tmp_path / "mv")
@@ -452,15 +458,16 @@ def test_link_skills_keeps_your_own_skills_folder(tmp_path: Path) -> None:
 
 
 def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(mv_setup, "get_git_identity", dict)
     version_dir = tmp_path / "mv" / "19.0"
     version_dir.mkdir(parents=True)
     (tmp_path / "mv" / "multiverse.toml").write_text(
-        '[devcontainer]\n'
+        "[devcontainer]\n"
         'extensions = ["streetsidesoftware.code-spell-checker", "odoo.odoo"]\n'
-        '[devcontainer.settings]\n'
+        "[devcontainer.settings]\n"
         '"cSpell.allowCompoundWords" = true\n'
         '"terminal.integrated.defaultProfile.linux" = "zsh"\n',
     )
@@ -477,7 +484,8 @@ def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
 
 
 def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def check_mountable(_multiverse_dir: Path) -> str:
         return "The multiverse can't be here."
@@ -591,7 +599,9 @@ def test_cli_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("github")
-def test_cli_setup_only_adds_worktrees_in_the_configured_versions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_setup_only_adds_worktrees_in_the_configured_versions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
     root.mkdir()
@@ -605,7 +615,9 @@ def test_cli_setup_only_adds_worktrees_in_the_configured_versions(tmp_path: Path
 
 
 @pytest.mark.usefixtures("github")
-def test_cli_setup_places_pinned_repos_in_the_version_they_run_on(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_setup_places_pinned_repos_in_the_version_they_run_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     stub_slow_steps(monkeypatch)
     root = tmp_path / "mv"
     root.mkdir()
@@ -706,9 +718,9 @@ def test_existing_versions_are_the_default(tmp_path: Path) -> None:
     assert mv_setup.get_existing_versions(tmp_path / "new") == []
 
 
-
 def test_setup_js_tooling_installs_typescript_without_saving_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     version_dir = tmp_path / "mv" / "19.0"
     tooling_dir = version_dir / "odoo" / "addons" / "web" / "tooling"
@@ -737,7 +749,8 @@ def test_setup_js_tooling_installs_typescript_without_saving_it(
 
 
 def test_install_requirements_tries_pip_for_what_uv_can_not_install(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("good\nold-archive\nbroken\n")
@@ -760,7 +773,9 @@ def test_install_requirements_tries_pip_for_what_uv_can_not_install(
 @pytest.mark.usefixtures("github")
 @pytest.mark.parametrize("git_version", [(2, 39), (2, 49)])
 def test_complete_clone_works_with_and_without_backfill(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_version: tuple[int, int],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    git_version: tuple[int, int],
 ) -> None:
     repo_dir = get_source_dir(tmp_path)
     mv_setup.clone_bare_repo(KNOWN_REPOS["odoo"], repo_dir)

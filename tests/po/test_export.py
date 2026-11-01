@@ -32,7 +32,12 @@ def repos(tmp_path: Path) -> tuple[Path, Path]:
 def test_default_excludes_keep_the_other_excludes(repos: tuple[Path, Path]) -> None:
     com, ent = repos
     selection = select_modules(
-        ["all"], exclude=["default,my_module"], path_filters=[], com_path=com, ent_path=ent, extra_addons_paths=[],
+        ["all"],
+        exclude=["default,my_module"],
+        path_filters=[],
+        com_path=com,
+        ent_path=ent,
+        extra_addons_paths=[],
     )
 
     assert set(selection.module_to_path) == {"sale"}
@@ -44,7 +49,12 @@ def test_default_excludes_keep_the_other_excludes(repos: tuple[Path, Path]) -> N
 def test_base_is_only_selected_if_it_exists(repos: tuple[Path, Path]) -> None:
     com, ent = repos
     selection = select_modules(
-        ["all"], exclude=[], path_filters=[], com_path=com, ent_path=ent, extra_addons_paths=[],
+        ["all"],
+        exclude=[],
+        path_filters=[],
+        com_path=com,
+        ent_path=ent,
+        extra_addons_paths=[],
     )
     assert "base" not in selection.module_to_path
 
@@ -75,7 +85,10 @@ def test_quick_install_of_base_only_installs_base(tmp_path: Path) -> None:
     ent.mkdir()
 
     modules = export.get_modules_per_server_type(
-        module_to_path={"base": base}, com_path=com, ent_path=ent, quick_install=True,
+        module_to_path={"base": base},
+        com_path=com,
+        ent_path=ent,
+        quick_install=True,
     )
 
     assert modules[export.ServerType.CUSTOM] == ({"base"}, {"base"})

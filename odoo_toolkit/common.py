@@ -166,16 +166,11 @@ def get_valid_modules_to_path_mapping(
     if "enterprise" in modules:
         modules_to_consider.update((m, p) for m, p in ent_modules.items() if include_path(p))
     if "community-l10n" in modules:
-        modules_to_consider.update(
-            (m, p) for m, p in com_modules.items() if is_l10n_module(m) and include_path(p)
-        )
+        modules_to_consider.update((m, p) for m, p in com_modules.items() if is_l10n_module(m) and include_path(p))
     if "enterprise-l10n" in modules:
-        modules_to_consider.update(
-            (m, p) for m, p in ent_modules.items() if is_l10n_module(m) and include_path(p)
-        )
+        modules_to_consider.update((m, p) for m, p in ent_modules.items() if is_l10n_module(m) and include_path(p))
     modules_to_consider.update(
-        (m, p) for m, p in all_modules.items()
-        if any(fnmatch(m, mp) for mp in modules) and include_path(p)
+        (m, p) for m, p in all_modules.items() if any(fnmatch(m, mp) for mp in modules) and include_path(p)
     )
 
     return modules_to_consider

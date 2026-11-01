@@ -318,11 +318,16 @@ def _get_ruff_config(extend: str) -> str:
     """Get a Ruff configuration that follows Odoo's rules in another file, with the settings odoo-toolkit adds."""
     return f'extend = "{extend}"\nline-length = 120\n\n[format]\nquote-style = "preserve"\n'
 
+
 # Cloning
 
 
 def _clone_repos(
-    multiverse_dir: Path, repos: list[RepoSpec], *, branch_suffix: str | None, full_history: bool,
+    multiverse_dir: Path,
+    repos: list[RepoSpec],
+    *,
+    branch_suffix: str | None,
+    full_history: bool,
 ) -> list[RepoResult]:
     """Clone the versioned repositories as bare repositories, and the other ones as regular ones."""
     # Like `preauthenticate_ssh`: an SSH agent that confirms each session gets one request, instead of a race of them.
@@ -336,7 +341,10 @@ def _clone_repos(
 
             def update_progress(stage: str, current: int, total: int) -> None:
                 progress.update(
-                    task, description=f"Cloning [b]{repo.name}[/b]: {stage.lower()}", completed=current, total=total,
+                    task,
+                    description=f"Cloning [b]{repo.name}[/b]: {stage.lower()}",
+                    completed=current,
+                    total=total,
                 )
 
             if repo.kind == RepoKind.VERSIONED:
@@ -417,14 +425,20 @@ def complete_clone(repo: Git, progress: CloneProgress | None = None) -> bool:
     :return: Whether the repository was partial.
     """
     try:
-        promisor_keys = [line.split()[0] for line in repo("config", "--get-regexp", r"^remote\..*\.promisor$").splitlines()]
+        promisor_keys = [
+            line.split()[0] for line in repo("config", "--get-regexp", r"^remote\..*\.promisor$").splitlines()
+        ]
     except GitError:
         return False
     remotes = [key.removeprefix("remote.").removesuffix(".promisor") for key in promisor_keys]
     if not _backfill(repo, progress):
         for remote in remotes:
             run_with_progress(["fetch", "--refetch", "--no-filter", "--progress", remote], progress, cwd=repo.path)
-    for key in (*promisor_keys, *(f"remote.{remote}.partialclonefilter" for remote in remotes), "extensions.partialclone"):
+    for key in (
+        *promisor_keys,
+        *(f"remote.{remote}.partialclonefilter" for remote in remotes),
+        "extensions.partialclone",
+    ):
         # Git exits with an error when the setting doesn't exist.
         with contextlib.suppress(GitError):
             repo("config", "--unset", key)
@@ -521,7 +535,9 @@ def follow_default_branch(repo: Git, name: str) -> RepoResult:
         return RepoResult(name, Outcome.SKIPPED, f"already cloned, on [b]{branch or 'a detached HEAD'}[/b]")
     if branch != previous:
         return RepoResult(
-            name, Outcome.WARNING, f"the default branch is now [b]{current}[/b], but you're on [b]{branch}[/b]",
+            name,
+            Outcome.WARNING,
+            f"the default branch is now [b]{current}[/b], but you're on [b]{branch}[/b]",
         )
     if repo.is_dirty():
         return RepoResult(
@@ -570,7 +586,8 @@ def _plan_links(
                 )
             else:
                 placed = run_safely(
-                    repo.name, lambda name=repo.name, version=runs_on: place_pinned_repo(multiverse_dir, name, version),
+                    repo.name,
+                    lambda name=repo.name, version=runs_on: place_pinned_repo(multiverse_dir, name, version),
                 )
                 if placed.outcome != Outcome.SKIPPED:
                     problems.append(placed)
@@ -627,7 +644,9 @@ def _add_worktrees(multiverse_dir: Path, branches: list[str], repos: list[RepoSp
     with ThreadPoolExecutor() as executor, TransientProgress() as progress:
         futures = [
             executor.submit(
-                add_for_repo, repo, progress.add_task(f"Adding [b]{repo.name}[/b] worktrees", total=len(branches)),
+                add_for_repo,
+                repo,
+                progress.add_task(f"Adding [b]{repo.name}[/b] worktrees", total=len(branches)),
             )
             for repo in repos
         ]
@@ -859,7 +878,9 @@ def link_skills(version_dir: Path) -> RepoResult:
             return RepoResult("skills", Outcome.WARNING, "[b].claude/skills[/b] links elsewhere, so it is kept")
         link.unlink()
     elif link.exists():
-        return RepoResult("skills", Outcome.WARNING, "[b].claude/skills[/b] already exists, so Odoo's skills aren't linked")
+        return RepoResult(
+            "skills", Outcome.WARNING, "[b].claude/skills[/b] already exists, so Odoo's skills aren't linked"
+        )
     link.parent.mkdir(exist_ok=True)
     link.symlink_to(target)
     return RepoResult("skills", Outcome.UPDATED, f"linked [b].claude/skills[/b] to {source}")
@@ -966,7 +987,14 @@ def install_requirements(python: Path, requirement_files: list[Path]) -> list[st
     if not requirements:
         return []
     install_cmd = [
-        "uv", "pip", "install", "--quiet", "--python", str(python), "--build-constraint", str(BUILD_CONSTRAINTS_FILE),
+        "uv",
+        "pip",
+        "install",
+        "--quiet",
+        "--python",
+        str(python),
+        "--build-constraint",
+        str(BUILD_CONSTRAINTS_FILE),
     ]
     try:
         _run([*install_cmd, *requirements])
@@ -1163,7 +1191,9 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     config_file = version_dir / ".devcontainer" / "devcontainer.json"
     if config_file.exists() and not reset:
         return RepoResult(
-            "devcontainer", Outcome.SKIPPED, "already configured (use [b]--update-config[/b] to overwrite)",
+            "devcontainer",
+            Outcome.SKIPPED,
+            "already configured (use [b]--update-config[/b] to overwrite)",
         )
 
     template = _read_json(MULTIVERSE_CONFIG_DIR / ".devcontainer" / "devcontainer.json")

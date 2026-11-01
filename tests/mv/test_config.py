@@ -24,8 +24,7 @@ from tests.mv.conftest import git
 
 def test_load_config_overrides_and_adds_repos(tmp_path: Path) -> None:
     (tmp_path / "multiverse.toml").write_text(
-        '[repos.odoofin]\nalso_in = ["19.0"]\n\n'
-        '[repos.i18n-apps]\nkind = "pinned"\nruns_on = "20.0"\n',
+        '[repos.odoofin]\nalso_in = ["19.0"]\n\n[repos.i18n-apps]\nkind = "pinned"\nruns_on = "20.0"\n',
     )
 
     specs = load_config(tmp_path)

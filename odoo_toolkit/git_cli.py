@@ -73,7 +73,11 @@ class Git:
         :return: The output of the command, without leading and trailing whitespace.
         """
         result = subprocess.run(
-            ["git", "-C", str(self.path), *args], input=stdin, capture_output=True, text=True, check=False,
+            ["git", "-C", str(self.path), *args],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode:
             raise GitError(list(args), result.returncode, result.stderr)
@@ -141,7 +145,11 @@ def clone(url: str, path: Path, *args: str, progress: CloneProgress | None = Non
 
 
 def run_with_progress(
-    cmd: list[str], progress: CloneProgress | None, *, cwd: Path | None = None, tty: bool = False,
+    cmd: list[str],
+    progress: CloneProgress | None,
+    *,
+    cwd: Path | None = None,
+    tty: bool = False,
 ) -> None:
     """Run a Git command, reporting the progress it prints.
 
@@ -156,7 +164,11 @@ def run_with_progress(
     if tty and pty:
         master_fd, stderr = pty.openpty()
     with subprocess.Popen(
-        ["git", *cmd], cwd=cwd, stdout=subprocess.DEVNULL, stderr=stderr, text=master_fd is None,
+        ["git", *cmd],
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=stderr,
+        text=master_fd is None,
     ) as process:
         if master_fd is not None:
             os.close(stderr)

@@ -106,7 +106,8 @@ class WeblateConfig:
         """
         module_name = module_path.name
         existing_module_config = next(
-            (c for c in self.config["projects"][project] if c.get("name") == module_name), None,
+            (c for c in self.config["projects"][project] if c.get("name") == module_name),
+            None,
         )
         if not (module_path / "i18n" / f"{module_name}.pot").is_file():
             if existing_module_config:
@@ -164,7 +165,6 @@ class WeblateConfig:
             self.config["projects"][project].clear()
 
 
-
 _DEFAULT_ODOO_CONFIG_EXCLUDES = [
     "hw_*",
     "*_test",
@@ -191,8 +191,9 @@ _DEFAULT_ODOO_CONFIG_EXCLUDES = [
 ]
 
 
-
-def _get_config_languages(module_path: Path, module_name: str, languages: list[str], lang_filter: bool) -> list[str] | None:
+def _get_config_languages(
+    module_path: Path, module_name: str, languages: list[str], lang_filter: bool
+) -> list[str] | None:
     """Resolve the language list for a module.
 
     Returning None means the module should be skipped.
@@ -350,7 +351,8 @@ def config(
     ],
     project: Annotated[str, Option("--project", "-p", help="Specify the Weblate project slug.")],
     exclude: Annotated[
-        list[str], Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
+        list[str],
+        Option("--exclude", "-x", help="Exclude these modules from being added or updated."),
     ] = EMPTY_LIST,
     path_filters: Annotated[
         list[Path],
@@ -367,7 +369,8 @@ def config(
         ),
     ] = EMPTY_LIST,
     reset: Annotated[
-        bool, Option("--reset", help="Reset the config file for the given project and only add the given modules."),
+        bool,
+        Option("--reset", help="Reset the config file for the given project and only add the given modules."),
     ] = False,
     com_path: Annotated[
         Path,

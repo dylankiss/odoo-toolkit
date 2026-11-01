@@ -49,7 +49,9 @@ def check_docker() -> None:
     if not shutil.which("docker"):
         print_error("This command needs Docker: https://docs.docker.com/get-started/get-docker/\n")
         raise Exit(1)
-    if subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, check=False).returncode:
+    if subprocess.run(
+        ["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, check=False
+    ).returncode:
         print_error("Docker isn't running. Start it (like Docker Desktop), and try again.\n")
         raise Exit(1)
 
@@ -79,7 +81,11 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
     with TransientProgress() as progress:
         progress.add_task("Starting PostgreSQL and Mailpit", total=None)
         result = subprocess.run(
-            cmd, env=os.environ | {"OTK_DB_PORT": str(db_port)}, capture_output=True, text=True, check=False,
+            cmd,
+            env=os.environ | {"OTK_DB_PORT": str(db_port)},
+            capture_output=True,
+            text=True,
+            check=False,
         )
     if result.returncode:
         hint = ""
@@ -180,7 +186,10 @@ def _pull(tag: str, arch: Arch) -> bool:
     with TransientProgress() as progress:
         progress.add_task(f"Pulling {tag} for {arch}", total=None)
         result = subprocess.run(
-            ["docker", "pull", "--quiet", "--platform", f"linux/{arch}", tag], capture_output=True, text=True, check=False,
+            ["docker", "pull", "--quiet", "--platform", f"linux/{arch}", tag],
+            capture_output=True,
+            text=True,
+            check=False,
         )
     if result.returncode:
         print_error(f"Pulling [b]{tag}[/b] failed.", result.stderr.strip())
@@ -197,7 +206,9 @@ def get_run_containers(version: str | None = None, role: Role | None = "run") ->
     filters = ["--filter", f"label={RUN_LABEL}={version}" if version else f"label={RUN_LABEL}"]
     if role:
         filters += ["--filter", f"label={ROLE_LABEL}={role}"]
-    result = subprocess.run(["docker", "ps", *filters, "--format", "{{.Names}}"], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["docker", "ps", *filters, "--format", "{{.Names}}"], capture_output=True, text=True, check=False
+    )
     return result.stdout.split()
 
 

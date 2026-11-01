@@ -23,4 +23,3 @@ def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "gitconfig").write_text(
         "[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = master\n",
     )
-

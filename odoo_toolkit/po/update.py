@@ -186,7 +186,11 @@ def is_translated(entry: POEntry) -> bool:
 
 
 def _update_po_for_lang(
-    lang: str, pot_path: Path, module_path: Path, *, only_translated: bool,
+    lang: str,
+    pot_path: Path,
+    module_path: Path,
+    *,
+    only_translated: bool,
 ) -> tuple[bool, RenderableType]:
     """Update a .po file for the given language and .pot file.
 

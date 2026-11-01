@@ -100,7 +100,13 @@ def download(
         with TransientProgress() as progress:
             task = progress.add_task(f"Downloading {language_code}", total=len(selected))
             fetched = fetch_language_files(
-                weblate_api, project, language_code, selected, query=query, progress=progress, task_id=task,
+                weblate_api,
+                project,
+                language_code,
+                selected,
+                query=query,
+                progress=progress,
+                task_id=task,
             )
         failures |= {f"{component}/{language_code}": reason for component, reason in fetched.failures.items()}
         missing += len(fetched.missing)

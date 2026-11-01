@@ -44,14 +44,17 @@ def run(
     context: Context,
     port: Annotated[int, Option("--port", "-p", help="The port to reach Odoo on, on your machine.")] = 8069,
     debug: Annotated[
-        bool, Option("--debug", help="Start Odoo under the debugger, waiting for Visual Studio Code to attach."),
+        bool,
+        Option("--debug", help="Start Odoo under the debugger, waiting for Visual Studio Code to attach."),
     ] = False,
     debug_port: Annotated[int, Option("--debug-port", help="The port of the debugger, on your machine.")] = 5678,
     upgrade: Annotated[
-        bool, Option("--upgrade", help="Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path."),
+        bool,
+        Option("--upgrade", help="Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path."),
     ] = False,
     community: Annotated[
-        bool, Option("--community", help="Only load the modules of Odoo Community (`odoo/addons`)."),
+        bool,
+        Option("--community", help="Only load the modules of Odoo Community (`odoo/addons`)."),
     ] = False,
     exclude: Annotated[
         list[str],

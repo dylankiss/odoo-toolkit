@@ -130,7 +130,10 @@ def test_a_failing_check_is_swallowed(monkeypatch: pytest.MonkeyPatch, capfd: py
     ],
 )
 def test_an_image_is_outdated_when_the_registry_has_another_build(
-    monkeypatch: pytest.MonkeyPatch, local: set[str], registry: str | None, expected: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    local: set[str],
+    registry: str | None,
+    expected: bool,
 ) -> None:
 
     def get_local_digests(_image: str) -> set[str]:
@@ -176,7 +179,8 @@ def test_the_service_images_come_from_the_compose_file() -> None:
 
 
 def test_the_notice_names_the_command_to_update(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
 
     def is_check_disabled() -> bool:
