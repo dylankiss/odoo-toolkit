@@ -3,7 +3,11 @@ from typing import Annotated
 
 from typer import Exit, Option, Typer, confirm
 
-from odoo_toolkit.common import print, print_command_title, print_warning
+from odoo_toolkit.common import (
+    console,
+    print_command_title,
+    print_warning,
+)
 from odoo_toolkit.git_cli import Git, GitError
 
 from .config import get_repo_dirs, is_worktree, require_version_dir
@@ -57,7 +61,7 @@ def reset(
     version_dir = require_version_dir()
 
     repo_dirs = get_repo_dirs(version_dir, include_linked=include_linked)
-    print(f"Resetting the repositories in [u]{version_dir}[/u]\n")
+    console.print(f"Resetting the repositories in [u]{version_dir}[/u]\n")
 
     preauthenticate_ssh(repo_dirs)
     # Linked repositories are reset to their default branch, worktrees to the version's branch.
@@ -72,8 +76,8 @@ def reset(
     if (local_work := [check for check in checks if check.outcome == Outcome.WARNING]) and not yes:
         print_warning("These commits only exist on your machine, and would be discarded:")
         for check in local_work:
-            print(f"  [b]{check.name}[/b]: {check.message}")
-        print()
+            console.print(f"  [b]{check.name}[/b]: {check.message}")
+        console.print()
         if not confirm("Reset anyway? You can recover them afterwards with the commands shown"):
             raise Exit(1)
 

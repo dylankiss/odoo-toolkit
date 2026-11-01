@@ -13,7 +13,13 @@ from typing import Annotated, Any, cast
 from rich.table import Table
 from typer import Exit, Option, Typer
 
-from odoo_toolkit.common import get_config_file, print, print_command_title, print_error, print_warning
+from odoo_toolkit.common import (
+    console,
+    get_config_file,
+    print_command_title,
+    print_error,
+    print_warning,
+)
 
 app = Typer()
 
@@ -142,5 +148,5 @@ def authors() -> None:
     table.add_column("Email")
     for key, (name, email) in sorted(configured.items()):
         table.add_row(key, name, email)
-    print(table, "")
-    print(f"[d]From [u]{config_file}[/u][/d]\n")
+    console.print(table, "")
+    console.print(f"[d]From [u]{config_file}[/u][/d]\n")

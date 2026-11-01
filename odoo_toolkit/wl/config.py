@@ -11,10 +11,10 @@ from typer import Argument, Exit, Option, Typer
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
+    console,
     get_config_file,
     is_l10n_module,
     normalize_list_option,
-    print,
     print_command_title,
     print_error,
     print_header,
@@ -218,8 +218,8 @@ def _save_config(weblate_config: WeblateConfig, updated: int, skipped: int) -> N
     except WeblateConfigError as e:
         print_error("Config file update failed.\n", str(e))
         raise Exit(1) from e
-    print(f"Modules added or updated: [b]{updated}[/b]")
-    print(f"Modules skipped or removed: [b]{skipped}[/b]")
+    console.print(f"Modules added or updated: [b]{updated}[/b]")
+    console.print(f"Modules skipped or removed: [b]{skipped}[/b]")
     print_success("Config file successfully updated.\n")
 
 
@@ -318,7 +318,7 @@ def _update_config(
     module_to_path = selection.module_to_path
     com_path, ent_path = selection.com_path, selection.ent_path
 
-    print(f"Modules to include: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
+    console.print(f"Modules to include: [b]{'[/b], [b]'.join(sorted(module_to_path.keys()))}[/b]\n")
 
     all_addons_paths = [p.expanduser().resolve() for p in [com_path, ent_path, *extra_addons_paths]]
 
@@ -467,8 +467,8 @@ def config_odoo(
         raise Exit(1) from e
 
     if not odoo_version:
-        print(f"Detected Odoo version: [b]{raw_odoo_version}[/b]")
-    print(f"Using Weblate project suffix: [b]{normalized_odoo_version}[/b]\n")
+        console.print(f"Detected Odoo version: [b]{raw_odoo_version}[/b]")
+    console.print(f"Using Weblate project suffix: [b]{normalized_odoo_version}[/b]\n")
 
     project = f"odoo-{normalized_odoo_version}"
     print_header(f"Configuring [u]{project}[/u]")

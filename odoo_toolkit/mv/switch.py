@@ -3,7 +3,10 @@ from typing import Annotated
 
 from typer import Argument, Exit, Option, Typer
 
-from odoo_toolkit.common import print, print_command_title
+from odoo_toolkit.common import (
+    console,
+    print_command_title,
+)
 from odoo_toolkit.git_cli import Git, GitError
 
 from .config import get_remote_owner, get_repo_dirs, require_version_dir
@@ -63,7 +66,7 @@ def switch(
     version_dir = require_version_dir()
 
     repo_dirs = get_repo_dirs(version_dir, include_linked=include_linked)
-    print(f"Switching the repositories in [u]{version_dir}[/u] to [b]{branch}[/b]\n")
+    console.print(f"Switching the repositories in [u]{version_dir}[/u] to [b]{branch}[/b]\n")
 
     preauthenticate_ssh(repo_dirs)
     results = run_on_repos(

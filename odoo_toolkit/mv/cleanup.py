@@ -4,7 +4,13 @@ from typing import Annotated
 from rich.table import Table
 from typer import Exit, Option, Typer, confirm
 
-from odoo_toolkit.common import TransientProgress, print, print_command_title, print_error, print_success
+from odoo_toolkit.common import (
+    TransientProgress,
+    console,
+    print_command_title,
+    print_error,
+    print_success,
+)
 from odoo_toolkit.git_cli import Git, GitError
 
 from .config import WORKTREE_SOURCE_DIR, ConfigError, find_multiverse_dir, get_current_dir, load_config
@@ -79,14 +85,14 @@ def cleanup(
             str(len(plan.remote_refs)),
             _format_bytes(_get_size(repos[name])),
         )
-    print(table, "")
+    console.print(table, "")
 
     if not yes and not confirm("Remove these branches and reclaim the disk space?"):
         raise Exit(1)
 
     for name, plan in plans.items():
         failed = not _apply_cleanup(name, repos[name], plan, branch_suffix) or failed
-    print()
+    console.print()
     if failed:
         raise Exit(1)
 

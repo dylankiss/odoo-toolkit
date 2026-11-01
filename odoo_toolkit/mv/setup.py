@@ -10,8 +10,8 @@ from typer import Exit, Option, Typer
 from odoo_toolkit.common import (
     EMPTY_LIST,
     TransientProgress,
+    console,
     normalize_list_option,
-    print,
     print_command_title,
     print_error,
     print_header,
@@ -180,7 +180,7 @@ def setup(
             "Their Python environments use uv's default Python version.\n",
         )
     multiverse_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Multiverse directory: [u]{multiverse_dir}[/u]\n")
+    console.print(f"Multiverse directory: [u]{multiverse_dir}[/u]\n")
     try:
         known_repos = load_config(multiverse_dir)
         repos = [
@@ -223,7 +223,7 @@ def setup(
         devcontainer=devcontainer,
     )
     for branch, results in version_results.items():
-        print(f"[b]{branch}[/b]")
+        console.print(f"[b]{branch}[/b]")
         print_result_table(results)
     if any(result.name == "devcontainer" for results in version_results.values() for result in results):
         print_devcontainer_notes()

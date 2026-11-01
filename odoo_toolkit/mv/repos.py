@@ -10,7 +10,13 @@ from pathlib import Path
 
 from rich.table import Table
 
-from odoo_toolkit.common import TransientProgress, print, print_error, print_success, print_warning
+from odoo_toolkit.common import (
+    TransientProgress,
+    console,
+    print_error,
+    print_success,
+    print_warning,
+)
 from odoo_toolkit.git_cli import Git, GitError
 
 # `git ls-remote --exit-code` exits with this code when no matching ref was found.
@@ -315,7 +321,7 @@ def print_result_table(results: list[RepoResult]) -> None:
             result.message,
             style=styles.get(result.outcome),
         )
-    print(table, "")
+    console.print(table, "")
 
 
 def print_results(results: list[RepoResult], version_dir: Path, *, error: str | None = None) -> bool:
@@ -334,10 +340,10 @@ def print_results(results: list[RepoResult], version_dir: Path, *, error: str | 
             repo_dir = version_dir / result.name
             ref = find_stash(Git(repo_dir), result.stash or "") or "stash@{0}"
             # Don't wrap the command, so it can be copied as is.
-            print(
+            console.print(
                 f"  [b]git -C {repo_dir} stash pop {ref}[/b]  [d]# {result.stash}[/d]", highlight=False, soft_wrap=True
             )
-        print()
+        console.print()
 
     failed = [result for result in results if result.outcome == Outcome.FAILED]
     if failed:

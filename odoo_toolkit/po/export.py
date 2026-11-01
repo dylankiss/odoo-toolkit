@@ -30,7 +30,6 @@ from odoo_toolkit.common import (
     console,
     get_odoo_version,
     is_l10n_module,
-    print,
     print_command_title,
     print_error,
     print_header,
@@ -316,7 +315,7 @@ def export(  # noqa: C901, PLR0912, PLR0915
                 "Exporting [b]base[/b] is not compatible with exporting modules from extra addons paths.\nSkipping:",
             )
             print_indent(", ".join(sorted(custom_modules)))
-            print()
+            console.print()
             module_to_path = {m: p for m, p in module_to_path.items() if m not in custom_modules}
 
     modules_per_server_type = get_modules_per_server_type(
@@ -330,9 +329,9 @@ def export(  # noqa: C901, PLR0912, PLR0915
         include_module=selection.include_module,
     )
 
-    print("[b]All modules to export[/b]")
+    console.print("[b]All modules to export[/b]")
     print_indent(", ".join(sorted(module_to_path)))
-    print()
+    console.print()
 
     # Determine the URL to connect to our Odoo server.
     host = "localhost" if start_server else host
@@ -487,7 +486,7 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
         finally:
             # Leaving the `with` block waits for the server to stop, so make sure it does.
             if _stop_server(proc, server):
-                print(f"{server.formatted} Odoo Server has stopped :white_check_mark:")
+                console.print(f"{server.formatted} Odoo Server has stopped :white_check_mark:")
 
     if data.database_created and data.server_error:
         print_warning(
@@ -495,7 +494,7 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
             "You can delete it manually afterwards.",
         )
     elif data.database_created and not server.drop_cmds:
-        print(
+        console.print(
             f"{server.formatted} Database [b]{server.database}[/b] has been kept to re-use or inspect later :white_check_mark:\n"
         )
     elif data.database_created:
@@ -515,7 +514,7 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
                 _print_command_for_copy(drop_cmd)
                 break
         else:
-            print(f"{server.formatted} Database [b]{server.database}[/b] has been deleted :white_check_mark:\n")
+            console.print(f"{server.formatted} Database [b]{server.database}[/b] has been deleted :white_check_mark:\n")
 
     return not data.server_error
 
@@ -679,8 +678,8 @@ def _wait_and_export_terms(
             # The server is ready to export. Close the pipe to prevent overfilling the buffer and blocking the process.
             proc.stderr.close()
             progress.update(data.progress_task, completed=1, total=1)
-            print(f"{server.formatted} Modules have been installed :white_check_mark:")
-            print(f"{server.formatted} Odoo Server has started :white_check_mark:")
+            console.print(f"{server.formatted} Modules have been installed :white_check_mark:")
+            console.print(f"{server.formatted} Odoo Server has started :white_check_mark:")
             try:
                 return _export_module_terms(
                     server_name=server.name,
@@ -740,7 +739,7 @@ def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
     if "odoo.modules.loading: init db" in log_line or "odoo.modules.loading: Initializing database" in log_line:
         data.log_buffer = ""
         data.database_created = True
-        print(f"{data.server_formatted} Database [b]{data.database}[/b] has been created :white_check_mark:")
+        console.print(f"{data.server_formatted} Database [b]{data.database}[/b] has been created :white_check_mark:")
 
     match = re.search(r"loading (\d+) modules", log_line)
     if match:
@@ -842,10 +841,10 @@ def _export_module_terms(
         export_table.add_row(f"[b]{module_name}[/b]", message)
         progress.advance(progress_task, 1)
 
-    print()
+    console.print()
     print_header(f":speech_balloon: Exported Terms for {server_name}")
-    print(export_table, "")
-    print(f"{server_formatted} Terms have been exported :white_check_mark:")
+    console.print(export_table, "")
+    console.print(f"{server_formatted} Terms have been exported :white_check_mark:")
     return success
 
 
@@ -1151,9 +1150,9 @@ def free_ports(host: str, start_port: int, count: int) -> list[int]:
 
 def _print_command_for_copy(command: Sequence[str | Path]) -> None:
     """Print the retry command wrapped to avoid terminal soft-wrap during copy."""
-    print("[b]Retry command:[/b]")
+    console.print("[b]Retry command:[/b]")
     # Not as markup, since a command can contain brackets, and wrapped already.
-    print(escape(_format_wrapped_retry_command(command)), highlight=False, soft_wrap=True)
+    console.print(escape(_format_wrapped_retry_command(command)), highlight=False, soft_wrap=True)
 
 
 def _format_wrapped_retry_command(cmd: Sequence[str | Path]) -> str:

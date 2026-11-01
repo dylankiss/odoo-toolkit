@@ -11,9 +11,9 @@ from typer import Argument, Exit, Option, Typer
 
 from odoo_toolkit.common import (
     EMPTY_LIST,
+    console,
     get_error_log_panel,
     normalize_list_option,
-    print,
     print_command_title,
     print_error,
     print_header,
@@ -118,7 +118,9 @@ def create(
         print_error("The provided modules are not available! Nothing to create ...\n")
         raise Exit(1)
 
-    print(f"Modules to create translation files for: [b]{'[/b], [b]'.join(sorted(selection.module_to_path))}[/b]\n")
+    console.print(
+        f"Modules to create translation files for: [b]{'[/b], [b]'.join(sorted(selection.module_to_path))}[/b]\n"
+    )
     print_header(":speech_balloon: Create Translation Files")
 
     # Determine all .po file languages to create.
