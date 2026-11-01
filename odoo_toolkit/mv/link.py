@@ -6,7 +6,7 @@ from typer import Argument, Exit, Typer
 from odoo_toolkit.common import print_command_title, print_error, print_success, print_warning
 
 from .config import get_linked_repos, require_version_dir
-from .setup import configure_language_server, link_repo, update_scanned_repos
+from .configure import configure_language_server, link_repo, update_scanned_repos
 
 app = Typer()
 
