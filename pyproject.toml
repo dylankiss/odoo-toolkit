@@ -22,24 +22,23 @@ target-version = "py312"
 extend-exclude = ["odoo_toolkit/multiverse_config/ruff-odoo.toml"]
 
 [tool.ruff.lint]
-preview = false
 select = ["ALL"]
 ignore = [
-    "A004",     # builtin-import-shadowing
-    "CPY001",   # missing-copyright-notice
+    "A004",     # builtin-import-shadowing: `print` is shadowed by Rich's on purpose
+    "COM812",   # missing-trailing-comma: the formatter decides, and Ruff advises against both
+    "CPY001",   # missing-copyright-notice: the license covers the whole project
     "D100",     # undocumented-public-module
     "D104",     # undocumented-public-package
     "D203",     # incorrect-blank-line-before-class, which D211 replaces
     "D213",     # multi-line-summary-second-line, which D212 replaces
-    "D301",     # escape-sequence-in-docstring
-    "E501",     # line-too-long
-    "FBT001",   # boolean-type-hint-positional-argument
-    "FBT002",   # boolean-default-value-positional-argument
-    "PLR0913",  # too-many-arguments
-    "PLR0917",  # too-many-positional-arguments, like the arguments of Typer commands
-    "S602",     # subprocess-popen-with-shell-equals-true
-    "S603",     # subprocess-without-shell-equals-true
-    "S607",     # start-process-with-partial-path
+    "D301",     # escape-sequence-in-docstring: Typer needs `\n` in the help of commands
+    "E501",     # line-too-long: the formatter wraps code, and long strings are fine
+    "FBT001",   # boolean-type-hint-positional-argument: Typer options are positional booleans
+    "FBT002",   # boolean-default-value-positional-argument: same
+    "PLR0913",  # too-many-arguments: Typer commands take one argument per option
+    "PLR0917",  # too-many-positional-arguments: same
+    "S603",     # subprocess-without-shell-equals-true: running git, docker and npm is the point
+    "S607",     # start-process-with-partial-path: same, found on the PATH
 ]
 
 [tool.ruff.lint.per-file-ignores]
