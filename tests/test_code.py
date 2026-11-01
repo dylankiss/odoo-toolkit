@@ -34,7 +34,9 @@ def code_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 
 def test_code_opens_the_version_directory_you_are_in(
-    multiverse_dir: Path, code_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch,
+    multiverse_dir: Path,
+    code_calls: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(multiverse_dir / "19.0")
     monkeypatch.setenv("PWD", str(multiverse_dir / "19.0"))
@@ -45,7 +47,9 @@ def test_code_opens_the_version_directory_you_are_in(
 
 
 def test_code_opens_a_named_version_with_a_profile(
-    multiverse_dir: Path, code_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch,
+    multiverse_dir: Path,
+    code_calls: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(code_module, "get_current_dir", lambda: multiverse_dir)
 
@@ -61,7 +65,9 @@ def test_code_opens_a_named_version_with_a_profile(
 
 
 def test_code_opens_the_dev_container_of_a_version(
-    multiverse_dir: Path, code_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch,
+    multiverse_dir: Path,
+    code_calls: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(code_module, "get_current_dir", lambda: multiverse_dir)
     version_dir = multiverse_dir / "19.0"
@@ -79,7 +85,8 @@ def test_code_opens_the_dev_container_of_a_version(
 
 
 def test_code_needs_a_known_version_and_the_code_command(
-    multiverse_dir: Path, monkeypatch: pytest.MonkeyPatch,
+    multiverse_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(code_module, "get_current_dir", lambda: multiverse_dir)
 

@@ -81,7 +81,9 @@ def get_arm64_chrome_version(pinned_version: str) -> str:
     :return: The version to install.
     """
     pinned = requests.head(
-        f"{CHROME_POOL_URL}/google-chrome-stable_{pinned_version}_arm64.deb", headers=HTTP_HEADERS, timeout=TIMEOUT,
+        f"{CHROME_POOL_URL}/google-chrome-stable_{pinned_version}_arm64.deb",
+        headers=HTTP_HEADERS,
+        timeout=TIMEOUT,
     )
     if pinned.ok:
         return pinned_version
@@ -128,7 +130,9 @@ def render_dockerfile(
     dockerfile = "".join(blocks)
     if arch == "arm64":
         leftovers = [
-            line for line in dockerfile.splitlines() if not line.lstrip().startswith("#") and re.search(r"amd64|x86_64", line)
+            line
+            for line in dockerfile.splitlines()
+            if not line.lstrip().startswith("#") and re.search(r"amd64|x86_64", line)
         ]
         if leftovers:
             msg = "The arm64 Dockerfile still downloads amd64 packages:\n" + "\n".join(leftovers)
@@ -215,9 +219,13 @@ def build_image(
         dockerfile.write_text(render_dockerfile(image, arch), encoding="utf-8")
         tags = [arch_tag(image, arch), *(get_image_tags(image) if load else [])]
         cmd = [
-            "docker", "buildx", "build",
-            "--platform", f"linux/{arch}",
-            "--file", str(dockerfile),
+            "docker",
+            "buildx",
+            "build",
+            "--platform",
+            f"linux/{arch}",
+            "--file",
+            str(dockerfile),
             *(arg for tag in tags for arg in ("--tag", tag)),
             *(["--build-arg", f"USERUID={user_ids[0]}", "--build-arg", f"USERGID={user_ids[1]}"] if user_ids else []),
             *(["--push"] if push else []),
@@ -280,7 +288,10 @@ def get_image_labels(tag: str, arch: Arch) -> dict[str, str] | None:
     if result.returncode and "unknown flag" in result.stderr:
         # Docker before 28.1 can't choose the architecture, so check the one of the image the tag points to.
         result = subprocess.run(
-            ["docker", "image", "inspect", "--format", image_format, tag], capture_output=True, text=True, check=False,
+            ["docker", "image", "inspect", "--format", image_format, tag],
+            capture_output=True,
+            text=True,
+            check=False,
         )
     if result.returncode:
         return None

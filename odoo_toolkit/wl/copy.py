@@ -45,7 +45,8 @@ GLOB_CHARACTERS = ("*", "?", "[")
 def copy(  # noqa: C901, PLR0912, PLR0915
     src_project: Annotated[str, Option("--src-project", "-p", help="The Weblate project to copy translations from.")],
     src_languages: Annotated[
-        list[str], Option("--src-language", "-l", help="The language codes to copy translations from."),
+        list[str],
+        Option("--src-language", "-l", help="The language codes to copy translations from."),
     ],
     dest_projects: Annotated[
         list[str],
@@ -148,9 +149,7 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         raise Exit(1)
 
     # Only the source components that at least one destination project can receive are worth downloading.
-    needed_src_components = {
-        comp_src for components in components_per_dest.values() for comp_src in components
-    }
+    needed_src_components = {comp_src for components in components_per_dest.values() for comp_src in components}
 
     # Map the languages to process.
 
@@ -180,7 +179,8 @@ def copy(  # noqa: C901, PLR0912, PLR0915
 
         with TransientProgress() as progress:
             fetch_task = progress.add_task(
-                f"Fetching {lang_src} source files...", total=len(needed_src_components),
+                f"Fetching {lang_src} source files...",
+                total=len(needed_src_components),
             )
             fetched = fetch_language_files(
                 weblate_api,
@@ -217,12 +217,18 @@ def copy(  # noqa: C901, PLR0912, PLR0915
 
             with TransientProgress() as progress:
                 progress_task = progress.add_task(
-                    f"Copying {lang_src} to {dest_project}", total=len(uploads),
+                    f"Copying {lang_src} to {dest_project}",
+                    total=len(uploads),
                 )
                 results = run_concurrently(
                     uploads,
                     lambda upload, dest_project=dest_project, lang_dest=lang_dest: upload_translations(
-                        weblate_api, dest_project, upload[1], get_cldr_lang(lang_dest), upload[0], upload_data,
+                        weblate_api,
+                        dest_project,
+                        upload[1],
+                        get_cldr_lang(lang_dest),
+                        upload[0],
+                        upload_data,
                     ),
                     progress=progress,
                     task_id=progress_task,
@@ -244,9 +250,9 @@ def copy(  # noqa: C901, PLR0912, PLR0915
         print_failures({f"{component}/{lang}": reason for (component, lang), reason in fetch_failures.items()})
     if upload_failures:
         print_error(f"Failed to upload {len(upload_failures)} file(s):")
-        print_failures({
-            f"{project}: {component}/{lang}": reason for (project, component, lang), reason in upload_failures.items()
-        })
+        print_failures(
+            {f"{project}: {component}/{lang}": reason for (project, component, lang), reason in upload_failures.items()}
+        )
 
     skipped = [
         f"{missing_skipped} without the language in [b]{src_project}[/b]" if missing_skipped else "",
@@ -319,4 +325,6 @@ def _map_components(
             if not src_components_set or any(fnmatch(c, pattern) for pattern in src_components_set)
         }
 
-    return {dest_project: {c: c for c in src_component_slugs & get_slugs(dest_project)} for dest_project in dest_projects}
+    return {
+        dest_project: {c: c for c in src_component_slugs & get_slugs(dest_project)} for dest_project in dest_projects
+    }

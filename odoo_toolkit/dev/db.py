@@ -48,8 +48,7 @@ def db(
         notify_outdated_images()
     print_panel(
         f"PostgreSQL: [b]localhost:{port}[/b], user [b]odoo[/b], no password needed\n"
-        "Mailpit: [b]http://localhost:8025[/b]"
-        + ("\npgAdmin: [b]http://localhost:5050[/b]" if pgadmin else ""),
+        "Mailpit: [b]http://localhost:8025[/b]" + ("\npgAdmin: [b]http://localhost:5050[/b]" if pgadmin else ""),
         "Connection Details",
     )
     print(
@@ -57,7 +56,9 @@ def db(
         "your shell profile (like [u]~/.zshrc[/u]):\n"
         f"  [b]export PGHOST=localhost PGUSER=odoo{'' if port == DEFAULT_DB_PORT else f' PGPORT={port}'}[/b]",
     )
-    volumes = subprocess.run(["docker", "volume", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=False)
+    volumes = subprocess.run(
+        ["docker", "volume", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, check=False
+    )
     if OLD_DB_VOLUME in volumes.stdout.split():
         print(
             f"\nThe databases of odoo-toolkit 3.x (PostgreSQL 17) are still in the [b]{OLD_DB_VOLUME}[/b] volume. "

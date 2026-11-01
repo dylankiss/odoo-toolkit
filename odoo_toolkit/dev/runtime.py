@@ -130,7 +130,11 @@ def get_upgrade_paths(version_dir: Path) -> list[Path]:
 
 
 def get_odoo_args(
-    version_dir: Path, *, exclude: Collection[str] = (), community: bool = False, upgrade: bool = False,
+    version_dir: Path,
+    *,
+    exclude: Collection[str] = (),
+    community: bool = False,
+    upgrade: bool = False,
 ) -> list[str]:
     """Get the Odoo options that load the modules of a version and connect Odoo to the shared services.
 
@@ -284,17 +288,22 @@ def get_ssh_agent_args(ssh_agent: Path | None) -> list[str]:
         return []
     group = "0" if sys.platform != "linux" else str(ssh_agent.stat().st_gid)
     return [
-        "--volume", f"{ssh_agent}:{SSH_AGENT_SOCKET}",
-        "--env", f"SSH_AUTH_SOCK={SSH_AGENT_SOCKET}",
-        "--group-add", group,
+        "--volume",
+        f"{ssh_agent}:{SSH_AGENT_SOCKET}",
+        "--env",
+        f"SSH_AUTH_SOCK={SSH_AGENT_SOCKET}",
+        "--group-add",
+        group,
     ]
 
 
 def get_git_identity() -> dict[str, str]:
     """Get your Git name and email, to use for commits made in the container."""
     identity: dict[str, str] = {}
-    for setting, variables in (("user.name", ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")),
-                               ("user.email", ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"))):
+    for setting, variables in (
+        ("user.name", ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")),
+        ("user.email", ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")),
+    ):
         result = subprocess.run(["git", "config", "--global", setting], capture_output=True, text=True, check=False)
         if value := result.stdout.strip():
             identity |= dict.fromkeys(variables, value)

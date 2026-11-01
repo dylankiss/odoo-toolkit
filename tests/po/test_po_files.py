@@ -90,8 +90,21 @@ def test_retry_command_repeats_every_option() -> None:
     )
 
     assert command == [
-        "otk", "po", "update", "sale", "-l", "fr", "-t", "-x", "*test*", "-f", "my addons",
-        "-e", "../enterprise", "-a", "extra",
+        "otk",
+        "po",
+        "update",
+        "sale",
+        "-l",
+        "fr",
+        "-t",
+        "-x",
+        "*test*",
+        "-f",
+        "my addons",
+        "-e",
+        "../enterprise",
+        "-a",
+        "extra",
     ]
 
 
@@ -127,7 +140,10 @@ def test_cli_update_skips_modules_without_pot(tmp_path: Path, monkeypatch: pytes
 
 @pytest.mark.parametrize("gettext", [True, False])
 def test_cli_create_uses_the_plural_rules_of_weblate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, gettext: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    gettext: bool,
 ) -> None:
     if gettext and not shutil.which("msginit"):
         pytest.skip("gettext isn't installed")

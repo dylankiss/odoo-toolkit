@@ -85,10 +85,12 @@ class FakeTeamsApi:
 
 @pytest.fixture
 def teams_api(monkeypatch: pytest.MonkeyPatch) -> FakeTeamsApi:
-    api = FakeTeamsApi([
-        {"id": 1, "name": "French", "project_selection": 0, "language_selection": 0, "defining_project": None},
-        {"id": 2, "name": "French all", "project_selection": 1, "language_selection": 0, "defining_project": None},
-    ])
+    api = FakeTeamsApi(
+        [
+            {"id": 1, "name": "French", "project_selection": 0, "language_selection": 0, "defining_project": None},
+            {"id": 2, "name": "French all", "project_selection": 1, "language_selection": 0, "defining_project": None},
+        ]
+    )
     monkeypatch.setattr(wl_update_teams, "get_weblate_api", lambda: api)
     return api
 
@@ -162,7 +164,8 @@ def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(wl_upload, "get_weblate_project_component_slugs", get_slugs)
 
     result = CliRunner().invoke(
-        app, ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
+        app,
+        ["wl", "upload", "-p", "odoo-19", "-l", "fr", "-a", "Ann", "-e", "ann@example.com", "-m", "suggest"],
     )
 
     assert result.exit_code == 0, result.output
@@ -184,7 +187,8 @@ def test_cli_upload_sends_the_options_with_the_file(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.usefixtures("weblate_token")
 def test_cli_upload_fails_when_all_files_have_unknown_components(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "odoo-19-unknown-fr.po").write_bytes(b"")

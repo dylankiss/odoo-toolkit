@@ -86,7 +86,9 @@ def sync_section(section: str, command_path: str, ctx: Context) -> str:
     """Write the usage, arguments and options of a command into its README section."""
     usage = render_usage(command_path, ctx)
     section = re.sub(
-        rf"(### Usage\n\n```console\n)\$ {re.escape(command_path)}\b[^\n]*", lambda m: m.group(1) + usage, section,
+        rf"(### Usage\n\n```console\n)\$ {re.escape(command_path)}\b[^\n]*",
+        lambda m: m.group(1) + usage,
+        section,
     )
     arguments, options = render_lists(ctx)
     blocks = [f"### Arguments\n\n{''.join(f'{entry}\n' for entry in arguments)}"] if arguments else []
@@ -136,7 +138,10 @@ def main() -> int:
     if args.check:
         sys.stdout.writelines(
             difflib.unified_diff(
-                current.splitlines(keepends=True), updated.splitlines(keepends=True), "README.md", "README.md (synced)",
+                current.splitlines(keepends=True),
+                updated.splitlines(keepends=True),
+                "README.md",
+                "README.md (synced)",
             ),
         )
         print("\nThe README isn't up to date. Run `uv run scripts/sync_readme.py`.", file=sys.stderr)

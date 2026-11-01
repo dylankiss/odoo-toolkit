@@ -74,7 +74,10 @@ def cleanup(
     table.add_column("Size", justify="right")
     for name, plan in plans.items():
         table.add_row(
-            name, str(len(plan.local_branches)), str(len(plan.remote_refs)), _format_bytes(_get_size(repos[name])),
+            name,
+            str(len(plan.local_branches)),
+            str(len(plan.remote_refs)),
+            _format_bytes(_get_size(repos[name])),
         )
     print(table, "")
 

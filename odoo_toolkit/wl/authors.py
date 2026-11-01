@@ -113,9 +113,7 @@ def resolve_author(author: str | None, email: str | None) -> dict[str, str]:
             f"[b]{author}[/b] isn't in your configuration file, and has no [b]--email[/b], so Weblate can't find the "
             "account to credit.\n",
         )
-    return {
-        key: value for key, value in (("author_name", name), ("author_email", email)) if value
-    }
+    return {key: value for key, value in (("author_name", name), ("author_email", email)) if value}
 
 
 @app.command()

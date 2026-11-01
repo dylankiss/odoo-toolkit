@@ -271,7 +271,9 @@ def run_on_repos(
         task = progress.add_task(description, total=len(repo_dirs))
         futures = {
             executor.submit(
-                run_safely, names.get(repo_dir, repo_dir.name), lambda repo_dir=repo_dir: operation(repo_dir),
+                run_safely,
+                names.get(repo_dir, repo_dir.name),
+                lambda repo_dir=repo_dir: operation(repo_dir),
             ): repo_dir
             for repo_dir in repo_dirs
         }
@@ -308,7 +310,10 @@ def print_result_table(results: list[RepoResult]) -> None:
     table = Table(box=None, show_header=False, pad_edge=False)
     for result in results:
         table.add_row(
-            icons[result.outcome], f"[b]{result.name}[/b]", result.message, style=styles.get(result.outcome),
+            icons[result.outcome],
+            f"[b]{result.name}[/b]",
+            result.message,
+            style=styles.get(result.outcome),
         )
     print(table, "")
 
@@ -329,7 +334,9 @@ def print_results(results: list[RepoResult], version_dir: Path, *, error: str | 
             repo_dir = version_dir / result.name
             ref = find_stash(Git(repo_dir), result.stash or "") or "stash@{0}"
             # Don't wrap the command, so it can be copied as is.
-            print(f"  [b]git -C {repo_dir} stash pop {ref}[/b]  [d]# {result.stash}[/d]", highlight=False, soft_wrap=True)
+            print(
+                f"  [b]git -C {repo_dir} stash pop {ref}[/b]  [d]# {result.stash}[/d]", highlight=False, soft_wrap=True
+            )
         print()
 
     failed = [result for result in results if result.outcome == Outcome.FAILED]

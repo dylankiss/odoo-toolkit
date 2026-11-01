@@ -309,8 +309,7 @@ def export(  # noqa: C901, PLR0912, PLR0915
     if extra_addons_paths and "base" in module_to_path:
         extra_modules_paths = [p.expanduser().resolve() for p in extra_addons_paths]
         custom_modules = [
-            m for m, p in module_to_path.items()
-            if any(p.is_relative_to(emp) for emp in extra_modules_paths)
+            m for m, p in module_to_path.items() if any(p.is_relative_to(emp) for emp in extra_modules_paths)
         ]
         if custom_modules:
             print_warning(
@@ -381,19 +380,30 @@ def export(  # noqa: C901, PLR0912, PLR0915
         server_types = {t: modules for t, modules in modules_per_server_type.items() if modules[0]}
         ports = free_ports(host, port, len(server_types))
         for (server_type, (modules_to_export, modules_to_install)), server_port in zip(
-            server_types.items(), ports, strict=True,
+            server_types.items(),
+            ports,
+            strict=True,
         ):
             suffix = f"{server_port}_{server_type.name.lower()}"
             server_database = database.format(port=suffix) if "{port}" in database else f"{database}_{suffix}"
             odoo_cmd: list[str] = [
-                "python3", str(odoo_repo_path / "odoo-bin"),
-                "--addons-path", _get_addons_path(
-                    server_type, odoo_repo_path / "addons", ent_modules_path, extra_modules_paths,
+                "python3",
+                str(odoo_repo_path / "odoo-bin"),
+                "--addons-path",
+                _get_addons_path(
+                    server_type,
+                    odoo_repo_path / "addons",
+                    ent_modules_path,
+                    extra_modules_paths,
                 ),
-                "--database", server_database,
-                "--init", ",".join(sorted(modules_to_install)),
-                "--limit-time-cpu", "99999999",
-                "--limit-time-real", "99999999",
+                "--database",
+                server_database,
+                "--init",
+                ",".join(sorted(modules_to_install)),
+                "--limit-time-cpu",
+                "99999999",
+                "--limit-time-real",
+                "99999999",
             ]
             if odoo_version and odoo_version >= WITH_DEMO_VERSION:
                 odoo_cmd.append("--with-demo")
@@ -428,7 +438,11 @@ def export(  # noqa: C901, PLR0912, PLR0915
         with ThreadPoolExecutor() as executor, TransientProgress() as progress:
             futures = [
                 executor.submit(
-                    run_server_and_export_terms, server, username=username, password=password, progress=progress,
+                    run_server_and_export_terms,
+                    server,
+                    username=username,
+                    password=password,
+                    progress=progress,
                 )
                 for server in servers
             ]
@@ -463,7 +477,12 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
     with Popen(server.odoo_cmd, env=server.env or None, stdin=DEVNULL, stderr=PIPE, text=True) as proc:
         try:
             data.server_error = not _wait_and_export_terms(
-                proc, data, server, username=username, password=password, progress=progress,
+                proc,
+                data,
+                server,
+                username=username,
+                password=password,
+                progress=progress,
             )
         finally:
             # Leaving the `with` block waits for the server to stop, so make sure it does.
@@ -476,7 +495,9 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
             "You can delete it manually afterwards.",
         )
     elif data.database_created and not server.drop_cmds:
-        print(f"{server.formatted} Database [b]{server.database}[/b] has been kept to re-use or inspect later :white_check_mark:\n")
+        print(
+            f"{server.formatted} Database [b]{server.database}[/b] has been kept to re-use or inspect later :white_check_mark:\n"
+        )
     elif data.database_created:
         for drop_cmd in server.drop_cmds:
             try:
@@ -570,9 +591,17 @@ def _run_in_container(
             # Odoo's connections may not be closed yet, right after stopping it.
             ["docker", "exec", DB_HOST, "dropdb", "--username=odoo", "--force", server.database],
             [
-                "docker", "run", "--rm", "--platform", f"linux/{arch}",
-                "--volume", f"otk-filestore:{VOLUMES['otk-filestore']}",
-                get_image_tag(container.version), "rm", "-rf", filestore,
+                "docker",
+                "run",
+                "--rm",
+                "--platform",
+                f"linux/{arch}",
+                "--volume",
+                f"otk-filestore:{VOLUMES['otk-filestore']}",
+                get_image_tag(container.version),
+                "rm",
+                "-rf",
+                filestore,
             ],
         ]
 
@@ -673,7 +702,8 @@ def _wait_and_export_terms(
             _stop_server(proc, server)
             data.log_buffer += proc.stderr.read()
             print_error(
-                f"{server.formatted} {data.error_msg or 'The server encountered an error.'}", data.log_buffer.strip(),
+                f"{server.formatted} {data.error_msg or 'The server encountered an error.'}",
+                data.log_buffer.strip(),
             )
             _print_command_for_copy(server.odoo_cmd)
             return False
@@ -940,6 +970,7 @@ def get_modules_per_server_type(  # noqa: C901, PLR0912
 
     modules_to_export: dict[ServerType, set[str]] = defaultdict(set[str])
     modules_to_install: dict[ServerType, set[str]] = defaultdict(set[str])
+
     def include_non_l10n_module(m: str) -> bool:
         return not is_l10n_module(m) and include_module(m)
 

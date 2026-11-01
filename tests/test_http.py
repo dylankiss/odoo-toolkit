@@ -1,4 +1,3 @@
-
 from odoo_toolkit.common import USER_AGENT, VERSION
 
 

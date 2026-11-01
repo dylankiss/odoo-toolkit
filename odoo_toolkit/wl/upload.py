@@ -127,7 +127,10 @@ def upload(
 
 
 def _select_files(
-    api: WeblateApi, project: str, language_codes: list[str], patterns: list[str],
+    api: WeblateApi,
+    project: str,
+    language_codes: list[str],
+    patterns: list[str],
 ) -> dict[tuple[str, str], Path]:
     """Select the PO files to upload, by component and language.
 

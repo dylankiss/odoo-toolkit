@@ -107,7 +107,10 @@ def switch_repo(repo_dir: Path, *, branch: str, owner: str | None = None, versio
     if repo.current_branch() != branch:
         if other_worktree := get_other_worktree_using_branch(repo, branch):
             return RepoResult(
-                name, Outcome.FAILED, f"[b]{branch}[/b] is checked out in [u]{other_worktree}[/u]", branch_found=True,
+                name,
+                Outcome.FAILED,
+                f"[b]{branch}[/b] is checked out in [u]{other_worktree}[/u]",
+                branch_found=True,
             )
         stash = stash_if_dirty(repo, f"otk: {version}/{name} before switch to {branch}")
 
@@ -157,7 +160,9 @@ def _update_current_branch(repo: Git, name: str, reason: str) -> RepoResult:
     if not remote_has_branch(repo, remote, remote_branch):
         refresh_fetching(repo)
         return RepoResult(
-            name, Outcome.SKIPPED, f"{reason}; the upstream [b]{remote}/{remote_branch}[/b] was deleted on GitHub",
+            name,
+            Outcome.SKIPPED,
+            f"{reason}; the upstream [b]{remote}/{remote_branch}[/b] was deleted on GitHub",
         )
     fetch_branch(repo, remote, remote_branch)
     outcome, message = fast_forward(repo, f"{remote}/{remote_branch}")

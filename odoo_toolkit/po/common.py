@@ -72,98 +72,99 @@ def select_modules(
     )
     return ModuleSelection(module_to_path, com_path, ent_path, include_module, include_path)
 
+
 ODOO_LANGUAGES = {
-    "am",        # Amharic
-    "ar",        # Arabic
-    "ar_SY",     # Arabic (Syria)
-    "az",        # Azerbaijani
-    "be",        # Belarusian
-    "bg",        # Bulgarian
-    "bn",        # Bengali
-    "bs",        # Bosnian
-    "ca",        # Catalan
-    "cs",        # Czech
-    "da",        # Danish
-    "de",        # German
-    "de_CH",     # German (Switzerland)
-    "el",        # Greek
-    "en_AU",     # English (Australia)
-    "en_CA",     # English (Canada)
-    "en_GB",     # English (United Kingdom)
-    "en_IN",     # English (India)
-    "en_NZ",     # English (New Zealand)
-    "es",        # Spanish
-    "es_419",    # Spanish (Latin America)
-    "es_AR",     # Spanish (Argentina)
-    "es_BO",     # Spanish (Bolivia)
-    "es_CL",     # Spanish (Chile)
-    "es_CO",     # Spanish (Colombia)
-    "es_CR",     # Spanish (Costa Rica)
-    "es_DO",     # Spanish (Dominican Republic)
-    "es_EC",     # Spanish (Ecuador)
-    "es_GT",     # Spanish (Guatemala)
-    "es_MX",     # Spanish (Mexico)
-    "es_PA",     # Spanish (Panama)
-    "es_PE",     # Spanish (Peru)
-    "es_PY",     # Spanish (Paraguay)
-    "es_UY",     # Spanish (Uruguay)
-    "es_VE",     # Spanish (Venezuela)
-    "et",        # Estonian
-    "eu",        # Basque
-    "fa",        # Persian
-    "fi",        # Finnish
-    "fr",        # French
-    "fr_BE",     # French (Belgium)
-    "fr_CA",     # French (Canada)
-    "fr_CH",     # French (Switzerland)
-    "gl",        # Galician
-    "gu",        # Gujarati
-    "he",        # Hebrew
-    "hi",        # Hindi
-    "hr",        # Croatian
-    "hu",        # Hungarian
-    "id",        # Indonesian
-    "it",        # Italian
-    "ja",        # Japanese
-    "ka",        # Georgian
-    "kab",       # Kabyle
-    "km",        # Khmer
-    "ko",        # Korean (South Korea)
-    "ko_KP",     # Korean (North Korea)
-    "lb",        # Luxembourgish
-    "lo",        # Lao
-    "lt",        # Lithuanian
-    "lv",        # Latvian
-    "mk",        # Macedonian
-    "ml",        # Malayalam
-    "mn",        # Mongolian
-    "ms",        # Malay
-    "my",        # Burmese
-    "nb",        # Norwegian Bokmål
-    "nl",        # Dutch
-    "nl_BE",     # Dutch (Belgium)
-    "pl",        # Polish
-    "pt",        # Portuguese
-    "pt_AO",     # Portuguese (Angola)
-    "pt_BR",     # Portuguese (Brazil)
-    "ro",        # Romanian
-    "ru",        # Russian
-    "sk",        # Slovak
-    "sl",        # Slovenian
-    "sq",        # Albanian
-    "sr",        # Serbian
+    "am",  # Amharic
+    "ar",  # Arabic
+    "ar_SY",  # Arabic (Syria)
+    "az",  # Azerbaijani
+    "be",  # Belarusian
+    "bg",  # Bulgarian
+    "bn",  # Bengali
+    "bs",  # Bosnian
+    "ca",  # Catalan
+    "cs",  # Czech
+    "da",  # Danish
+    "de",  # German
+    "de_CH",  # German (Switzerland)
+    "el",  # Greek
+    "en_AU",  # English (Australia)
+    "en_CA",  # English (Canada)
+    "en_GB",  # English (United Kingdom)
+    "en_IN",  # English (India)
+    "en_NZ",  # English (New Zealand)
+    "es",  # Spanish
+    "es_419",  # Spanish (Latin America)
+    "es_AR",  # Spanish (Argentina)
+    "es_BO",  # Spanish (Bolivia)
+    "es_CL",  # Spanish (Chile)
+    "es_CO",  # Spanish (Colombia)
+    "es_CR",  # Spanish (Costa Rica)
+    "es_DO",  # Spanish (Dominican Republic)
+    "es_EC",  # Spanish (Ecuador)
+    "es_GT",  # Spanish (Guatemala)
+    "es_MX",  # Spanish (Mexico)
+    "es_PA",  # Spanish (Panama)
+    "es_PE",  # Spanish (Peru)
+    "es_PY",  # Spanish (Paraguay)
+    "es_UY",  # Spanish (Uruguay)
+    "es_VE",  # Spanish (Venezuela)
+    "et",  # Estonian
+    "eu",  # Basque
+    "fa",  # Persian
+    "fi",  # Finnish
+    "fr",  # French
+    "fr_BE",  # French (Belgium)
+    "fr_CA",  # French (Canada)
+    "fr_CH",  # French (Switzerland)
+    "gl",  # Galician
+    "gu",  # Gujarati
+    "he",  # Hebrew
+    "hi",  # Hindi
+    "hr",  # Croatian
+    "hu",  # Hungarian
+    "id",  # Indonesian
+    "it",  # Italian
+    "ja",  # Japanese
+    "ka",  # Georgian
+    "kab",  # Kabyle
+    "km",  # Khmer
+    "ko",  # Korean (South Korea)
+    "ko_KP",  # Korean (North Korea)
+    "lb",  # Luxembourgish
+    "lo",  # Lao
+    "lt",  # Lithuanian
+    "lv",  # Latvian
+    "mk",  # Macedonian
+    "ml",  # Malayalam
+    "mn",  # Mongolian
+    "ms",  # Malay
+    "my",  # Burmese
+    "nb",  # Norwegian Bokmål
+    "nl",  # Dutch
+    "nl_BE",  # Dutch (Belgium)
+    "pl",  # Polish
+    "pt",  # Portuguese
+    "pt_AO",  # Portuguese (Angola)
+    "pt_BR",  # Portuguese (Brazil)
+    "ro",  # Romanian
+    "ru",  # Russian
+    "sk",  # Slovak
+    "sl",  # Slovenian
+    "sq",  # Albanian
+    "sr",  # Serbian
     "sr@latin",  # Serbian (Latin script)
-    "sv",        # Swedish
-    "sw",        # Swahili
-    "te",        # Telugu
-    "th",        # Thai
-    "tl",        # Tagalog
-    "tr",        # Turkish
-    "uk",        # Ukrainian
-    "vi",        # Vietnamese
-    "zh_CN",     # Chinese (China)
-    "zh_HK",     # Chinese (Hong Kong)
-    "zh_TW",     # Chinese (Taiwan)
+    "sv",  # Swedish
+    "sw",  # Swahili
+    "te",  # Telugu
+    "th",  # Thai
+    "tl",  # Tagalog
+    "tr",  # Turkish
+    "uk",  # Ukrainian
+    "vi",  # Vietnamese
+    "zh_CN",  # Chinese (China)
+    "zh_HK",  # Chinese (Hong Kong)
+    "zh_TW",  # Chinese (Taiwan)
 }
 
 

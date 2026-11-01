@@ -104,7 +104,9 @@ def weblate(monkeypatch: pytest.MonkeyPatch) -> Iterator[type[FakeWeblate]]:
 def test_rate_limited_uploads_are_retried(weblate: type[FakeWeblate]) -> None:
     weblate.queued = [(429, {"Retry-After": "0"}, b"{}"), (200, {}, b'{"accepted": 1}')]
 
-    result = WeblateApi().request(dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"})
+    result = WeblateApi().request(
+        dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"}
+    )
 
     assert result == {"accepted": 1}
     assert weblate.requests == ["POST", "POST"]
@@ -114,14 +116,17 @@ def test_uploads_refused_by_nginx_are_retried(weblate: type[FakeWeblate]) -> Non
     # nginx's rate limit doesn't say how long to wait.
     weblate.queued = [(429, {}, b"<html>Too Many Requests</html>"), (200, {}, b'{"accepted": 1}')]
 
-    result = WeblateApi().request(dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"})
+    result = WeblateApi().request(
+        dict[str, Any], "POST", "/api/translations/p/c/fr/file/", data={"method": "translate"}
+    )
 
     assert result == {"accepted": 1}
     assert weblate.requests == ["POST", "POST"]
 
 
 def test_requests_wait_when_weblate_rate_limit_runs_low(
-    weblate: type[FakeWeblate], monkeypatch: pytest.MonkeyPatch,
+    weblate: type[FakeWeblate],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = FakeClock()
     monkeypatch.setattr(wl_common, "RATE_LIMITER", clock.limiter(1000, 1000))

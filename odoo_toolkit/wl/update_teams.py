@@ -46,7 +46,12 @@ ListChanges = dict[str, tuple[set[str] | set[int], set[str] | set[int]]]
 # Per list of a team: its API endpoints to add to and remove from, the field to add with, and the selection that
 # must be "as defined" for the list to apply.
 LISTS: dict[str, tuple[str, str, str, str | None]] = {
-    "languages": (WEBLATE_GROUP_LANGUAGES_ENDPOINT, WEBLATE_GROUP_LANGUAGE_ENDPOINT, "language_code", "language_selection"),
+    "languages": (
+        WEBLATE_GROUP_LANGUAGES_ENDPOINT,
+        WEBLATE_GROUP_LANGUAGE_ENDPOINT,
+        "language_code",
+        "language_selection",
+    ),
     "projects": (WEBLATE_GROUP_PROJECTS_ENDPOINT, WEBLATE_GROUP_PROJECT_ENDPOINT, "project_id", "project_selection"),
     "roles": (WEBLATE_GROUP_ROLES_ENDPOINT, WEBLATE_GROUP_ROLE_ENDPOINT, "role_id", None),
 }
@@ -158,7 +163,10 @@ def _parse_changes(items: list[str], convert: Callable[[str], str] = str) -> tup
 
 
 def _resolve_ids(
-    api: WeblateApi, endpoint: str, key: str, changes: tuple[set[str], set[str]],
+    api: WeblateApi,
+    endpoint: str,
+    key: str,
+    changes: tuple[set[str], set[str]],
 ) -> tuple[set[int], set[int]]:
     """Get the IDs of the projects or roles to add and remove, by their slug or name.
 
@@ -203,8 +211,10 @@ def _update_team(api: WeblateApi, team: WeblateGroupResponse, selections: dict[s
             print_warning(f"Team [b]{name}[/b] has access to all {list_name}, so they're left as is.")
             continue
         requests = [
-            *((f"removing {item}", "DELETE", remove_endpoint.format(group=team_id, **{list_name[:-1]: item}), None)
-              for item in to_remove),
+            *(
+                (f"removing {item}", "DELETE", remove_endpoint.format(group=team_id, **{list_name[:-1]: item}), None)
+                for item in to_remove
+            ),
             *((f"adding {item}", "POST", add_endpoint.format(group=team_id), {field: item}) for item in to_add),
         ]
         for description, method, endpoint, payload in requests:

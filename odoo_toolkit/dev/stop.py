@@ -14,7 +14,8 @@ app = Typer()
 @app.command()
 def stop(
     port: Annotated[
-        int | None, Option("--port", "-p", help="Only stop the Odoo running on this port, on your machine."),
+        int | None,
+        Option("--port", "-p", help="Only stop the Odoo running on this port, on your machine."),
     ] = None,
     include_services: Annotated[
         bool,

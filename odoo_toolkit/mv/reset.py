@@ -38,7 +38,8 @@ def reset(
         ),
     ] = False,
     yes: Annotated[
-        bool, Option("--yes", "-y", help="Don't ask before discarding commits that only exist on your machine."),
+        bool,
+        Option("--yes", "-y", help="Don't ask before discarding commits that only exist on your machine."),
     ] = False,
 ) -> None:
     """Reset :arrows_counterclockwise: the repositories inside an Odoo Multiverse version directory.

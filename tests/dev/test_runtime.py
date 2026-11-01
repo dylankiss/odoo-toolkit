@@ -139,14 +139,22 @@ def test_normalize_volume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_build_run_command_for_a_shell_with_your_ssh_agent(version_dir: Path) -> None:
     options = RunOptions(
-        version_dir=version_dir, version=get_versions()["19.0"], port=None, command=["bash"], role="shell",
+        version_dir=version_dir,
+        version=get_versions()["19.0"],
+        port=None,
+        command=["bash"],
+        role="shell",
     )
     with socket.socket(socket.AF_UNIX) as agent:
         # Unix sockets have a short maximum path length.
         agent_path = Path(tempfile.mkdtemp(dir="/tmp")) / "agent.sock"
         agent.bind(str(agent_path))
         command = build_run_command(
-            options, multiverse_dir=version_dir.parent, git_identity={}, tty=False, ssh_agent=agent_path,
+            options,
+            multiverse_dir=version_dir.parent,
+            git_identity={},
+            tty=False,
+            ssh_agent=agent_path,
         )
 
     assert "--publish" not in command
@@ -226,7 +234,8 @@ def test_cli_run(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(version_dir / "odoo")
 
     result = CliRunner().invoke(
-        app, ["dev", "run", "--port", "8075", "-x", "enterprise,enterprize", "--", "-d", "mydb", "-i", "sale"],
+        app,
+        ["dev", "run", "--port", "8075", "-x", "enterprise,enterprize", "--", "-d", "mydb", "-i", "sale"],
     )
 
     assert result.exit_code == 0, result.output
@@ -254,7 +263,8 @@ def test_cli_run_with_volumes_and_env(version_dir: Path, monkeypatch: pytest.Mon
     monkeypatch.chdir(version_dir / "odoo")
 
     result = CliRunner().invoke(
-        app, ["dev", "run", "-v", f"{config}:/etc/odoo:ro", "-e", "A=1", "--env", "B=2,3", "--", "-d", "mydb"],
+        app,
+        ["dev", "run", "-v", f"{config}:/etc/odoo:ro", "-e", "A=1", "--env", "B=2,3", "--", "-d", "mydb"],
     )
 
     assert result.exit_code == 0, result.output
@@ -266,7 +276,9 @@ def test_cli_run_with_volumes_and_env(version_dir: Path, monkeypatch: pytest.Mon
 
 
 def test_cli_run_with_a_volume_that_does_not_exist(
-    version_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    version_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(dev_run, "is_port_free", always_free)
     monkeypatch.chdir(version_dir / "odoo")
