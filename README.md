@@ -60,6 +60,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk dev shell`](#otk-dev-shell) | Open a shell in the Odoo container of the current Odoo Multiverse version directory. |
 | [`otk dev stop`](#otk-dev-stop)   | Stop the Odoo containers started with `otk dev run`.                                 |
 | [`otk dev db`](#otk-dev-db)       | Start PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.        |
+| [`otk dev clean`](#otk-dev-clean) | Remove the Docker containers and images of this toolkit that only take space.       |
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
 
@@ -373,6 +374,25 @@ $ otk dev db [OPTIONS]
 * `--pull`: Pull newer builds of the images first. A service whose image changed is recreated, which keeps its data.
 * `--help`: Show this message and exit.
 
+
+## `otk dev clean`
+
+**Remove the Docker containers and images of this toolkit that only take space.**
+
+That's the stopped dev containers, which Visual Studio Code creates again when you open their version, and the earlier builds of the Odoo images that nothing uses anymore. Running containers, the current images, and your databases, filestores and logins, which are in volumes, stay. It shows what it found and its size, and asks before removing anything.
+
+Pulling a newer image with `--pull` already removes the earlier build, unless a container still uses it, like the dev container of that version. Run this command now and then to remove what's left.
+
+### Usage
+
+```console
+$ otk dev clean [OPTIONS]
+```
+
+### Options
+
+* `-y, --yes`: Remove them without asking.
+* `--help`: Show this message and exit.
 
 ## Odoo Weblate (`otk wl`)
 
