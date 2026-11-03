@@ -15,6 +15,7 @@ from odoo_toolkit.common import (
 from odoo_toolkit.mv.config import require_version_dir
 from odoo_toolkit.versions import OdooVersion, get_versions
 
+from .image_check import get_service_images
 from .images import (
     DEFAULT_UID,
     LAYOUT_LABEL,
@@ -83,6 +84,7 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
     if pgadmin:
         cmd += ["--profile", "pgadmin"]
     cmd += ["up", "--detach", "--wait", "--quiet-pull", *(["--pull", "always"] if pull else [])]
+    previous_ids = {image: get_image_id(image) for image in get_service_images()} if pull else {}
     with TransientProgress() as progress:
         progress.add_task("Starting PostgreSQL and Mailpit", total=None)
         result = subprocess.run(
@@ -101,6 +103,9 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
             )
         print_error(f"Starting the services failed.{hint}", result.stderr.strip())
         raise Exit(1)
+    # The services were recreated from the new builds, so the earlier ones aren't used anymore.
+    for image, previous_id in previous_ids.items():
+        remove_replaced_image(image, previous_id)
 
 
 def stop_services() -> str | None:
@@ -188,6 +193,7 @@ def _pull(tag: str, arch: Arch) -> bool:
 
     :return: Whether it was pulled.
     """
+    previous_id = get_image_id(tag)
     with TransientProgress() as progress:
         progress.add_task(f"Pulling {tag} for {arch}", total=None)
         result = subprocess.run(
@@ -198,7 +204,30 @@ def _pull(tag: str, arch: Arch) -> bool:
         )
     if result.returncode:
         print_error(f"Pulling [b]{tag}[/b] failed.", result.stderr.strip())
-    return not result.returncode
+        return False
+    remove_replaced_image(tag, previous_id)
+    return True
+
+
+def get_image_id(image: str) -> str | None:
+    """Get the ID of an image on this machine, or None if it isn't there."""
+    result = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", image], capture_output=True, text=True, check=False
+    )
+    return (result.stdout.strip() or None) if not result.returncode else None
+
+
+def remove_replaced_image(image: str, previous_id: str | None) -> None:
+    """Remove the build an image pointed to before a pull, which now only takes space.
+
+    A build that a container still uses, like a dev container created from it, stays: `otk dev clean` removes it once
+    that container is gone.
+
+    :param image: The image, like `dylankiss/odoo-dev:19.0`.
+    :param previous_id: Its ID before the pull, or None if it wasn't there.
+    """
+    if previous_id and previous_id != get_image_id(image):
+        subprocess.run(["docker", "image", "rm", previous_id], capture_output=True, check=False)
 
 
 def get_run_containers(version: str | None = None, role: Role | None = "run") -> list[str]:
