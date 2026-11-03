@@ -52,13 +52,25 @@ def check_docker() -> None:
 
     :raises Exit: If it isn't.
     """
+    # A container, like a dev container, has no Docker by design: the commands run on your machine.
+    in_container = Path("/.dockerenv").exists() or bool(os.environ.get("REMOTE_CONTAINERS"))
+    where = (
+        " This looks like a container, like a dev container: run it in a terminal on your machine."
+        if in_container
+        else ""
+    )
     if not shutil.which("docker"):
-        print_error("This command needs Docker: https://docs.docker.com/get-started/get-docker/\n")
+        print_error(f"This command needs Docker: https://docs.docker.com/get-started/get-docker/{where}\n")
         raise Exit(1)
-    if subprocess.run(
-        ["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, check=False
-    ).returncode:
-        print_error("Docker isn't running. Start it (like Docker Desktop), and try again.\n")
+    result = subprocess.run(
+        ["docker", "info", "--format", "{{.ServerVersion}}"], capture_output=True, text=True, check=False
+    )
+    if result.returncode:
+        print_error(
+            "Docker can't be reached. Start it (like OrbStack or Docker Desktop), and check that `docker context ls` "
+            f"points to it.{where}\n",
+            result.stderr.strip(),
+        )
         raise Exit(1)
 
 

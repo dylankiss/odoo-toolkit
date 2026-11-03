@@ -189,3 +189,42 @@ def test_a_pull_removes_the_build_it_replaced(monkeypatch: pytest.MonkeyPatch) -
     dev_common.remove_replaced_image(TAG, None)
 
     assert docker.removed == ["sha256:old"]
+
+
+def test_check_docker_says_why_docker_cant_be_reached(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1, stderr="Cannot connect to the Docker daemon at unix:///x.sock")
+
+    def which(_: str) -> str:
+        return "/usr/bin/docker"
+
+    monkeypatch.setattr(dev_common.shutil, "which", which)
+    monkeypatch.setattr(dev_common.subprocess, "run", run)
+    monkeypatch.setenv("REMOTE_CONTAINERS", "true")
+
+    with pytest.raises(dev_common.Exit):
+        dev_common.check_docker()
+
+    output = " ".join(capsys.readouterr().err.split())
+    # Docker's own reason, and that a dev container has no Docker.
+    assert "Cannot connect to the Docker daemon" in output
+    assert "run it in a terminal on your machine" in output
+
+
+def test_check_docker_says_when_docker_isnt_installed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def which(_: str) -> None:
+        return None
+
+    monkeypatch.setattr(dev_common.shutil, "which", which)
+    monkeypatch.setenv("REMOTE_CONTAINERS", "true")
+
+    with pytest.raises(dev_common.Exit):
+        dev_common.check_docker()
+
+    output = " ".join(capsys.readouterr().err.split())
+    assert "This command needs Docker" in output
+    assert "run it in a terminal on your machine" in output
