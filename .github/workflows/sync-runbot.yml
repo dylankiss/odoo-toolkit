@@ -25,6 +25,5 @@ jobs:
           commit-message: "chore(versions): sync with Runbot"
           title: "chore(versions): sync with Runbot"
           body: |
-            Runbot's versions or Dockerfiles changed. Review the diff, then run the **Docker images** workflow after
-            merging to rebuild the images.
+            Runbot's versions or Dockerfiles changed. Review the diff. Merging it rebuilds the images it affects.
           delete-branch: true

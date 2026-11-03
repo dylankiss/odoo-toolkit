@@ -3,8 +3,20 @@ name: Docker images
 # Builds the development images for amd64 and arm64 on native runners, pushes them to Docker Hub and combines them
 # into one multi-architecture tag per Odoo version (like `dylankiss/odoo-dev:19.0`).
 #
+# Runs when what the images are built from changes on master, for only the images it affects, like after merging a
+# Runbot sync. Every month, it rebuilds them all to pick up Ubuntu's security updates.
+#
 # Needs the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets.
 on:
+  push:
+    branches: [master]
+    paths:
+      - "odoo_toolkit/docker/**"
+      - "odoo_toolkit/dev/images.py"
+      - "odoo_toolkit/versions.json"
+      - "scripts/build_images.py"
+  schedule:
+    - cron: "0 4 1 * *"
   workflow_dispatch:
     inputs:
       images:
@@ -15,6 +27,11 @@ on:
 permissions:
   contents: read
 
+# Two pushes in a row would otherwise push the same tags at the same time.
+concurrency:
+  group: images
+  cancel-in-progress: false
+
 jobs:
   plan:
     runs-on: ubuntu-24.04
@@ -22,11 +39,21 @@ jobs:
       images: ${{ steps.images.outputs.images }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit before the push, to see what changed.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - id: images
         env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
           REQUESTED: ${{ inputs.images }}
         run: |
+          if [ "$EVENT" = push ]; then
+            images=$(uv run scripts/build_images.py --changed-since "$BEFORE")
+            echo "images=$images" >> "$GITHUB_OUTPUT"
+            exit
+          fi
           uv run python -c '
           import json, os
           from odoo_toolkit.dev.images import get_images
@@ -36,6 +63,7 @@ jobs:
 
   build:
     needs: plan
+    if: needs.plan.outputs.images != '[]'
     strategy:
       fail-fast: false
       matrix:
@@ -58,7 +86,7 @@ jobs:
   merge:
     needs: [plan, build]
     # Also merge the images that built when others failed.
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.images != '[]' }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

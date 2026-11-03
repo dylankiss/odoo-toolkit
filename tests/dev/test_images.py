@@ -4,6 +4,7 @@ import pytest
 
 from odoo_toolkit.dev.images import (
     RUNBOT_DOCKERFILES_DIR,
+    get_changed_images,
     get_image_tags,
     get_images,
     parse_image_layouts,
@@ -83,3 +84,20 @@ def test_parse_image_layouts() -> None:
         ' "unknown/unknown": {}}'
     )
     assert parse_image_layouts(new) == {"amd64": "2", "arm64": "2"}
+
+
+def test_get_changed_images() -> None:
+    previous = {name: version.image for name, version in get_versions().items()}
+
+    # A changed Runbot Dockerfile only rebuilds its image.
+    assert get_changed_images(["odoo_toolkit/docker/runbot/Docker19.Dockerfile", "README.md"], previous) == ["Docker19"]
+    # Nothing the images are built from changed.
+    assert get_changed_images(["README.md"], previous) == []
+    # The development layer is in every image.
+    assert get_changed_images(["odoo_toolkit/docker/dev.Dockerfile"], previous) == list(
+        dict.fromkeys(previous.values())
+    )
+    # A new version needs the tag of its image.
+    new_version = next(reversed(previous))
+    del previous[new_version]
+    assert get_changed_images([], previous) == [get_versions()[new_version].image]
