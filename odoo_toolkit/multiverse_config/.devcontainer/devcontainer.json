@@ -23,7 +23,7 @@
             ],
             "settings": {
                 "python.defaultInterpreterPath": "/venv/main/bin/python",
-                "terminal.integrated.defaultProfile.linux": "bash",
+                "terminal.integrated.defaultProfile.linux": "zsh",
                 "remote.autoForwardPorts": false,
                 "git.terminalAuthentication": false,
                 "github.gitAuthentication": false,

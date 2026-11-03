@@ -22,6 +22,20 @@ RUN printf '%s\n' \
     'github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=' \
     > /etc/ssh/ssh_known_hosts
 
+# zsh with Oh My Zsh, for the terminal of the dev containers. Oh My Zsh is pinned to a commit and doesn't update itself,
+# so the image only changes when it's built. `otk dev shell` and the agents' commands keep using bash.
+# Source: https://github.com/ohmyzsh/ohmyzsh
+ARG OH_MY_ZSH_COMMIT=b509b1c6ed0c1ba37de12cbd37f30b2b2f61193a
+RUN set -x ; \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends zsh \
+    && rm -rf /var/lib/apt/lists/* \
+    && git init --quiet /home/${USERNAME}/.oh-my-zsh \
+    && git -C /home/${USERNAME}/.oh-my-zsh fetch --quiet --depth 1 https://github.com/ohmyzsh/ohmyzsh.git ${OH_MY_ZSH_COMMIT} \
+    && git -C /home/${USERNAME}/.oh-my-zsh checkout --quiet FETCH_HEAD \
+    && sed "s|^# zstyle ':omz:update' mode disabled|zstyle ':omz:update' mode disabled|" \
+        /home/${USERNAME}/.oh-my-zsh/templates/zshrc.zsh-template > /home/${USERNAME}/.zshrc
+
 # The debugger, used by `otk dev run --debug`, and the file watchers Odoo's `--dev=reload` restarts with.
 RUN python3 -m pip install --no-cache-dir debugpy pydevd-odoo inotify watchdog
 

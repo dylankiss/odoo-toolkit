@@ -471,7 +471,7 @@ def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
         'extensions = ["streetsidesoftware.code-spell-checker", "odoo.odoo"]\n'
         "[devcontainer.settings]\n"
         '"cSpell.allowCompoundWords" = true\n'
-        '"terminal.integrated.defaultProfile.linux" = "zsh"\n',
+        '"terminal.integrated.defaultProfile.linux" = "bash"\n',
     )
 
     mv_configure.write_devcontainer_config(version_dir, reset=False)
@@ -482,7 +482,7 @@ def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
     assert vscode["extensions"][-1] == "streetsidesoftware.code-spell-checker"
     assert vscode["extensions"].count("odoo.odoo") == 1
     assert vscode["settings"]["cSpell.allowCompoundWords"] is True
-    assert vscode["settings"]["terminal.integrated.defaultProfile.linux"] == "zsh"
+    assert vscode["settings"]["terminal.integrated.defaultProfile.linux"] == "bash"
 
 
 def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
