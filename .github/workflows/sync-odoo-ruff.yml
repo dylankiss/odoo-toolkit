@@ -20,8 +20,8 @@ jobs:
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           branch: sync-odoo-ruff
-          commit-message: "[IMP] mv: sync Odoo's Ruff rules"
-          title: "[IMP] mv: sync Odoo's Ruff rules"
+          commit-message: "chore(mv): sync Odoo's Ruff rules"
+          title: "chore(mv): sync Odoo's Ruff rules"
           body: |
             The ruff.toml of Odoo's master branch changed. Review the diff.
           delete-branch: true
