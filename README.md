@@ -144,8 +144,8 @@ $ otk po export --local --db-username odoo "account_*" mrp sale
 * `-c, --com-path <path>`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path <path>`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
 * `-a, --addons-path <path>`: Specify extra addons paths if your modules are not in Community or Enterprise.
-* `-u, --username <str>`: Specify the username to log in to Odoo.  [default: `admin`]
-* `--password <str>`: Specify the password to log in to Odoo.  [default: `admin`]
+* `-u, --username <str>`: Specify the username to log in to Odoo, on your own server or before Odoo saas-18.4.  [default: `admin`]
+* `--password <str>`: Specify the password to log in to Odoo, on your own server or before Odoo saas-18.4.  [default: `admin`]
 * `--host <str>`: Specify the hostname of your Odoo server.  [default: `localhost`]
 * `--port <int>`: Specify the port of your Odoo server. When starting servers, they use the first free ports from it.  [default: `8069`]
 
