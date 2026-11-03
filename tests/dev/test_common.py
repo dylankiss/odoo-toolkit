@@ -122,3 +122,70 @@ def test_get_db_port(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", docker_port)
     assert dev_common.get_db_port() == 5433
+
+
+class FakeImageCommands:
+    """Stand in for `docker image inspect` and `docker image rm`, with an image whose ID changes on pull."""
+
+    def __init__(self, image_id: str | None, *, pulled_id: str | None = None, fail: bool = False) -> None:
+        self.image_id = image_id
+        # The ID after `docker pull` or `docker compose up --pull always`, unless it fails.
+        self.pulled_id = pulled_id
+        self.fail = fail
+        self.removed: list[str] = []
+
+    def run(self, cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["docker", "pull"] or cmd[:2] == ["docker", "compose"]:
+            if self.fail:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="manifest unknown")
+            self.image_id = self.pulled_id
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            found = self.image_id is not None
+            return subprocess.CompletedProcess(cmd, 0 if found else 1, stdout=f"{self.image_id}\n" if found else "")
+        if cmd[:3] == ["docker", "image", "rm"]:
+            self.removed.append(cmd[3])
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+
+def test_pull_removes_the_build_it_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeImageCommands("sha256:old", pulled_id="sha256:new")
+    monkeypatch.setattr(dev_common.subprocess, "run", docker.run)
+
+    assert dev_common._pull(TAG, "arm64")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert docker.removed == ["sha256:old"]
+
+
+def test_a_failed_pull_removes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeImageCommands("sha256:old", fail=True)
+    monkeypatch.setattr(dev_common.subprocess, "run", docker.run)
+
+    assert not dev_common._pull(TAG, "arm64")  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert docker.removed == []
+
+
+def test_start_services_removes_the_builds_a_pull_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeImageCommands("sha256:old", pulled_id="sha256:new")
+    monkeypatch.setattr(dev_common.subprocess, "run", docker.run)
+    monkeypatch.setattr(dev_common, "check_docker", lambda: None)
+
+    def service_images() -> list[str]:
+        return ["postgres:17"]
+
+    monkeypatch.setattr(dev_common, "get_service_images", service_images)
+
+    dev_common.start_services(pull=True)
+
+    assert docker.removed == ["sha256:old"]
+
+
+def test_a_pull_removes_the_build_it_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    docker = FakeImageCommands("sha256:old")
+    monkeypatch.setattr(dev_common.subprocess, "run", docker.run)
+
+    docker.image_id = "sha256:new"
+    dev_common.remove_replaced_image(TAG, "sha256:old")
+    # Nothing replaced, or nothing there before: nothing to remove.
+    dev_common.remove_replaced_image(TAG, "sha256:new")
+    dev_common.remove_replaced_image(TAG, None)
+
+    assert docker.removed == ["sha256:old"]
