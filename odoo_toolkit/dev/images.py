@@ -30,6 +30,9 @@ DEFAULT_UID = 1000
 DOCKER_DIR = Path(__file__).parent.parent / "docker"
 RUNBOT_DOCKERFILES_DIR = DOCKER_DIR / "runbot"
 DEV_LAYER_FILE = DOCKER_DIR / "dev.Dockerfile"
+# The files of this repository every image is built from, so changing one rebuilds them all.
+SHARED_BUILD_FILES = ("odoo_toolkit/docker/dev.Dockerfile", "odoo_toolkit/dev/images.py", "scripts/build_images.py")
+RUNBOT_DOCKERFILES_PATH = "odoo_toolkit/docker/runbot/"
 
 CHROME_POOL_URL = "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable"
 CHROME_PACKAGES_URL = "https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-{arch}/Packages"
@@ -185,6 +188,29 @@ def get_image_tags(image: str) -> list[str]:
 def get_images() -> list[str]:
     """Get the Runbot image names used by the supported versions, from oldest to newest."""
     return list(dict.fromkeys(version.image for version in get_versions().values()))
+
+
+def get_changed_images(changed_files: list[str], previous_images: dict[str, str]) -> list[str]:
+    """Get the images a change in this repository affects, so only those are built again.
+
+    :param changed_files: The changed files, relative to the repository, like
+        `odoo_toolkit/docker/runbot/Docker19.Dockerfile`.
+    :param previous_images: The image of every version before the change, like `{"19.0": "Docker19"}`.
+    :return: The images to build, from oldest to newest.
+    """
+    images = get_images()
+    if any(file in SHARED_BUILD_FILES for file in changed_files):
+        return images
+    changed = {
+        file.removeprefix(RUNBOT_DOCKERFILES_PATH).removesuffix(".Dockerfile")
+        for file in changed_files
+        if file.startswith(RUNBOT_DOCKERFILES_PATH)
+    }
+    # A new version, or one that moved to another image, needs its tag.
+    changed |= {
+        version.image for version in get_versions().values() if previous_images.get(version.name) != version.image
+    }
+    return [image for image in images if image in changed]
 
 
 def get_native_arch() -> Arch:
