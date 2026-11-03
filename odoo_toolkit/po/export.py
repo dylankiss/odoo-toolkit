@@ -3,6 +3,7 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 import time
 import xmlrpc.client
 from base64 import b64decode
@@ -57,10 +58,15 @@ from odoo_toolkit.versions import OdooVersion, get_versions
 from .common import select_modules
 
 HTTPS_PORT = 443
+HTTP_NOT_FOUND = 404
 WITH_DEMO_VERSION = 18.3
+# The first version with `odoo-bin i18n export`, which exports the terms without XML-RPC.
+I18N_EXPORT_VERSION = 18.4
 # Seconds to wait for each answer of the Odoo server, so a stuck server doesn't make us wait forever. Generous, since
 # exporting a big module like `base` takes a while.
 XMLRPC_TIMEOUT = 1800
+# Where the servers in Docker save their configuration, for `odoo-bin i18n export` to read.
+CONTAINER_CONFIG_FILE = "/tmp/otk-export.conf"  # noqa: S108 (a path inside the container, not on this machine)
 
 app = Typer()
 
@@ -99,6 +105,10 @@ class _Server:
     stop_cmd: list[str] | None = None
     # The commands to remove the database and its files afterwards, if any.
     drop_cmds: list[list[str]] = field(default_factory=list[list[str]])
+    # The command that exports the terms once the modules are installed, or None to export them with XML-RPC.
+    export_cmd: list[str] | None = None
+    # The configuration file the server saves on this machine for `export_cmd`, removed afterwards.
+    config_file: Path | None = None
 
 
 @dataclass
@@ -212,7 +222,7 @@ def export(  # noqa: C901, PLR0912, PLR0915
         Option(
             "--username",
             "-u",
-            help="Specify the username to log in to Odoo.",
+            help="Specify the username to log in to Odoo, on your own server or before Odoo saas-18.4.",
             rich_help_panel="Odoo Server Options",
         ),
     ] = "admin",
@@ -220,7 +230,7 @@ def export(  # noqa: C901, PLR0912, PLR0915
         str,
         Option(
             "--password",
-            help="Specify the password to log in to Odoo.",
+            help="Specify the password to log in to Odoo, on your own server or before Odoo saas-18.4.",
             rich_help_panel="Odoo Server Options",
         ),
     ] = "admin",  # noqa: S107
@@ -359,7 +369,10 @@ def export(  # noqa: C901, PLR0912, PLR0915
                     ),
                 ]
             except (OSError, xmlrpc.client.Error) as e:
-                print_error(f"{server_formatted} Exporting the terms failed.", str(e))
+                hint = ""
+                if isinstance(e, xmlrpc.client.ProtocolError) and e.errcode == HTTP_NOT_FOUND:
+                    hint = " The server has no XML-RPC: install the [b]rpc[/b] module in its database."
+                print_error(f"{server_formatted} Exporting the terms failed.{hint}", str(e))
                 succeeded = [False]
     else:
         # Start temporary Odoo servers to export the terms.
@@ -373,6 +386,7 @@ def export(  # noqa: C901, PLR0912, PLR0915
 
         servers: list[_Server] = []
         odoo_version = get_odoo_version(odoo_repo_path)
+        with_i18n_export = bool(odoo_version and odoo_version >= I18N_EXPORT_VERSION)
         # The same for every server, and each takes a command to find out.
         git_identity: dict[str, str] = get_git_identity() if container else {}
         ssh_agent = get_ssh_agent() if container else None
@@ -414,6 +428,22 @@ def export(  # noqa: C901, PLR0912, PLR0915
                 module_to_path={k: v for k, v in module_to_path.items() if k in modules_to_export},
                 odoo_cmd=odoo_cmd,
             )
+            if with_i18n_export:
+                if not container:
+                    server.config_file = Path(tempfile.gettempdir()) / f"otk-export-{server_database}.conf"
+                config_file = str(server.config_file or CONTAINER_CONFIG_FILE)
+                # Odoo saves its options, except the modules to install, for `i18n export` to use the same database
+                # and addons path.
+                odoo_cmd += ["--config", config_file, "--save", "--stop-after-init"]
+                server.export_cmd = [
+                    "python3",
+                    str(odoo_repo_path / "odoo-bin"),
+                    "i18n",
+                    "export",
+                    "--config",
+                    config_file,
+                    *sorted(server.module_to_path),
+                ]
             if container:
                 _run_in_container(
                     server,
@@ -473,20 +503,27 @@ def run_server_and_export_terms(server: _Server, *, username: str, password: str
         error_msg=None,
     )
 
+    # The modification times of the .pot files, to tell which ones `odoo-bin i18n export` wrote.
+    pot_times = {module: _get_mtime(_get_pot_path(module, path)) for module, path in server.module_to_path.items()}
     with Popen(server.odoo_cmd, env=server.env or None, stdin=DEVNULL, stderr=PIPE, text=True) as proc:
         try:
-            data.server_error = not _wait_and_export_terms(
-                proc,
-                data,
-                server,
-                username=username,
-                password=password,
-                progress=progress,
-            )
+            if server.export_cmd:
+                data.server_error = not _wait_for_export_command(proc, data, server, pot_times=pot_times)
+            else:
+                data.server_error = not _wait_and_export_terms(
+                    proc,
+                    data,
+                    server,
+                    username=username,
+                    password=password,
+                    progress=progress,
+                )
         finally:
             # Leaving the `with` block waits for the server to stop, so make sure it does.
             if _stop_server(proc, server):
                 console.print(f"{server.formatted} Odoo Server has stopped :white_check_mark:")
+            if server.config_file:
+                server.config_file.unlink(missing_ok=True)
 
     if data.database_created and data.server_error:
         print_warning(
@@ -571,7 +608,7 @@ def _run_in_container(
         version=container.version,
         port=port,
         # Odoo listens on its usual port in the container, published on the free port we found.
-        command=[*server.odoo_cmd, *get_container_args()],
+        command=_chain_export([*server.odoo_cmd, *get_container_args()], server.export_cmd),
         arch=arch,
         role="export",
     )
@@ -614,6 +651,7 @@ def _run_locally(server: _Server, *, port: int, keep_db: bool, db: tuple[str, in
     server.odoo_cmd += ["--http-port", str(port), "--db_host", db_host, "--db_port", str(db_port)]
     if db_username:
         server.odoo_cmd += ["--db_user", db_username]
+    server.odoo_cmd = _chain_export(server.odoo_cmd, server.export_cmd)
     server.env = dict(os.environ)
     if db_password:
         # Odoo and dropdb both read it from here, so it doesn't show up in the commands.
@@ -621,6 +659,13 @@ def _run_locally(server: _Server, *, port: int, keep_db: bool, db: tuple[str, in
     if not keep_db:
         dropdb_cmd = ["dropdb", server.database, "--host", db_host, "--port", str(db_port)]
         server.drop_cmds = [[*dropdb_cmd, "--username", db_username] if db_username else dropdb_cmd]
+
+
+def _chain_export(odoo_cmd: list[str], export_cmd: list[str] | None) -> list[str]:
+    """Run the export command after the server installed the modules and stopped, if there is one."""
+    if not export_cmd:
+        return odoo_cmd
+    return ["sh", "-c", f"{shlex.join(odoo_cmd)} && {shlex.join(export_cmd)}"]
 
 
 def _find_container(*, local: bool) -> _Container | None:
@@ -716,6 +761,95 @@ def _wait_and_export_terms(
     )
     _print_command_for_copy(server.odoo_cmd)
     return False
+
+
+def _wait_for_export_command(
+    proc: Popen[str],
+    data: _LogLineData,
+    server: _Server,
+    *,
+    pot_times: Mapping[str, int | None],
+) -> bool:
+    """Follow the log of a server that installs its modules and stops, then of `odoo-bin i18n export`.
+
+    :param pot_times: The modification times of the .pot files before exporting, or None for the missing ones.
+    :return: `True` if the terms of all modules were exported, `False` if not.
+    """
+    progress = data.progress
+    export_task: TaskID | None = None
+    while proc.stderr and (log_line := proc.stderr.readline()):
+        data.log_buffer += log_line
+        if export_task is None and _process_server_log_line(log_line=log_line, data=data):
+            progress.update(data.progress_task, completed=1, total=1)
+            console.print(f"{server.formatted} Modules have been installed :white_check_mark:")
+            export_task = progress.add_task(
+                f"{server.formatted} :speech_balloon: Exporting terms",
+                total=len(server.module_to_path),
+            )
+        elif export_task is not None and (match := re.search(r"Exporting (\w+) \(pot\)", log_line)):
+            data.log_buffer = ""
+            progress.update(
+                export_task,
+                advance=1,
+                description=f"{server.formatted} :speech_balloon: Exporting terms for [b]{match.group(1)}[/b]",
+            )
+        if data.server_error:
+            # The traceback follows the error line, so give Odoo a moment to log it, then read what's left.
+            time.sleep(1)
+            _stop_server(proc, server)
+            data.log_buffer += proc.stderr.read()
+            print_error(
+                f"{server.formatted} {data.error_msg or 'The server encountered an error.'}",
+                data.log_buffer.strip(),
+            )
+            _print_command_for_copy(server.odoo_cmd)
+            return False
+
+    if proc.wait():
+        print_error(
+            f"{server.formatted} {'Exporting the terms' if export_task is not None else 'Running the Odoo server'} "
+            f"failed and exited with code: {proc.returncode}",
+            data.log_buffer.strip(),
+        )
+        _print_command_for_copy(server.odoo_cmd)
+        return False
+
+    export_table = Table(box=None, pad_edge=False, show_header=False)
+    success = True
+    for module_name, module_path in sorted(server.module_to_path.items()):
+        pot_path = _get_pot_path(module_name, module_path)
+        previous_time = pot_times.get(module_name)
+        current_time = _get_mtime(pot_path)
+        if current_time is None or current_time == previous_time:
+            # `odoo-bin i18n export` skips the modules that aren't installed.
+            success = False
+            export_table.add_row(
+                f"[b]{module_name}[/b]",
+                "[d]Not installed, so not exported[/d] :negative_squared_cross_mark:",
+            )
+            continue
+        exported, message = _save_pot_file(
+            module_name,
+            module_path,
+            pot_path.read_bytes(),
+            existed=previous_time is not None,
+        )
+        success = success and exported
+        export_table.add_row(f"[b]{module_name}[/b]", message)
+
+    _print_export_table(server.name, server.formatted, export_table)
+    return success
+
+
+def _get_pot_path(module_name: str, module_path: Path) -> Path:
+    return module_path / "i18n" / f"{module_name}.pot"
+
+
+def _get_mtime(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def _process_server_log_line(log_line: str, data: _LogLineData) -> bool:
@@ -841,11 +975,15 @@ def _export_module_terms(
         export_table.add_row(f"[b]{module_name}[/b]", message)
         progress.advance(progress_task, 1)
 
+    _print_export_table(server_name, server_formatted, export_table)
+    return success
+
+
+def _print_export_table(server_name: str, server_formatted: str, export_table: Table) -> None:
     console.print()
     print_header(f":speech_balloon: Exported Terms for {server_name}")
     console.print(export_table, "")
     console.print(f"{server_formatted} Terms have been exported :white_check_mark:")
-    return success
 
 
 def _export_module_pot(
@@ -891,20 +1029,34 @@ def _export_module_pot(
     )
     if not isinstance(pot_file, list):
         return False, "[d]Exporting the .pot file failed[/d] :negative_squared_cross_mark:"
-    pot_file_content = b64decode(pot_file[0]["data"]) if pot_file[0].get("data") else False
+    pot_file_content = b64decode(pot_file[0]["data"]) if pot_file[0].get("data") else b""
+    return _save_pot_file(
+        module_name,
+        module_path,
+        pot_file_content,
+        existed=_get_pot_path(module_name, module_path).is_file(),
+    )
+
+
+def _save_pot_file(module_name: str, module_path: Path, contents: bytes, *, existed: bool) -> tuple[bool, str]:
+    """Save an exported .pot file in the module's `i18n` directory, or remove it if it has no terms.
+
+    :param contents: The exported .pot file, or empty if there was none.
+    :param existed: Whether the module had a .pot file before exporting.
+    :return: A tuple containing `False` if saving failed and `True` otherwise, and the message to show.
+    """
     i18n_path = module_path / "i18n"
     pot_path = i18n_path / f"{module_name}.pot"
 
-    if not pot_file_content or _is_pot_file_empty(pot_file_content):
-        if pot_path.is_file():
-            # Remove empty .pot files.
-            pot_path.unlink()
+    if not contents or _is_pot_file_empty(contents):
+        pot_path.unlink(missing_ok=True)
+        if existed:
             return True, f"[d]Removed empty[/d] [b]{module_name}.pot[/b] :negative_squared_cross_mark:"
         return True, "[d]No terms to translate[/d] :negative_squared_cross_mark:"
 
     try:
         i18n_path.mkdir(exist_ok=True)
-        pot = pofile(pot_file_content.decode())
+        pot = pofile(contents.decode())
         pot.save(str(pot_path))
     except (OSError, ValueError) as e:
         return False, f"[d]Error while exporting [b]{module_name}.pot[/b][/d] :negative_squared_cross_mark:\n{e}"
