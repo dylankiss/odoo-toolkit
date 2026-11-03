@@ -44,7 +44,7 @@ jobs:
           version=$(uv version --short)
           git config user.name "$ACTOR"
           git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
-          git commit -am "[REL] odoo-toolkit $version"
+          git commit -am "chore(release): odoo-toolkit $version"
           git tag -a "v$version" -m "odoo-toolkit $version"
           # Atomic, so the tag isn't pushed when master moved in the meantime.
           git push --atomic origin HEAD:master "v$version"
