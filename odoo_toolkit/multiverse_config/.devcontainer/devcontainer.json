@@ -1,10 +1,12 @@
 {
     "containerEnv": {
-        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_COUNT": "3",
         "GIT_CONFIG_KEY_0": "core.checkStat",
         "GIT_CONFIG_VALUE_0": "minimal",
         "GIT_CONFIG_KEY_1": "core.trustctime",
-        "GIT_CONFIG_VALUE_1": "false"
+        "GIT_CONFIG_VALUE_1": "false",
+        "GIT_CONFIG_KEY_2": "core.fsmonitor",
+        "GIT_CONFIG_VALUE_2": "false"
     },
     "remoteEnv": {
         "PATH": "/venv/main/bin:${containerEnv:PATH}",

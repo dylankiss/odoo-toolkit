@@ -357,6 +357,10 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "--network=otk" in config["runArgs"]
     assert config["containerEnv"]["GIT_AUTHOR_NAME"] == "Abcd"
     assert config["containerEnv"]["GIT_CONFIG_KEY_0"] == "core.checkStat"
+    # Git's file system monitor doesn't work on the mounted multiverse, so a `core.fsmonitor` of yours would only warn.
+    assert config["containerEnv"]["GIT_CONFIG_KEY_2"] == "core.fsmonitor"
+    assert config["containerEnv"]["GIT_CONFIG_VALUE_2"] == "false"
+    assert config["containerEnv"]["GIT_CONFIG_COUNT"] == "3"
     assert config["remoteEnv"]["SSH_AUTH_SOCK"] is None
     launch = config["customizations"]["vscode"]["settings"]["launch"]["configurations"][0]
     assert launch["program"] == str(version_dir / "odoo" / "odoo-bin")
