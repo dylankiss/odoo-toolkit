@@ -23,3 +23,9 @@ def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "gitconfig").write_text(
         "[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = master\n",
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_claude_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep the dev containers of the tests away from the Claude Code configuration of the user."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "empty-claude-config"))

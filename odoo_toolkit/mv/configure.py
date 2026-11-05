@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from string import Template
 from subprocess import CalledProcessError
-from typing import Any
+from typing import Any, cast
 
 from odoo_toolkit.common import (
     console,
@@ -29,7 +29,13 @@ from odoo_toolkit.dev.runtime import (
 )
 from odoo_toolkit.versions import version_sort_key
 
-from .config import VERSION_PATTERN, WORKTREE_SOURCE_DIR, get_devcontainer_extras, get_linked_repos
+from .config import (
+    VERSION_PATTERN,
+    WORKTREE_SOURCE_DIR,
+    get_devcontainer_claude_mounts,
+    get_devcontainer_extras,
+    get_linked_repos,
+)
 from .repos import Outcome, RepoResult
 
 MULTIVERSE_CONFIG_DIR = Path(__file__).parent.parent / "multiverse_config"
@@ -44,6 +50,12 @@ VERSION_REQUIREMENTS = [
 
 # Requirements the versions' own requirements need, but don't pin, like the setuptools Sphinx needs.
 COMPAT_REQUIREMENTS_FILE = MULTIVERSE_CONFIG_DIR / "compat-requirements.txt"
+
+
+# Where the dev containers get your Claude Code plugins, as a read-only seed Claude Code loads them from, and where
+# Claude Code reads the settings enabling them, which nothing in the container can change.
+CLAUDE_PLUGIN_SEED_DIR = "/opt/claude-plugins"
+CLAUDE_MANAGED_SETTINGS = "/etc/claude-code/managed-settings.json"
 
 
 # The requirements of each Runbot image, pinned to the versions of its Ubuntu release by `scripts/sync_requirements.py`.
@@ -491,6 +503,8 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     # What runs on your machine later, like the tasks and the dev container's own configuration, can only be changed from
     # your machine, so nothing in the container can use it to run code outside it.
     config_file.parent.mkdir(exist_ok=True)
+    claude_mounts, claude_env = _get_claude_config(multiverse_dir, config_file.parent)
+    template["containerEnv"] = {**claude_env, **template["containerEnv"]}
     protected = [path for name in (".devcontainer", ".vscode", ".venv") if (path := version_dir / name).is_dir()]
     protected += _get_protected_git_paths(multiverse_dir)
     # How this container works, for Claude Code. It is in the read-only `.devcontainer` folder and mounted where Claude
@@ -525,12 +539,62 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
             *(f"source={volume},target={path},type=volume" for volume, path in DEVCONTAINER_VOLUMES.items()),
             *(f"source={path},target={path},type=bind,readonly" for path in protected),
             f"source={instructions_file},target={CLAUDE_DIR}/CLAUDE.md,type=bind,readonly",
+            *claude_mounts,
         ],
         "forwardPorts": [ODOO_PORT],
         **template,
     }
     _write_json(config_file, config, overwrite=True)
     return RepoResult("devcontainer", Outcome.UPDATED, "wrote [b]devcontainer.json[/b]")
+
+
+def _get_claude_config(multiverse_dir: Path, devcontainer_dir: Path) -> tuple[list[str], dict[str, str]]:
+    """Get what the dev containers get of your Claude Code configuration: the mounts and the environment variables.
+
+    The folders you want in the container (all of them unless `claude_mounts` in `multiverse.toml` says otherwise) are
+    mounted read-only, and the ones that don't exist are left out, since a bind mount needs something to mount. Your
+    plugins aren't mounted in `~/.claude/plugins` of the container, which keeps its own plugins and their data, but as
+    a read-only seed Claude Code loads them from. They are enabled by a read-only managed settings file with the
+    plugins enabled on your machine, which is the only part of your settings the container gets.
+
+    :param multiverse_dir: The multiverse directory.
+    :param devcontainer_dir: The `.devcontainer` folder to write the managed settings file in.
+    :return: The mounts and the environment variables.
+    """
+    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    managed_settings_file = devcontainer_dir / "managed-settings.json"
+    managed_settings_file.unlink(missing_ok=True)
+    mounts: list[str] = []
+    env: dict[str, str] = {}
+    for name in get_devcontainer_claude_mounts(multiverse_dir):
+        source = config_dir / name
+        if not source.is_dir():
+            continue
+        if name != "plugins":
+            mounts.append(f"source={source},target={CLAUDE_DIR}/{name},type=bind,readonly")
+            continue
+        mounts.append(f"source={source},target={CLAUDE_PLUGIN_SEED_DIR},type=bind,readonly")
+        env["CLAUDE_CODE_PLUGIN_SEED_DIR"] = CLAUDE_PLUGIN_SEED_DIR
+        if enabled := _get_enabled_plugins(config_dir):
+            _write_json(managed_settings_file, {"enabledPlugins": enabled}, overwrite=True)
+            mounts.append(f"source={managed_settings_file},target={CLAUDE_MANAGED_SETTINGS},type=bind,readonly")
+    return mounts, env
+
+
+def _get_enabled_plugins(config_dir: Path) -> dict[str, bool]:
+    """Get the plugins enabled in the settings of your Claude Code configuration, like `{"plugin@marketplace": True}`."""
+    try:
+        settings = _read_json(config_dir / "settings.json")
+    except (OSError, ValueError):
+        return {}
+    plugins = settings.get("enabledPlugins")
+    if not isinstance(plugins, dict):
+        return {}
+    return {
+        name: True
+        for name, enabled in cast("dict[Any, Any]", plugins).items()
+        if isinstance(name, str) and enabled is True
+    }
 
 
 def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -> str:

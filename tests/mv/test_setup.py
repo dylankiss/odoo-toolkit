@@ -489,6 +489,119 @@ def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
     assert vscode["settings"]["terminal.integrated.defaultProfile.linux"] == "bash"
 
 
+def test_write_devcontainer_config_mounts_your_claude_folders_read_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
+    claude_dir = tmp_path / "claude"
+    (claude_dir / "skills").mkdir(parents=True)
+    (claude_dir / "projects").mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
+    version_dir = tmp_path / "mv" / "19.0"
+    version_dir.mkdir(parents=True)
+    # `plugins` doesn't exist on your machine, and `projects` (your conversations) can't be mounted.
+    (tmp_path / "mv" / "multiverse.toml").write_text(
+        '[devcontainer]\nclaude_mounts = ["skills", "plugins", "projects"]\n'
+    )
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    mounts = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())["mounts"]
+    assert f"source={claude_dir / 'skills'},target={mv_configure.CLAUDE_DIR}/skills,type=bind,readonly" in mounts
+    assert not [mount for mount in mounts if "plugins" in mount or "projects" in mount]
+
+
+def test_write_devcontainer_config_mounts_your_claude_folders_unless_you_opt_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
+    (tmp_path / "claude" / "skills").mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    version_dir = tmp_path / "mv" / "19.0"
+    version_dir.mkdir(parents=True)
+    config_file = version_dir / ".devcontainer" / "devcontainer.json"
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+    assert [mount for mount in json.loads(config_file.read_text())["mounts"] if str(tmp_path / "claude") in mount]
+
+    (tmp_path / "mv" / "multiverse.toml").write_text("[devcontainer]\nclaude_mounts = []\n")
+    mv_configure.write_devcontainer_config(version_dir, reset=True)
+    assert not [mount for mount in json.loads(config_file.read_text())["mounts"] if str(tmp_path / "claude") in mount]
+
+
+def test_write_devcontainer_config_enables_your_plugins_from_a_read_only_seed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
+    claude_dir = tmp_path / "claude"
+    (claude_dir / "plugins").mkdir(parents=True)
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "model": "opus",
+                "hooks": {"Stop": []},
+                "enabledPlugins": {"on@market": True, "off@market": False},
+            },
+        ),
+    )
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
+    version_dir = tmp_path / "mv" / "19.0"
+    version_dir.mkdir(parents=True)
+    devcontainer_dir = version_dir / ".devcontainer"
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    config = json.loads((devcontainer_dir / "devcontainer.json").read_text())
+    seed = mv_configure.CLAUDE_PLUGIN_SEED_DIR
+    # The plugins are a read-only seed of Claude Code, not the plugins folder it writes in.
+    assert f"source={claude_dir / 'plugins'},target={seed},type=bind,readonly" in config["mounts"]
+    assert config["containerEnv"]["CLAUDE_CODE_PLUGIN_SEED_DIR"] == seed
+    # Only the plugins you enabled are enabled, and nothing else of your settings gets in.
+    managed = devcontainer_dir / "managed-settings.json"
+    assert json.loads(managed.read_text()) == {"enabledPlugins": {"on@market": True}}
+    managed_mount = f"source={managed},target={mv_configure.CLAUDE_MANAGED_SETTINGS},type=bind,readonly"
+    assert managed_mount in config["mounts"]
+
+    # Opting out removes all of it, including a file written earlier.
+    (tmp_path / "mv" / "multiverse.toml").write_text("[devcontainer]\nclaude_mounts = []\n")
+    mv_configure.write_devcontainer_config(version_dir, reset=True)
+    config = json.loads((devcontainer_dir / "devcontainer.json").read_text())
+    assert not managed.exists()
+    assert "CLAUDE_CODE_PLUGIN_SEED_DIR" not in config["containerEnv"]
+    assert not [mount for mount in config["mounts"] if str(claude_dir) in mount or "managed-settings" in mount]
+
+
+@pytest.mark.parametrize(
+    ("settings", "enabled"),
+    [
+        (None, None),
+        ("{broken", None),
+        ('{"enabledPlugins": ["a@b"]}', None),
+        ('{"enabledPlugins": {"a@b": true, "c@d": false, "e@f": "yes"}}', {"a@b": True}),
+    ],
+)
+def test_write_devcontainer_config_enables_only_the_plugins_it_can_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, settings: str | None, enabled: dict[str, bool] | None
+) -> None:
+    claude_dir = tmp_path / "claude"
+    (claude_dir / "plugins").mkdir(parents=True)
+    if settings is not None:
+        (claude_dir / "settings.json").write_text(settings)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
+    version_dir = make_version_dir(tmp_path / "mv")
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    managed = version_dir / ".devcontainer" / "managed-settings.json"
+    # Settings that are missing, broken or of another shape enable nothing, and a plugin is only enabled by `true`.
+    assert (json.loads(managed.read_text()) if managed.exists() else None) == (
+        {"enabledPlugins": enabled} if enabled else None
+    )
+
+
 def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

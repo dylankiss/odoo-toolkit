@@ -186,6 +186,33 @@ def get_devcontainer_extras(multiverse_dir: Path) -> tuple[list[str], dict[str, 
     )
 
 
+# The folders of your Claude Code configuration a dev container gets read-only. Not the ones with hooks, your login or
+# your conversations.
+CLAUDE_MOUNTS = ("agents", "commands", "output-styles", "plugins", "skills")
+
+
+def get_devcontainer_claude_mounts(multiverse_dir: Path) -> list[str]:
+    """Get the folders of your Claude Code configuration to mount read-only in the dev containers.
+
+    All of `CLAUDE_MOUNTS`, unless `claude_mounts` in the `[devcontainer]` table of `multiverse.toml` lists fewer. An
+    empty list mounts none:
+
+    ```toml
+    [devcontainer]
+    claude_mounts = ["skills", "plugins"]
+    ```
+
+    :param multiverse_dir: The multiverse directory.
+    :return: The folders. Names that can't be mounted are ignored.
+    """
+    table = _read_config_or_nothing(multiverse_dir).get("devcontainer")
+    values = cast("dict[str, Any]", table) if isinstance(table, dict) else {}
+    names = values.get("claude_mounts")
+    if not isinstance(names, list):
+        return list(CLAUDE_MOUNTS)
+    return [name for name in CLAUDE_MOUNTS if name in cast("list[Any]", names)]
+
+
 def get_configured_repos(multiverse_dir: Path) -> list[str]:
     """Get the names of the repositories with a `[repos.<name>]` table in `multiverse.toml`."""
     repos = _read_config_or_nothing(multiverse_dir).get("repos", {})
