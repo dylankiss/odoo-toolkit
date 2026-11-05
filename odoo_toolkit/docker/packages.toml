@@ -1,0 +1,33 @@
+# Extra packages for the development images, on top of what Runbot's Dockerfiles install, so modules that depend on
+# them can run. `apt` packages are installed as system packages (the Python environment sees them), and `pip` packages
+# are the ones Debian and Ubuntu don't have. `[common]` applies to every image, and a section named after a Runbot
+# image (like `[Docker17]`) adds to it for that image only. The debugger and file watchers are in `dev.Dockerfile`.
+
+[common]
+apt = [
+    "python3-fonttools",
+    "python3-geoip2",
+    "python3-ldap",
+    "python3-maxminddb",
+    "python3-pdfminer",
+    "python3-slugify",
+    "python3-zeep",
+]
+pip = [
+    "cn2an",
+    "jingtrang",
+]
+
+[Docker17]
+apt = [
+    "python3-qrcode",
+    "python3-serial",
+    "python3-usb",
+]
+
+[Docker18]
+apt = [
+    "python3-qrcode",
+    "python3-serial",
+    "python3-usb",
+]

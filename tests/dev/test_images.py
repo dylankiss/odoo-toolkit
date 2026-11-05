@@ -1,14 +1,18 @@
 import re
+from pathlib import Path
 
 import pytest
 
+from odoo_toolkit.dev import images
 from odoo_toolkit.dev.images import (
     RUNBOT_DOCKERFILES_DIR,
     get_changed_images,
+    get_extra_packages,
     get_image_tags,
     get_images,
     parse_image_layouts,
     render_dockerfile,
+    render_packages_layer,
     split_instructions,
 )
 from odoo_toolkit.versions import get_versions
@@ -101,3 +105,29 @@ def test_get_changed_images() -> None:
     new_version = next(reversed(previous))
     del previous[new_version]
     assert get_changed_images([], previous) == [get_versions()[new_version].image]
+
+
+@pytest.mark.parametrize("image", get_images())
+def test_render_installs_extra_packages_before_the_debugger(image: str) -> None:
+    dockerfile = render_dockerfile(image, "amd64")
+
+    assert "EXTRA_PACKAGES" not in dockerfile
+    apt = dockerfile.index("# Extra system packages")
+    pip = dockerfile.index("# Extra Python packages")
+    assert apt < pip < dockerfile.index("pip install --no-cache-dir debugpy")
+
+
+def test_extra_packages_combine_common_and_image_sections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    packages = tmp_path / "packages.toml"
+    packages.write_text('[common]\napt = ["a"]\npip = ["x"]\n[Docker17]\napt = ["a", "b"]\n')
+    monkeypatch.setattr(images, "PACKAGES_FILE", packages)
+
+    assert get_extra_packages("Docker17") == (["a", "b"], ["x"])
+    assert get_extra_packages("Docker19") == (["a"], ["x"])
+    packages.write_text("")
+    assert render_packages_layer("Docker19") == ""
+
+
+def test_changing_the_packages_rebuilds_every_image() -> None:
+    previous = {name: version.image for name, version in get_versions().items()}
+    assert get_changed_images(["odoo_toolkit/docker/packages.toml"], previous) == get_images()
