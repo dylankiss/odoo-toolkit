@@ -36,6 +36,8 @@ RUN set -x ; \
     && sed "s|^# zstyle ':omz:update' mode disabled|zstyle ':omz:update' mode disabled|" \
         /home/${USERNAME}/.oh-my-zsh/templates/zshrc.zsh-template > /home/${USERNAME}/.zshrc
 
+# EXTRA_PACKAGES
+
 # The debugger, used by `otk dev run --debug`, and the file watchers Odoo's `--dev=reload` restarts with.
 RUN python3 -m pip install --no-cache-dir debugpy pydevd-odoo inotify watchdog
 
