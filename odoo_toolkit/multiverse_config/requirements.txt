@@ -1,24 +1,6 @@
-# Useful and optional Python dependencies
-aiosmtpd
-astroid
-cn2an
-dbfread
+# Useful and optional Python dependencies the development images have no system package for
 debugpy
-fonttools
-google-auth
-jingtrang
-markdown
-markdown2
-maxminddb
-paramiko
-pdfminer.six
-phonenumbers
 pydevd-odoo
-pyjwt
 pylint
-python-slugify
 ruff
-suds
 watchdog
-websocket-client
-xmlsec

@@ -46,6 +46,10 @@ VERSION_REQUIREMENTS = [
 COMPAT_REQUIREMENTS_FILE = MULTIVERSE_CONFIG_DIR / "compat-requirements.txt"
 
 
+# The requirements of each Runbot image, pinned to the versions of its Ubuntu release by `scripts/sync_requirements.py`.
+IMAGE_REQUIREMENTS_DIR = MULTIVERSE_CONFIG_DIR / "requirements"
+
+
 # Constraints for building old packages from source, like the Cython version some need.
 BUILD_CONSTRAINTS_FILE = MULTIVERSE_CONFIG_DIR / "build-constraints.txt"
 
