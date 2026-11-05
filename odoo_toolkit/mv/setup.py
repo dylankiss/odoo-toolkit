@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 from .clone import clone_bare_repo, clone_repo, write_commit_graph
 from .configure import (
     COMPAT_REQUIREMENTS_FILE,
+    IMAGE_REQUIREMENTS_DIR,
     VERSION_REQUIREMENTS,
     configure_language_server,
     link_repos,
@@ -491,6 +492,8 @@ def _configure_versions(
         version_dir = multiverse_dir / branch
         if not version_dir.is_dir():
             return [RepoResult("version", Outcome.SKIPPED, "no repositories for this version")]
+        # The packages the Runbot image of the version has, pinned to the versions of its Ubuntu release.
+        image_requirements = [IMAGE_REQUIREMENTS_DIR / f"{versions[branch].image}.txt"] if branch in versions else []
         steps: list[tuple[str, Callable[[], RepoResult]]] = [
             ("links", lambda: link_repos(version_dir, links.get(branch, []))),
             (
@@ -501,7 +504,7 @@ def _configure_versions(
                     requirements=[version_dir / path for path in VERSION_REQUIREMENTS]
                     # The requirements of the linked pinned repositories, like `odoofin`.
                     + [version_dir / name / "requirements.txt" for name in links.get(branch, [])]
-                    + [COMPAT_REQUIREMENTS_FILE, multiverse_dir / "requirements.txt"],
+                    + [COMPAT_REQUIREMENTS_FILE, *image_requirements, multiverse_dir / "requirements.txt"],
                     reset=reset_config,
                 ),
             ),
