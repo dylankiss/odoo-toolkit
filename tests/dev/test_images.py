@@ -131,3 +131,19 @@ def test_extra_packages_combine_common_and_image_sections(tmp_path: Path, monkey
 def test_changing_the_packages_rebuilds_every_image() -> None:
     previous = {name: version.image for name, version in get_versions().items()}
     assert get_changed_images(["odoo_toolkit/docker/packages.toml"], previous) == get_images()
+
+
+def test_render_makes_the_zsh_completions_folder_safe() -> None:
+    dockerfile = render_dockerfile("Docker19", "amd64")
+
+    # Oh My Zsh won't load completions from a folder others can write in, which it would create itself at runtime if a
+    # shell starts with a umask of 0.
+    assert "mkdir -p /home/${USERNAME}/.oh-my-zsh/cache/completions" in dockerfile
+    assert dockerfile.index("cache/completions") < dockerfile.index("chmod -R g-w,o-w /home/${USERNAME}/.oh-my-zsh")
+
+
+def test_render_shows_the_path_from_the_multiverse_in_the_zsh_prompt() -> None:
+    dockerfile = render_dockerfile("Docker19", "amd64")
+
+    assert "hash -d mv=$OTK_MULTIVERSE_DIR" in dockerfile
+    assert 'PROMPT=${PROMPT//"%c"/"%~"}' in dockerfile
