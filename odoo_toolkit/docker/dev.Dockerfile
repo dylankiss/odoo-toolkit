@@ -24,6 +24,8 @@ RUN printf '%s\n' \
 
 # zsh with Oh My Zsh, for the terminal of the dev containers. Oh My Zsh is pinned to a commit and doesn't update itself,
 # so the image only changes when it's built. `otk dev shell` and the agents' commands keep using bash.
+# Its completions folder is made here: a shell that starts with a umask of 0 would create it writable by everyone, and
+# Oh My Zsh then refuses to load the completions.
 # Source: https://github.com/ohmyzsh/ohmyzsh
 ARG OH_MY_ZSH_COMMIT=b509b1c6ed0c1ba37de12cbd37f30b2b2f61193a
 RUN set -x ; \
@@ -33,8 +35,16 @@ RUN set -x ; \
     && git init --quiet /home/${USERNAME}/.oh-my-zsh \
     && git -C /home/${USERNAME}/.oh-my-zsh fetch --quiet --depth 1 https://github.com/ohmyzsh/ohmyzsh.git ${OH_MY_ZSH_COMMIT} \
     && git -C /home/${USERNAME}/.oh-my-zsh checkout --quiet FETCH_HEAD \
+    && mkdir -p /home/${USERNAME}/.oh-my-zsh/cache/completions \
+    && chmod -R g-w,o-w /home/${USERNAME}/.oh-my-zsh \
     && sed "s|^# zstyle ':omz:update' mode disabled|zstyle ':omz:update' mode disabled|" \
-        /home/${USERNAME}/.oh-my-zsh/templates/zshrc.zsh-template > /home/${USERNAME}/.zshrc
+        /home/${USERNAME}/.oh-my-zsh/templates/zshrc.zsh-template > /home/${USERNAME}/.zshrc \
+    && printf '%s\n' \
+        '' \
+        '# Show the path from the multiverse of a dev container, like ~mv/17.0/odoo/odoo, not only the last folder.' \
+        '[[ -n $OTK_MULTIVERSE_DIR ]] && hash -d mv=$OTK_MULTIVERSE_DIR' \
+        'PROMPT=${PROMPT//"%c"/"%~"}' \
+        >> /home/${USERNAME}/.zshrc
 
 # EXTRA_PACKAGES
 
