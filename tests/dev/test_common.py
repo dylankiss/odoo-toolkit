@@ -2,6 +2,7 @@ import subprocess
 from typing import Any
 
 import pytest
+from typer import Exit
 
 from odoo_toolkit.dev import common as dev_common
 from odoo_toolkit.versions import get_versions
@@ -228,3 +229,42 @@ def test_check_docker_says_when_docker_isnt_installed(
     output = " ".join(capsys.readouterr().err.split())
     assert "This command needs Docker" in output
     assert "run it in a terminal on your machine" in output
+
+
+def test_start_services_shows_what_the_proxy_logged_when_starting_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1 if "up" in cmd else 0, "", "compose failed")
+
+    monkeypatch.setattr(dev_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(dev_common, "check_docker", lambda: None)
+    monkeypatch.setattr(dev_common, "get_proxy_logs", lambda: "FATAL: bad squid.conf")
+
+    with pytest.raises(Exit):
+        dev_common.start_services()
+
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "FATAL: bad squid.conf" in output
+    assert "compose failed" in output
+
+
+def test_start_services_restarts_the_proxy_when_a_domain_is_gone(monkeypatch: pytest.MonkeyPatch) -> None:
+    restarts: list[bool] = []
+
+    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def reload_proxy(*, restart: bool = False) -> bool:
+        restarts.append(restart)
+        return True
+
+    monkeypatch.setattr(dev_common.subprocess, "run", fake_run)
+    monkeypatch.setattr(dev_common, "check_docker", lambda: None)
+    monkeypatch.setattr(dev_common, "write_allowed_domains", lambda: (dev_common.Path("/x"), True))
+    monkeypatch.setattr(dev_common, "reload_proxy", reload_proxy)
+
+    dev_common.start_services()
+
+    assert restarts == [True]

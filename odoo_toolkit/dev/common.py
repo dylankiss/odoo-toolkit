@@ -27,7 +27,8 @@ from .images import (
     get_native_arch,
     get_remote_image_layout,
 )
-from .runtime import COMPOSE_FILE, DB_HOST, ROLE_LABEL, RUN_LABEL, Role, get_image_tag, get_user_ids
+from .proxy import get_proxy_logs, reload_proxy, write_allowed_domains
+from .runtime import COMPOSE_FILE, DB_FORWARD_HOST, ROLE_LABEL, RUN_LABEL, Role, get_image_tag, get_user_ids
 
 # The containers of odoo-toolkit 3.x, which use the same ports on your machine.
 OLD_CONTAINERS = ("postgres", "mailpit", "pgadmin")
@@ -76,7 +77,9 @@ def check_docker() -> None:
 
 def get_db_port() -> int | None:
     """Get the port PostgreSQL is published on, on your machine, if it's running."""
-    result = subprocess.run(["docker", "port", DB_HOST, "5432/tcp"], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["docker", "port", DB_FORWARD_HOST, "5432/tcp"], capture_output=True, text=True, check=False
+    )
     port = result.stdout.strip().splitlines()[0].rpartition(":")[2] if result.stdout.strip() else ""
     return int(port) if port.isdigit() else None
 
@@ -85,13 +88,14 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
     """Start the shared services, and wait until PostgreSQL accepts connections.
 
     :param db_port: The port to publish PostgreSQL on, or None to keep the one it runs on (5432 at first). Changing it
-        restarts PostgreSQL.
+        restarts the forwarder, which interrupts the connections to PostgreSQL.
     :param pgadmin: Whether to start pgAdmin as well.
     :param pull: Whether to pull newer builds of the images first. A service whose image changed is recreated.
     :raises Exit: If the services couldn't be started.
     """
     check_docker()
     db_port = db_port or get_db_port() or DEFAULT_DB_PORT
+    egress_dir, domains_removed = write_allowed_domains()
     cmd = ["docker", "compose", "--file", str(COMPOSE_FILE)]
     if pgadmin:
         cmd += ["--profile", "pgadmin"]
@@ -101,7 +105,7 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
         progress.add_task("Starting PostgreSQL and Mailpit", total=None)
         result = subprocess.run(
             cmd,
-            env=os.environ | {"OTK_DB_PORT": str(db_port)},
+            env=os.environ | {"OTK_DB_PORT": str(db_port), "OTK_EGRESS_DIR": str(egress_dir)},
             capture_output=True,
             text=True,
             check=False,
@@ -113,8 +117,12 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
                 "\nThe containers of odoo-toolkit 3.x use the same ports. Stop them with "
                 "[b]docker compose --project-name odoo-dev down[/b] (your data stays).\n"
             )
+        if proxy_logs := get_proxy_logs():
+            hint += f"\nThe proxy of the dev containers logged:\n{proxy_logs}\n"
         print_error(f"Starting the services failed.{hint}", result.stderr.strip())
         raise Exit(1)
+    # A proxy that was already running reads the domains you allow now.
+    reload_proxy(restart=domains_removed)
     # The services were recreated from the new builds, so the earlier ones aren't used anymore.
     for image, previous_id in previous_ids.items():
         remove_replaced_image(image, previous_id)

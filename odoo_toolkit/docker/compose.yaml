@@ -1,5 +1,8 @@
 # The services shared by every Odoo development server started with `otk dev run`.
 # Odoo itself runs in its own container per run, on this project's network.
+#
+# The dev containers are on an internal network (`dev`) that has no route out. PostgreSQL and Mailpit are on it, and so is
+# the proxy, the only one that also reaches the internet, which only lets the allowed domains through.
 name: otk
 
 services:
@@ -16,10 +19,33 @@ services:
     volumes:
       # PostgreSQL 18 images keep their data in a version-specific folder below this one.
       - otk-postgres-data:/var/lib/postgresql
-    ports:
-      - 127.0.0.1:${OTK_DB_PORT:-5432}:5432
+    # Only on networks without a route out: a superuser can run programs in the container (`COPY ... TO PROGRAM`), which
+    # would otherwise reach the internet for whatever connects to it. The next service gives it the open network and your
+    # machine.
+    networks: [db, dev]
     healthcheck:
       test: ["CMD", "pg_isready", "--username", "odoo"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # The only way to PostgreSQL from the open network and from your machine, which forwards to nothing else. It's also
+  # `otk-postgres` there, so Odoo, pgAdmin and your tools connect as before.
+  postgres-forward:
+    image: alpine/socat:1.8.1.3
+    container_name: otk-postgres-forward
+    command: ["TCP-LISTEN:5432,fork,reuseaddr", "TCP:postgres:5432"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:${OTK_DB_PORT:-5432}:5432
+    networks:
+      default:
+        aliases: [otk-postgres]
+      db:
+    healthcheck:
+      test: ["CMD-SHELL", "socat -u /dev/null TCP:127.0.0.1:5432"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -37,6 +63,21 @@ services:
     ports:
       - 127.0.0.1:1025:1025  # SMTP
       - 127.0.0.1:8025:8025  # Web interface
+    networks: [default, dev]
+
+  egress:
+    image: ubuntu/squid:6.6-24.04_edge
+    container_name: otk-egress
+    # The domains come from your configuration, which `otk dev db` and `otk dev egress` write in this folder.
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+      - ${OTK_EGRESS_DIR:-./egress}:/etc/squid/otk:ro
+    networks: [default, dev]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/3128'"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
   pgadmin:
     image: dpage/pgadmin4:9
@@ -69,3 +110,10 @@ volumes:
 networks:
   default:
     name: otk
+  # PostgreSQL's own network, and the one of the dev containers: neither has a route out.
+  db:
+    name: otk-db
+    internal: true
+  dev:
+    name: otk-dev
+    internal: true

@@ -26,7 +26,15 @@ from .images import DOCKER_DIR, DOCKER_REPOSITORY, Arch, get_native_arch
 COMPOSE_FILE = DOCKER_DIR / "compose.yaml"
 NETWORK = "otk"
 DB_HOST = "otk-postgres"
+# What publishes PostgreSQL on your machine and on the open network, since PostgreSQL itself has no route out.
+DB_FORWARD_HOST = "otk-postgres-forward"
 SMTP_HOST = "otk-mailpit"
+# The network of the dev containers, which has no route out, and the proxy on it and the open network that only lets
+# the allowed domains through.
+DEV_NETWORK = "otk-dev"
+EGRESS_HOST = "otk-egress"
+EGRESS_PORT = 3128
+PROXY_URL = f"http://{EGRESS_HOST}:{EGRESS_PORT}"
 HOME = "/home/odoo"
 # The labels marking the containers of this toolkit, with the Odoo version, and what they're for, as values.
 RUN_LABEL = "io.github.dylankiss.odoo-toolkit.version"

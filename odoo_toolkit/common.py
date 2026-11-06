@@ -234,3 +234,15 @@ def get_config_file() -> Path:
     """Get the path of your odoo-toolkit configuration file, in `$XDG_CONFIG_HOME` or `~/.config`."""
     config_home = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
     return Path(config_home) / "odoo-toolkit" / "config.toml"
+
+
+def write_file_atomically(path: Path, content: str) -> None:
+    """Write a text file so that whatever reads it sees the old or the new content, never half of it.
+
+    :param path: The file to write, in a folder that is created if it's missing.
+    :param content: The new content.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_file = path.with_suffix(".tmp")
+    temporary_file.write_text(content, encoding="utf-8")
+    temporary_file.replace(path)

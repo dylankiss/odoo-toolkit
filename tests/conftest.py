@@ -29,3 +29,9 @@ def isolated_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def isolated_claude_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the dev containers of the tests away from the Claude Code configuration of the user."""
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "empty-claude-config"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep what the tests write for the proxy of the dev containers away from the state folder of the user."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))

@@ -60,6 +60,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk dev shell`](#otk-dev-shell) | Open a shell in the Odoo container of the current Odoo Multiverse version directory. |
 | [`otk dev stop`](#otk-dev-stop)   | Stop the Odoo containers started with `otk dev run`.                                 |
 | [`otk dev db`](#otk-dev-db)       | Start PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.        |
+| [`otk dev egress`](#otk-dev-egress) | Apply the allowed domains of the dev containers, and show what they were refused.  |
 | [`otk dev clean`](#otk-dev-clean) | Remove the Docker containers and images of this toolkit that only take space.       |
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
@@ -299,7 +300,7 @@ $ otk dev run -v ~/etc-odoo:/etc/odoo:ro -e KEY=value -- -d mydb
 * `-e, --env <str>`: Set an environment variable in the container, like `REQUESTS_CA_BUNDLE=/etc/ca.pem`. Can be used several times.
 * `--build`: Build the image on your machine instead of pulling it.
 * `--pull`: Pull the latest image, even if you have one already.
-* `--db-port <int>`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it restarts PostgreSQL.
+* `--db-port <int>`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it interrupts the connections to PostgreSQL for a moment.
 * `--platform <amd64|arm64>`: Run the image of this architecture. On Apple Silicon, `amd64` runs emulated and slower, but has what only exists for amd64, like Paper Muncher. Defaults to the architecture of this machine.
 * `--help`: Show this message and exit.
 
@@ -369,9 +370,28 @@ $ otk dev db [OPTIONS]
 
 ### Options
 
-* `-p, --port <int>`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it restarts PostgreSQL.
+* `-p, --port <int>`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it interrupts the connections to PostgreSQL for a moment.
 * `--pgadmin`: Start pgAdmin as well, on `http://localhost:5050`.
 * `--pull`: Pull newer builds of the images first. A service whose image changed is recreated, which keeps its data.
+* `--help`: Show this message and exit.
+
+
+## `otk dev egress`
+
+**Apply the allowed domains of the dev containers, and show what they were refused.**
+
+The [dev containers](#dev-container) have no route out, except through a proxy that only lets the domains in `allowed_domains` in the `[devcontainer]` table of your odoo-toolkit configuration file (`~/.config/odoo-toolkit/config.toml`, or in `$XDG_CONFIG_HOME`) through. It replaces the default list, which this command writes into the file the first time, for you to edit. Run this command after changing it: the dev containers pick it up right away. `otk dev db` applies it as well. With `--check`, it also tries to reach the internet from the network of the dev containers, directly and through the proxy, to prove that nothing gets out that shouldn't.
+
+### Usage
+
+```console
+$ otk dev egress [OPTIONS]
+```
+
+### Options
+
+* `--start`: Start the shared services if the proxy isn't running.
+* `--check`: Check that the network of the dev containers has no route out except the proxy, and that the proxy only lets the allowed domains through, with a throwaway container.
 * `--help`: Show this message and exit.
 
 
@@ -765,8 +785,16 @@ With `--devcontainer`, every version directory gets a [dev container](https://co
 - The terminal is zsh with [Oh My Zsh](https://ohmyz.sh). To keep bash, set `"terminal.integrated.defaultProfile.linux" = "bash"` under `[devcontainer.settings]` in `multiverse.toml`, as shown below.
 - Git is read-only in the container: you can look at the history and the changes (`git log`, `git show`, `git diff`, `git blame`, `git status`), but not commit, stage, switch branches, stash, fetch, pull or push. Do those from a terminal on your machine.
 - The `.devcontainer` and `.vscode` folders are read-only in the container, because they hold what runs on your machine later (like tasks and the dev container's own configuration). The `.venv` of your machine is hidden: it is built for your machine, so it can't run in the container, and anything in it would run on your machine later. The container has an empty one in memory instead, which links to the image's own Python environment (`/venv/main`), so tools that look for `.venv` find a working interpreter. So is the Git data of every repository: the bare repositories in `.worktree-source`, which the worktrees of all versions share, and the `.git` folders of the other repositories, since a Git hook, alias or `core.fsmonitor` setting there would run the next time you use Git on your machine. That is also what keeps the container from committing or fetching. Commands that write Git data, like `git commit`, `git add`, `git remote add` or `git checkout`, fail in the container: run them on your machine. Change all of these from your machine, for example with `otk mv setup --update-config`, which also covers repositories you add later.
-- Everything else in the multiverse can be read and changed in the container, and it has network access, including to the databases of `otk dev`. Don't keep secrets or data you can't share in your multiverse or those databases if you use AI agents.
-- Claude Code in the container gets instructions on how it works (the source layout, how to start Odoo, the services, and the limits above) from a read-only `CLAUDE.md` that `--update-config` writes in the `.devcontainer` folder. Your own `CLAUDE.md` in the repositories still applies. The network is open, so Claude Code's own permission prompts are what stop it from reaching a site you didn't approve: don't run it in a mode that skips them.
+- Everything else in the multiverse can be read and changed in the container, and it can reach the databases of `otk dev`. PostgreSQL itself has no route out, because a superuser can make it run programs: it is only on networks without one, and a small forwarder (`otk-postgres-forward`) publishes it on your machine and on the open network, so Odoo containers, pgAdmin and your tools connect as before. Don't keep secrets or data you can't share in your multiverse or those databases if you use AI agents.
+- Claude Code in the container gets instructions on how it works (the source layout, how to start Odoo, the services, and the limits above) from a read-only `CLAUDE.md` that `--update-config` writes in the `.devcontainer` folder. Your own `CLAUDE.md` in the repositories still applies. Its own permission prompts still apply: don't run it in a mode that skips them.
+- The dev container has no route out. It is on a network (`otk-dev`) that only PostgreSQL, Mailpit and a proxy are on, and the proxy (`otk-egress`, a Squid in the shared services) is the only one that also reaches the internet, and only for the domains you allow. This limits everything in the container, Claude Code, Odoo started there and the terminal alike, and what ignores the proxy settings (like a tool that doesn't read `HTTPS_PROXY`) gets no connection at all, and no DNS either. Odoo containers of [`otk dev run`](#otk-dev-run) don't use this network and keep full access, so run Odoo with internet there, and debug it from a window on your machine (`F5` with `otk dev run`), not from the dev container.
+- The domains are `allowed_domains` in a `[devcontainer]` table of your odoo-toolkit configuration file (`~/.config/odoo-toolkit/config.toml`, or in `$XDG_CONFIG_HOME`), which every dev container of yours shares. The first time `otk dev db` or `otk dev egress` runs, it writes the default list into this file for you to edit, unless it already has one. odoo-toolkit doesn't change it afterwards, so add any host it starts to need yourself. The list replaces the default one: Anthropic's hosts for Claude Code, what Visual Studio Code needs to install its server and extensions, and Odoo's own hosts for its documentation and services (like `www.odoo.com` and `iap.odoo.com`, but not `*.odoo.com`, which includes every Odoo Online database, and anyone can create one). Only HTTPS goes through. The dev container also turns off what would only try to reach hosts the proxy refuses anyway: the built-in Copilot features (`chat.disableAIFeatures`), GitLens' AI features and telemetry. You can change those under `[devcontainer.settings]` in `multiverse.toml`. Add what you need, like PyPI or GitHub, then run [`otk dev egress`](#otk-dev-egress), which applies the list right away and shows the domains the proxy recently refused, so you know what to add. `otk dev egress --check` proves the container is closed: from a throwaway container on the same network, it tries to reach the internet directly (which must fail, DNS included) and through the proxy (refused domains must fail, allowed ones must work), and that PostgreSQL can't reach the internet from inside its own container. `*.github.com` allows `github.com` and its subdomains. Removing a domain restarts the proxy, which cuts the connections open to it, and the proxy never tunnels to a private address (like another container or your own network), whatever an allowed name resolves to. Names that aren't domains are left out, and a configuration file with a syntax error allows no domain at all, so a mistake never allows more than you meant.
+
+  ```toml
+  [devcontainer]
+  allowed_domains = ["api.anthropic.com", "claude.ai", "platform.claude.com", "pypi.org", "files.pythonhosted.org"]
+  ```
+- Anything a container can reach is a way to send data out: be careful with hosts anyone can publish on, like GitHub or cloud storage. And no network rule covers code that Claude wrote and you run elsewhere, like an Odoo started with `otk dev run`: review it first. Claude Code's own connection to Anthropic carries what it reads.
 - Odoo's skills (the `skills/` folder of the Odoo repository: guidelines, review, security and git conventions) are linked into `.claude/skills` of every version directory by `otk mv setup`, so Claude Code finds them there, natively or in a dev container. It is a link to the repository, so they are the ones of the checked out branch, and nothing is copied. Only the newest versions have a `skills/` folder, so an older version links to the skills of the newest version that has them, until it has its own.
 - Only windows opened in the container are isolated, not agents you start from a terminal on your machine.
 - Visual Studio Code shares your Git config and credential helper with every dev container, which a project can't turn off. Add `"dev.containers.gitCredentialHelperConfigLocation": "none"` to your user settings to keep your GitHub login out. Add `"dev.containers.copyGitConfig": false` as well, unless you've checked that your `~/.gitconfig` holds no secrets, like a token in `url.*.insteadOf` or `http.extraHeader`, which the container could use to reach GitHub.

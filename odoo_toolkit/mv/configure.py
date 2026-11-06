@@ -17,9 +17,11 @@ from odoo_toolkit.dev.images import DOCKER_REPOSITORY
 from odoo_toolkit.dev.runtime import (
     CLAUDE_DIR,
     DB_HOST,
+    DEV_NETWORK,
     DEVCONTAINER_VOLUMES,
-    NETWORK,
+    EGRESS_HOST,
     ODOO_PORT,
+    PROXY_URL,
     SMTP_HOST,
     VOLUMES,
     check_mountable,
@@ -483,6 +485,9 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "CLAUDE_CONFIG_DIR": CLAUDE_DIR,
         # The terminal shows paths from here, which is `~mv`.
         "OTK_MULTIVERSE_DIR": str(multiverse_dir),
+        # The container has no route out, except to the proxy that only lets the allowed domains through, and the
+        # services next to it, which it reaches directly.
+        **_get_proxy_env(),
         **template["containerEnv"],
     }
     # Inside the container, Odoo starts directly: `otk dev run` needs Docker, which isn't available there.
@@ -520,6 +525,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         encoding="utf-8",
     )
 
+    container_name = f"otk-{version_dir.name}-dev"
     config: dict[str, Any] = {
         "name": f"Odoo {version_dir.name}",
         "image": f"{DOCKER_REPOSITORY}:{version_dir.name}",
@@ -527,15 +533,10 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "workspaceFolder": str(version_dir),
         # Runs on your machine. The network only exists once the shared services are running, which `otk dev db` starts.
         # Checking that they already run takes a fraction of a second, where starting them again takes seconds.
-        "initializeCommand": (
-            f"[ \"$(docker inspect -f '{{{{.State.Health.Status}}}}' {DB_HOST} 2>/dev/null)\" = healthy ] "
-            f"&& [ \"$(docker inspect -f '{{{{.State.Running}}}}' {SMTP_HOST} 2>/dev/null)\" = true ] "
-            f"|| otk dev db > /dev/null 2>&1 || docker network inspect {NETWORK} > /dev/null 2>&1 "
-            "|| { echo 'Run `otk dev db` first.' >&2; exit 1; }"
-        ),
+        "initializeCommand": _get_initialize_command(container_name),
         "runArgs": [
-            f"--name=otk-{version_dir.name}-dev",
-            f"--network={NETWORK}",
+            f"--name={container_name}",
+            f"--network={DEV_NETWORK}",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
             "--init",
@@ -563,8 +564,10 @@ def _get_claude_config(multiverse_dir: Path, devcontainer_dir: Path) -> tuple[li
     The folders you want in the container (all of them unless `claude_mounts` in `multiverse.toml` says otherwise) are
     mounted read-only, and the ones that don't exist are left out, since a bind mount needs something to mount. Your
     plugins aren't mounted in `~/.claude/plugins` of the container, which keeps its own plugins and their data, but as
-    a read-only seed Claude Code loads them from. They are enabled by a read-only managed settings file with the
-    plugins enabled on your machine, which is the only part of your settings the container gets.
+    a read-only seed Claude Code loads them from.
+
+    A read-only managed settings file, which nothing in the container can change, enables the plugins enabled on your
+    machine. It's all the container gets of your settings.
 
     :param multiverse_dir: The multiverse directory.
     :param devcontainer_dir: The `.devcontainer` folder to write the managed settings file in.
@@ -575,6 +578,7 @@ def _get_claude_config(multiverse_dir: Path, devcontainer_dir: Path) -> tuple[li
     managed_settings_file.unlink(missing_ok=True)
     mounts: list[str] = []
     env: dict[str, str] = {}
+    managed_settings: dict[str, Any] = {}
     for name in get_devcontainer_claude_mounts(multiverse_dir):
         source = config_dir / name
         if not source.is_dir():
@@ -585,9 +589,49 @@ def _get_claude_config(multiverse_dir: Path, devcontainer_dir: Path) -> tuple[li
         mounts.append(f"source={source},target={CLAUDE_PLUGIN_SEED_DIR},type=bind,readonly")
         env["CLAUDE_CODE_PLUGIN_SEED_DIR"] = CLAUDE_PLUGIN_SEED_DIR
         if enabled := _get_enabled_plugins(config_dir):
-            _write_json(managed_settings_file, {"enabledPlugins": enabled}, overwrite=True)
-            mounts.append(f"source={managed_settings_file},target={CLAUDE_MANAGED_SETTINGS},type=bind,readonly")
+            managed_settings["enabledPlugins"] = enabled
+    if managed_settings:
+        _write_json(managed_settings_file, managed_settings, overwrite=True)
+        mounts.append(f"source={managed_settings_file},target={CLAUDE_MANAGED_SETTINGS},type=bind,readonly")
     return mounts, env
+
+
+def _get_initialize_command(container_name: str) -> str:
+    """Get the command that runs on your machine before a dev container starts.
+
+    It makes sure the shared services run, and removes the container if it's stopped on a network that was replaced.
+    """
+    return (
+        f"[ \"$(docker inspect -f '{{{{.State.Health.Status}}}}' {DB_HOST} 2>/dev/null)\" = healthy ] "
+        f"&& [ \"$(docker inspect -f '{{{{.State.Running}}}}' {SMTP_HOST} 2>/dev/null)\" = true ] "
+        f"&& [ \"$(docker inspect -f '{{{{.State.Running}}}}' {EGRESS_HOST} 2>/dev/null)\" = true ] "
+        f"|| otk dev db > /dev/null 2>&1 || docker network inspect {DEV_NETWORK} > /dev/null 2>&1 "
+        "|| { echo 'Run `otk dev db` first.' >&2; exit 1; }"
+        # A stopped container that is on a network that was replaced since, like by `otk dev stop --all`, or on the
+        # network of an older configuration, can't start. Removing it makes Visual Studio Code create it again,
+        # and everything of yours is in mounts and volumes. A running one is left alone.
+        f"; network=$(docker network inspect -f '{{{{.Id}}}}' {DEV_NETWORK} 2>/dev/null); "
+        f"current=$(docker inspect -f '{{{{range .NetworkSettings.Networks}}}}{{{{.NetworkID}}}} {{{{end}}}}' "
+        f"{container_name} 2>/dev/null); "
+        '[ -n "$network" ] && [ -n "$current" ] && [ "${current#*$network}" = "$current" ] '
+        f"&& docker rm {container_name} > /dev/null 2>&1; true"
+    )
+
+
+def _get_proxy_env() -> dict[str, str]:
+    """Get the environment variables that send what a dev container does on the network through its proxy."""
+    proxy = PROXY_URL
+    no_proxy = f"{DB_HOST},{SMTP_HOST},localhost,127.0.0.1,::1"
+    return {
+        # Telemetry and update checks would only be refused, and show up as noise.
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "HTTP_PROXY": proxy,
+        "HTTPS_PROXY": proxy,
+        "http_proxy": proxy,
+        "https_proxy": proxy,
+        "NO_PROXY": no_proxy,
+        "no_proxy": no_proxy,
+    }
 
 
 def _get_enabled_plugins(config_dir: Path) -> dict[str, bool]:
