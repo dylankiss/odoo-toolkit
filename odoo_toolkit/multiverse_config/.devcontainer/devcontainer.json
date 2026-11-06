@@ -6,7 +6,8 @@
         "GIT_CONFIG_KEY_1": "core.trustctime",
         "GIT_CONFIG_VALUE_1": "false",
         "GIT_CONFIG_KEY_2": "core.fsmonitor",
-        "GIT_CONFIG_VALUE_2": "false"
+        "GIT_CONFIG_VALUE_2": "false",
+        "GIT_OPTIONAL_LOCKS": "0"
     },
     "remoteEnv": {
         "PATH": "/venv/main/bin:${containerEnv:PATH}",
@@ -29,7 +30,6 @@
                 "remote.autoForwardPorts": false,
                 "git.terminalAuthentication": false,
                 "github.gitAuthentication": false,
-                "git.enableCommitSigning": false,
                 "ruff.importStrategy": "useBundled",
                 "python-envs.terminal.autoActivationType": "command",
                 "launch": {

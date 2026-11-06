@@ -22,7 +22,10 @@ You are working in a dev container of odoo-toolkit for Odoo $version. This file 
 
 - The network is open, like on the machine of the user. Ask the user before you fetch an external site or send anything
   to one, whatever the reason, and never send the contents of files, databases or environment variables.
-- Git has no credentials here: fetching, pulling and pushing don't work. Commits do. The user pushes from their machine.
-- The `config` file and `hooks` folder of every repository in `.worktree-source`, and the `.devcontainer`, `.vscode` and
-  `.venv` folders, are read-only, because they run on the user's machine later. Commands like `git config`,
-  `git remote add` and a branch that tracks a remote fail. Ask the user to run them, and don't look for a way around it.
+- Git is read-only here: you can look at the history and the changes (`git log`, `git show`, `git diff`, `git blame`,
+  `git status`), but not commit, stage, switch or create branches, stash, fetch, pull or push. The Git data of every
+  repository (the bare repositories in `.worktree-source` and the `.git` folders of the others) is read-only, and
+  there are no credentials. Edit the files, and the user commits from their machine.
+- The `.devcontainer` and `.vscode` folders are read-only too, because they run on the user's machine later. `.venv`
+  is the Python environment of this container (`/venv/main`), not the one of the user's machine.
+  Don't look for a way around any of these limits: ask the user to run what you can't.

@@ -307,14 +307,16 @@ def test_configure_language_server_leaves_out_what_is_not_there(tmp_path: Path) 
     assert tomllib.loads((version_dir / "odools.toml").read_text())["config"] == [{}]
 
 
-def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(mv_configure, "get_git_identity", lambda: {"GIT_AUTHOR_NAME": "Abcd"})
+def test_write_devcontainer_config(tmp_path: Path) -> None:
     multiverse_dir = tmp_path / "mv"
     version_dir = make_version_dir(multiverse_dir)
     (version_dir / ".vscode").mkdir()
     bare_dir = multiverse_dir / ".worktree-source" / "odoo" / ".bare"
     bare_dir.mkdir(parents=True)
-    (bare_dir / "config").write_text("[core]\n")
+    # A pinned repository is a regular clone in its version directory, and a worktree only has a `.git` file.
+    (version_dir / "odoofin" / ".git").mkdir(parents=True)
+    (version_dir / "odoo").mkdir(exist_ok=True)
+    (version_dir / "odoo" / ".git").write_text("gitdir: ../../.worktree-source/odoo/.bare/worktrees/odoo\n")
 
     result = mv_configure.write_devcontainer_config(version_dir, reset=False)
 
@@ -331,16 +333,17 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         f"source={version_dir / name},target={version_dir / name},type=bind,readonly"
         for name in (".devcontainer", ".vscode")
     ]
-    # The hooks and configuration of the bare repositories, which every version shares, are Git's way to run code later.
+    # The Git data of every repository can only be read, so nothing commits and nothing runs on your machine later.
     assert read_only[2:4] == [
-        f"source={bare_dir / name},target={bare_dir / name},type=bind,readonly" for name in ("config", "hooks")
+        f"source={path},target={path},type=bind,readonly" for path in (bare_dir, version_dir / "odoofin" / ".git")
     ]
     # Claude Code finds the instructions of the container where it reads its own, and they can't be changed from inside.
     instructions_file = version_dir / ".devcontainer" / "CLAUDE.md"
-    assert read_only[4:] == [f"source={instructions_file},target=/home/odoo/.claude/CLAUDE.md,type=bind,readonly"]
+    assert read_only[4:5] == [f"source={instructions_file},target=/home/odoo/.claude/CLAUDE.md,type=bind,readonly"]
     # Claude Code keeps its login in a volume of its own, so you log in once and your own login stays out.
     assert "source=otk-claude,target=/home/odoo/.claude,type=volume" in config["mounts"]
     assert config["containerEnv"]["CLAUDE_CONFIG_DIR"] == "/home/odoo/.claude"
+    assert config["containerEnv"]["OTK_MULTIVERSE_DIR"] == str(multiverse_dir)
     extensions = config["customizations"]["vscode"]["extensions"]
     recommended = json.loads((mv_configure.MULTIVERSE_CONFIG_DIR / ".vscode" / "extensions.json").read_text())
     assert extensions == ["anthropic.claude-code", *recommended["recommendations"]]
@@ -355,7 +358,9 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     # Odoo's Ruff rules can be newer than the Ruff in the image of a version, so the extension brings its own.
     assert config["customizations"]["vscode"]["settings"]["ruff.importStrategy"] == "useBundled"
     assert "--network=otk" in config["runArgs"]
-    assert config["containerEnv"]["GIT_AUTHOR_NAME"] == "Abcd"
+    # Nothing commits in the container, so it doesn't need your Git identity.
+    assert "GIT_AUTHOR_NAME" not in config["containerEnv"]
+    assert config["containerEnv"]["GIT_OPTIONAL_LOCKS"] == "0"
     assert config["containerEnv"]["GIT_CONFIG_KEY_0"] == "core.checkStat"
     # Git's file system monitor doesn't work on the mounted multiverse, so a `core.fsmonitor` of yours would only warn.
     assert config["containerEnv"]["GIT_CONFIG_KEY_2"] == "core.fsmonitor"
@@ -373,11 +378,33 @@ def test_write_devcontainer_config(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert mv_configure.write_devcontainer_config(version_dir, reset=True).outcome == Outcome.UPDATED
 
 
+def test_write_devcontainer_config_hides_the_venv_of_your_machine(tmp_path: Path) -> None:
+    version_dir = make_version_dir(tmp_path / "mv")
+    venv_dir = version_dir / ".venv"
+    venv_dir.mkdir()
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    config = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())
+    # It can't run here, so the container gets an empty one in memory that links to its own Python environment.
+    assert f"type=tmpfs,target={venv_dir},tmpfs-mode=1777" in config["mounts"]
+    assert not [mount for mount in config["mounts"] if mount.startswith(f"source={venv_dir}")]
+    assert f'ln -sfn "$f" "{venv_dir}/"' in config["postStartCommand"]
+    # Linking can fail without stopping the commands that follow it.
+    assert config["postStartCommand"].endswith("|| true")
+    assert config["postStartCommand"].startswith("git config --global --unset-all credential.helper")
+
+    # Without one, there is nothing to hide, and nothing to create in your version directory.
+    venv_dir.rmdir()
+    mv_configure.write_devcontainer_config(version_dir, reset=True)
+    config = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())
+    assert not [mount for mount in config["mounts"] if "tmpfs" in mount]
+    assert "/venv/main" not in config["postStartCommand"]
+
+
 def test_write_devcontainer_config_tells_claude_how_the_container_works(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
     version_dir = make_version_dir(tmp_path / "mv")
 
     mv_configure.write_devcontainer_config(version_dir, reset=False)
@@ -465,9 +492,7 @@ def test_link_skills_keeps_your_own_skills_folder(tmp_path: Path) -> None:
 
 def test_write_devcontainer_config_adds_the_extras_of_your_multiverse(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
     version_dir = tmp_path / "mv" / "19.0"
     version_dir.mkdir(parents=True)
     (tmp_path / "mv" / "multiverse.toml").write_text(
@@ -493,7 +518,6 @@ def test_write_devcontainer_config_mounts_your_claude_folders_read_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
     claude_dir = tmp_path / "claude"
     (claude_dir / "skills").mkdir(parents=True)
     (claude_dir / "projects").mkdir()
@@ -516,7 +540,6 @@ def test_write_devcontainer_config_mounts_your_claude_folders_unless_you_opt_out
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
     (tmp_path / "claude" / "skills").mkdir(parents=True)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     version_dir = tmp_path / "mv" / "19.0"
@@ -535,7 +558,6 @@ def test_write_devcontainer_config_enables_your_plugins_from_a_read_only_seed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mv_configure, "get_git_identity", dict)
     claude_dir = tmp_path / "claude"
     (claude_dir / "plugins").mkdir(parents=True)
     (claude_dir / "settings.json").write_text(
