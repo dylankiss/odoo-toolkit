@@ -24,7 +24,6 @@ from odoo_toolkit.dev.runtime import (
     VOLUMES,
     check_mountable,
     get_addons_paths,
-    get_git_identity,
     get_odoo_args,
 )
 from odoo_toolkit.versions import version_sort_key
@@ -482,7 +481,8 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     template["containerEnv"] = {
         "PYTHONPYCACHEPREFIX": VOLUMES["otk-pycache"],
         "CLAUDE_CONFIG_DIR": CLAUDE_DIR,
-        **get_git_identity(),
+        # The terminal shows paths from here, which is `~mv`.
+        "OTK_MULTIVERSE_DIR": str(multiverse_dir),
         **template["containerEnv"],
     }
     # Inside the container, Odoo starts directly: `otk dev run` needs Docker, which isn't available there.
@@ -505,8 +505,13 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
     config_file.parent.mkdir(exist_ok=True)
     claude_mounts, claude_env = _get_claude_config(multiverse_dir, config_file.parent)
     template["containerEnv"] = {**claude_env, **template["containerEnv"]}
-    protected = [path for name in (".devcontainer", ".vscode", ".venv") if (path := version_dir / name).is_dir()]
+    protected = [path for name in (".devcontainer", ".vscode") if (path := version_dir / name).is_dir()]
     protected += _get_protected_git_paths(multiverse_dir)
+    venv_dir = version_dir / ".venv"
+    if venv_dir.is_dir():
+        # A failure here mustn't stop the commands that follow, like the one removing the forwarded SSH agent sockets.
+        link_venv = f'{{ for f in /venv/main/*; do ln -sfn "$f" "{venv_dir}/"; done; }} || true'
+        template["postStartCommand"] = f"{template['postStartCommand']}; {link_venv}"
     # How this container works, for Claude Code. It is in the read-only `.devcontainer` folder and mounted where Claude
     # Code reads its user instructions, so nothing in the container can change it.
     instructions_file = config_file.parent / "CLAUDE.md"
@@ -538,6 +543,10 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "mounts": [
             *(f"source={volume},target={path},type=volume" for volume, path in DEVCONTAINER_VOLUMES.items()),
             *(f"source={path},target={path},type=bind,readonly" for path in protected),
+            # The `.venv` of your machine is built for it, so it can't run here, and anything in it would run on your machine
+            # later. The container gets an empty one in memory, which links to the image's own environment when it starts.
+            # Everyone can write in it, since a tmpfs belongs to root, and the container doesn't run as root.
+            *([f"type=tmpfs,target={venv_dir},tmpfs-mode=1777"] if venv_dir.is_dir() else []),
             f"source={instructions_file},target={CLAUDE_DIR}/CLAUDE.md,type=bind,readonly",
             *claude_mounts,
         ],
@@ -614,16 +623,16 @@ def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -
 
 
 def _get_protected_git_paths(multiverse_dir: Path) -> list[Path]:
-    """Get what a bare repository holds that Git runs on your machine: its hooks and its configuration.
+    """Get the Git data of every repository in the multiverse, which the dev containers only get to read.
 
-    Every dev container sees all the bare repositories, since the worktrees of all versions share them, and a hook or a
-    setting like `core.fsmonitor` or an alias would run the next time you use Git on your machine. A missing `hooks`
-    folder is created, since a bind mount needs something to mount.
+    Nothing in a dev container can commit, change a branch or fetch: it can look at the history and the changes. Every
+    dev container sees all the repositories, since the worktrees of all versions share the bare ones, and a hook, an
+    alias or a setting like `core.fsmonitor` in one would run the next time you use Git on your machine. A bare
+    repository holds the Git data of its worktrees too, and the other repositories, like the pinned ones, have a `.git`
+    folder in their version directory.
     """
-    paths: list[Path] = []
-    for bare_dir in sorted((multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare")):
-        (bare_dir / "hooks").mkdir(exist_ok=True)
-        paths += [bare_dir / "config", bare_dir / "hooks"]
+    paths = sorted((multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare"))
+    paths += sorted(path for path in multiverse_dir.glob("*/*/.git") if path.is_dir() and not path.is_symlink())
     return paths
 
 
@@ -636,8 +645,7 @@ def print_devcontainer_notes() -> None:
         "can't turn off. To keep your GitHub login out, add this to your user settings:\n"
         '  "dev.containers.gitCredentialHelperConfigLocation": "none"\n\n'
         "Your Git config can hold secrets too, so unless you've checked yours, also add:\n"
-        '  "dev.containers.copyGitConfig": false\n\n'
-        "To sign commits in a dev container, you need it on instead: see the README of odoo-toolkit.\n",
+        '  "dev.containers.copyGitConfig": false\n',
     )
 
 
