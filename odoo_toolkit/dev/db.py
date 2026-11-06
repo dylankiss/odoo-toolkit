@@ -27,7 +27,7 @@ def db(
             "--port",
             "-p",
             help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing "
-            "it restarts PostgreSQL.",
+            "it interrupts the connections to PostgreSQL for a moment.",
         ),
     ] = None,
     pgadmin: Annotated[bool, Option("--pgadmin", help="Start pgAdmin as well, on `http://localhost:5050`.")] = False,

@@ -95,7 +95,7 @@ def run(
         Option(
             "--db-port",
             help="The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing "
-            "it restarts PostgreSQL.",
+            "it interrupts the connections to PostgreSQL for a moment.",
         ),
     ] = None,
     platform: Annotated[

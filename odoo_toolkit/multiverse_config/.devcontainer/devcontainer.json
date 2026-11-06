@@ -30,6 +30,9 @@
                 "remote.autoForwardPorts": false,
                 "git.terminalAuthentication": false,
                 "github.gitAuthentication": false,
+                "chat.disableAIFeatures": true,
+                "telemetry.telemetryLevel": "off",
+                "gitlens.ai.enabled": false,
                 "ruff.importStrategy": "useBundled",
                 "python-envs.terminal.autoActivationType": "command",
                 "launch": {

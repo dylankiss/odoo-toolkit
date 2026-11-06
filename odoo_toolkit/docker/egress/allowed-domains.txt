@@ -1,0 +1,2 @@
+# Replaced by `otk dev db` with the domains from your configuration.
+invalid.invalid

@@ -2,10 +2,12 @@ import json
 import subprocess
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
+from odoo_toolkit.dev import allowed_domains
 from odoo_toolkit.git_cli import Git
 from odoo_toolkit.main import app
 from odoo_toolkit.mv import clone as mv_clone
@@ -357,7 +359,7 @@ def test_write_devcontainer_config(tmp_path: Path) -> None:
     assert "otk-mailpit" in command
     # Odoo's Ruff rules can be newer than the Ruff in the image of a version, so the extension brings its own.
     assert config["customizations"]["vscode"]["settings"]["ruff.importStrategy"] == "useBundled"
-    assert "--network=otk" in config["runArgs"]
+    assert "--network=otk-dev" in config["runArgs"]
     # Nothing commits in the container, so it doesn't need your Git identity.
     assert "GIT_AUTHOR_NAME" not in config["containerEnv"]
     assert config["containerEnv"]["GIT_OPTIONAL_LOCKS"] == "0"
@@ -414,7 +416,8 @@ def test_write_devcontainer_config_tells_claude_how_the_container_works(
     assert f"`{version_dir / 'odoo' / 'odoo-bin'}`" in instructions
     assert "`enterprise`, `odoo`" in instructions
     assert "otk-postgres" in instructions
-    assert "Ask the user before you fetch an external site" in instructions
+    assert "no route out" in instructions
+    assert "otk dev egress" in instructions
     # Every placeholder is filled in.
     assert "$" not in instructions
 
@@ -622,6 +625,167 @@ def test_write_devcontainer_config_enables_only_the_plugins_it_can_read(
     assert (json.loads(managed.read_text()) if managed.exists() else None) == (
         {"enabledPlugins": enabled} if enabled else None
     )
+
+
+def write_user_config(tmp_path: Path, content: str) -> None:
+    config_file = tmp_path / "xdg-config" / "odoo-toolkit" / "config.toml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(content)
+
+
+def test_write_devcontainer_config_turns_off_what_only_reaches_for_refused_hosts(tmp_path: Path) -> None:
+    version_dir = make_version_dir(tmp_path / "mv")
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    config = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())
+    settings = config["customizations"]["vscode"]["settings"]
+    # Copilot, the AI features of GitLens and telemetry would only try the hosts the proxy refuses.
+    assert settings["chat.disableAIFeatures"] is True
+    assert settings["telemetry.telemetryLevel"] == "off"
+    assert settings["gitlens.ai.enabled"] is False
+
+
+def test_write_devcontainer_config_sends_the_network_through_the_proxy(tmp_path: Path) -> None:
+    version_dir = make_version_dir(tmp_path / "mv")
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    config = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())
+    # The container has no route out: it's on the network of the services, which only the proxy leaves, and opening it
+    # makes sure the proxy runs.
+    assert "--network=otk-dev" in config["runArgs"]
+    assert "otk-egress" in config["initializeCommand"]
+    # A stopped container on a network that is gone is removed, so it is created again, and a running one isn't.
+    assert "docker rm otk-19.0-dev" in config["initializeCommand"]
+    assert "docker rm -f" not in config["initializeCommand"]
+    env = config["containerEnv"]
+    # Everything that honors the proxy variables uses the proxy, and the services next to the container don't need it.
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        assert env[name] == "http://otk-egress:3128"
+    # Claude Code's telemetry and update checks would only be refused.
+    assert env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    for name in ("NO_PROXY", "no_proxy"):
+        assert env[name].split(",")[:2] == ["otk-postgres", "otk-mailpit"]
+
+
+def test_get_allowed_domains_defaults_to_what_claude_code_and_vscode_need() -> None:
+    domains = allowed_domains.get_allowed_domains()
+
+    assert domains == list(allowed_domains.DEFAULT_ALLOWED_DOMAINS)
+    assert "api.anthropic.com" in domains
+    assert "www.odoo.com" in domains
+    # Odoo's own hosts, but not the domain of every Odoo Online database, which anyone can create.
+    assert "*.odoo.com" not in domains
+    assert "*.vo.msecnd.net" not in domains
+    # Anything a container can reach is a way to send data out, so the registries and GitHub are yours to add.
+    assert not [domain for domain in domains if "github" in domain or "pypi" in domain or "googleapis" in domain]
+
+
+def test_get_allowed_domains_uses_your_list_without_what_is_not_a_domain(tmp_path: Path) -> None:
+    write_user_config(
+        tmp_path,
+        '[devcontainer]\nallowed_domains = ["PyPI.org", "*.github.com", "pypi.org", "https://bad.example/path", "*", "x"]\n',
+    )
+
+    assert allowed_domains.get_allowed_domains() == ["pypi.org", "*.github.com"]
+
+
+def read_user_config(tmp_path: Path) -> str:
+    return (tmp_path / "xdg-config" / "odoo-toolkit" / "config.toml").read_text()
+
+
+def test_ensure_allowed_domains_configured_creates_the_file_with_the_defaults(tmp_path: Path) -> None:
+    assert allowed_domains.ensure_allowed_domains_configured() is True
+
+    config = tomllib.loads(read_user_config(tmp_path))
+    assert config["devcontainer"]["allowed_domains"] == list(allowed_domains.DEFAULT_ALLOWED_DOMAINS)
+    # Now that it's listed, it's yours: running it again changes nothing.
+    content = read_user_config(tmp_path)
+    assert allowed_domains.ensure_allowed_domains_configured() is False
+    assert read_user_config(tmp_path) == content
+
+
+def test_ensure_allowed_domains_configured_keeps_the_rest_of_your_file(tmp_path: Path) -> None:
+    original = '# mine\n[weblate.authors]\nalice = { name = "Alice", email = "a@example.com" }'
+    write_user_config(tmp_path, original)
+
+    assert allowed_domains.ensure_allowed_domains_configured() is True
+
+    content = read_user_config(tmp_path)
+    assert content.startswith(original)
+    config = tomllib.loads(content)
+    assert config["weblate"]["authors"]["alice"]["name"] == "Alice"
+    assert config["devcontainer"]["allowed_domains"] == list(allowed_domains.DEFAULT_ALLOWED_DOMAINS)
+
+
+def test_ensure_allowed_domains_configured_adds_the_list_to_your_devcontainer_table(tmp_path: Path) -> None:
+    write_user_config(tmp_path, "[devcontainer] # mine\nother = 1\n\n[weblate]\nx = 2\n")
+
+    assert allowed_domains.ensure_allowed_domains_configured() is True
+
+    config = tomllib.loads(read_user_config(tmp_path))
+    assert config["devcontainer"]["other"] == 1
+    assert config["devcontainer"]["allowed_domains"] == list(allowed_domains.DEFAULT_ALLOWED_DOMAINS)
+    assert config["weblate"] == {"x": 2}
+
+
+def test_ensure_allowed_domains_configured_does_not_write_what_does_not_read_back_as_the_defaults(
+    tmp_path: Path,
+) -> None:
+    # `[devcontainer]` is in the text of a string, which the key would land in, instead of in a table.
+    content = "devcontainer.other = 1\nnote = '''\n[devcontainer]\n'''\n"
+    write_user_config(tmp_path, content)
+
+    assert allowed_domains.ensure_allowed_domains_configured() is False
+    assert read_user_config(tmp_path) == content
+
+
+def test_ensure_allowed_domains_configured_does_not_write_invalid_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_user_config(tmp_path, "[weblate]\nx = 1\n")
+    loads = tomllib.loads
+
+    def fail_for_the_result(text: str) -> dict[str, Any]:
+        if "allowed_domains" in text:
+            msg = "invalid"
+            raise tomllib.TOMLDecodeError(msg, text, 0)
+        return loads(text)
+
+    monkeypatch.setattr(allowed_domains.tomllib, "loads", fail_for_the_result)
+
+    assert allowed_domains.ensure_allowed_domains_configured() is False
+    assert read_user_config(tmp_path) == "[weblate]\nx = 1\n"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '[devcontainer]\nallowed_domains = ["pypi.org"]\n',
+        "[devcontainer]\nallowed_domains = []\n",
+        "[devcontainer\nbroken = ",
+        "devcontainer = { other = 1 }\n",
+        "devcontainer = 3\n",
+    ],
+)
+def test_ensure_allowed_domains_configured_leaves_your_file_alone_when_it_can_not_add_to_it(
+    tmp_path: Path, content: str
+) -> None:
+    write_user_config(tmp_path, content)
+
+    assert allowed_domains.ensure_allowed_domains_configured() is False
+    assert read_user_config(tmp_path) == content
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["[devcontainer\nallowed_domains = ", "[devcontainer]\nallowed_domains = 3\n"],
+)
+def test_get_allowed_domains_allows_nothing_when_your_config_is_broken(tmp_path: Path, content: str) -> None:
+    write_user_config(tmp_path, content)
+
+    assert allowed_domains.get_allowed_domains() == []
 
 
 def test_write_devcontainer_config_refuses_a_multiverse_the_container_needs(

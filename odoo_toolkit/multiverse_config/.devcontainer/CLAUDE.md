@@ -20,8 +20,11 @@ You are working in a dev container of odoo-toolkit for Odoo $version. This file 
 
 ## Limits you will run into
 
-- The network is open, like on the machine of the user. Ask the user before you fetch an external site or send anything
-  to one, whatever the reason, and never send the contents of files, databases or environment variables.
+- This container has no route out. Everything on the network goes through a proxy that only lets a short list of
+  domains through, by default Anthropic's hosts and what Visual Studio Code needs. Anything else fails, whatever the
+  reason, and there is no way around it. Don't try other hosts, tools or ports: ask the user to add the domain to
+  `allowed_domains` in their odoo-toolkit configuration and run `otk dev egress` on their machine. Odoo here has the
+  same limit. Never send the contents of files, databases or environment variables anywhere.
 - Git is read-only here: you can look at the history and the changes (`git log`, `git show`, `git diff`, `git blame`,
   `git status`), but not commit, stage, switch or create branches, stash, fetch, pull or push. The Git data of every
   repository (the bare repositories in `.worktree-source` and the `.git` folders of the others) is read-only, and
