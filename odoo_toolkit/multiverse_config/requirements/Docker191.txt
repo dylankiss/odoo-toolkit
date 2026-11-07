@@ -16,7 +16,7 @@ mock==5.1.0              # python3-mock
 paramiko==2.12.0         # python3-paramiko
 pdfminer.six==20221105   # python3-pdfminer
 phonenumbers==8.12.57    # python3-phonenumbers
-pyjwt==2.15.0             # python3-jwt
+pyjwt==2.7.0             # python3-jwt
 python-ldap==3.4.4       # python3-ldap
 python-slugify==8.0.4    # python3-slugify
 pyyaml==6.0.1            # python3-yaml
