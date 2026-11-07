@@ -11,7 +11,7 @@ USER root
 # Install debian packages
 RUN set -x ; \
     apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-transport-https build-essential ca-certificates curl faketime ffmpeg file flake8 fonts-freefont-ttf fonts-noto-cjk gawk gnupg gsfonts libldap2-dev libjpeg9-dev libsasl2-dev libxslt1-dev lsb-release ocrmypdf sed sudo unzip xfonts-75dpi zip zlib1g-dev \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends apt-transport-https build-essential ca-certificates curl faketime ffmpeg file flake8 fonts-freefont-ttf fonts-noto-cjk gawk gnupg gsfonts libldap2-dev libjpeg9-dev libsasl2-dev libxslt1-dev lsb-release ocrmypdf sed sudo unzip zstd xfonts-75dpi zip zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install debian packages
@@ -59,8 +59,8 @@ RUN set -x ; \
 RUN sed -i 's/^# *en_US.UTF-8 UTF-8$/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
 
 
-# Install chrome with values {"chrome_version": "150.0.7871.114-1"}
-RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_150.0.7871.114-1_amd64.deb -o /tmp/chrome.deb \
+# Install chrome with values {"chrome_version": "155.0.8059.84-1"}
+RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.84-1_amd64.deb -o /tmp/chrome.deb \
     && apt-get update \
     && apt-get -y install --no-install-recommends /tmp/chrome.deb \
     && rm /tmp/chrome.deb
@@ -89,7 +89,7 @@ RUN python3 -m venv /venv/main --system-site-packages
 ENV PATH="/venv/main/bin:$PATH"
 
 # Install pip packages
-RUN python3 -m pip install --no-cache-dir ebaysdk==2.1.5 pdf417gen==0.7.1 ruff==0.6.5 pylint==4.0.3
+RUN python3 -m pip install --no-cache-dir ebaysdk==2.1.5 pdf417gen==0.7.1 ruff==0.6.5 pylint==4.0.3 && if [ -d /venv/main ]; then chmod -R a+rX /venv/main; fi
 
 # Install branch requirements no user with values {"odoo_branch": "17.0"}
 # CACHE 60
