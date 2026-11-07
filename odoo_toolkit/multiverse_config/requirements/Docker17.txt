@@ -12,7 +12,7 @@ maxminddb==2.0.3         # python3-maxminddb
 mock==4.0.3              # python3-mock
 pdfminer.six==20220319   # python3-pdfminer
 phonenumbers==8.12.57    # python3-phonenumbers
-pyjwt==2.15.0             # python3-jwt
+pyjwt==2.3.0             # python3-jwt
 pyserial==3.5            # python3-serial
 python-ldap==3.2.0       # python3-ldap
 python-slugify==4.0.0    # python3-slugify
