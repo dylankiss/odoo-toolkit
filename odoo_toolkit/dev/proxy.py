@@ -95,7 +95,10 @@ def reload_proxy(*, restart: bool = False) -> bool:
     :param restart: Whether to restart the proxy, instead of only having it read the domains again.
     :return: Whether the proxy is running.
     """
-    cmd = ["docker", "restart", EGRESS_HOST] if restart else ["docker", "kill", "--signal", "HUP", EGRESS_HOST]
+    # Squid isn't PID 1 in the container, so a signal to the container never reaches it: ask Squid itself.
+    cmd = (
+        ["docker", "restart", EGRESS_HOST] if restart else ["docker", "exec", EGRESS_HOST, "squid", "-k", "reconfigure"]
+    )
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     return not result.returncode
 

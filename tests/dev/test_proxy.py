@@ -210,10 +210,8 @@ def test_write_allowed_domains_says_when_a_domain_is_gone(tmp_path: Path, monkey
     assert proxy.write_allowed_domains()[1] is True
 
 
-@pytest.mark.parametrize(("restart", "action"), [(False, ["kill", "--signal", "HUP"]), (True, ["restart"])])
-def test_reload_proxy_restarts_it_to_cut_open_connections(
-    monkeypatch: pytest.MonkeyPatch, restart: bool, action: list[str]
-) -> None:
+@pytest.mark.parametrize("restart", [False, True])
+def test_reload_proxy_restarts_it_to_cut_open_connections(monkeypatch: pytest.MonkeyPatch, restart: bool) -> None:
     commands: list[list[str]] = []
 
     def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -223,7 +221,12 @@ def test_reload_proxy_restarts_it_to_cut_open_connections(
     monkeypatch.setattr(proxy.subprocess, "run", fake_run)
 
     assert proxy.reload_proxy(restart=restart) is True
-    assert commands == [["docker", *action, "otk-egress"]]
+    expected = (
+        ["docker", "exec", "otk-egress", "squid", "-k", "reconfigure"]
+        if not restart
+        else ["docker", "restart", "otk-egress"]
+    )
+    assert commands == [expected]
 
 
 def test_squid_never_tunnels_to_private_addresses() -> None:
