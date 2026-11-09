@@ -493,7 +493,9 @@ def _configure_versions(
         if not version_dir.is_dir():
             return [RepoResult("version", Outcome.SKIPPED, "no repositories for this version")]
         # The packages the Runbot image of the version has, pinned to the versions of its Ubuntu release.
-        image_requirements = [IMAGE_REQUIREMENTS_DIR / f"{versions[branch].image}.txt"] if branch in versions else []
+        image_requirements = (
+            [IMAGE_REQUIREMENTS_DIR / f"{versions[branch].image}.requirements"] if branch in versions else []
+        )
         steps: list[tuple[str, Callable[[], RepoResult]]] = [
             ("links", lambda: link_repos(version_dir, links.get(branch, []))),
             (
