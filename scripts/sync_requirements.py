@@ -137,7 +137,7 @@ def main() -> int:
     releases = {version.image: version.ubuntu for version in get_versions().values()}
     IMAGE_REQUIREMENTS_DIR.mkdir(exist_ok=True)
     for image, release in releases.items():
-        (IMAGE_REQUIREMENTS_DIR / f"{image}.txt").write_text(
+        (IMAGE_REQUIREMENTS_DIR / f"{image}.requirements").write_text(
             render_requirements(image, release, config), encoding="utf-8"
         )
         print(f"Wrote the requirements of {image} for Ubuntu {release}.")

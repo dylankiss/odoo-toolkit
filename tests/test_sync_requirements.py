@@ -67,7 +67,7 @@ def test_runbot_packages_leave_out_build_tools_and_urls() -> None:
 
 @pytest.mark.parametrize("image", sorted({version.image for version in get_versions().values()}))
 def test_every_image_has_pinned_requirements(image: str) -> None:
-    requirements = parse_requirements([IMAGE_REQUIREMENTS_DIR / f"{image}.txt"])
+    requirements = parse_requirements([IMAGE_REQUIREMENTS_DIR / f"{image}.requirements"])
 
     assert "websocket-client" in " ".join(requirements)
     # The pip-only packages have no Ubuntu version to pin.
@@ -121,8 +121,8 @@ def test_main_writes_the_requirements_of_every_image(tmp_path: Path, monkeypatch
     assert sync_requirements.main() == 0
 
     images = {version.image for version in get_versions().values()}
-    assert {path.stem for path in (tmp_path / "requirements").glob("*.txt")} == images
-    assert (tmp_path / "requirements" / "Docker19.txt").read_text() == "# Docker19 noble\n"
+    assert {path.stem for path in (tmp_path / "requirements").glob("*.requirements")} == images
+    assert (tmp_path / "requirements" / "Docker19.requirements").read_text() == "# Docker19 noble\n"
 
 
 def test_running_the_script_writes_the_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,5 +138,5 @@ def test_running_the_script_writes_the_requirements(tmp_path: Path, monkeypatch:
         runpy.run_path(str(SCRIPT), run_name="__main__")
 
     assert exit_info.value.code == 0
-    requirements = (tmp_path / "requirements" / "Docker19.txt").read_text()
+    requirements = (tmp_path / "requirements" / "Docker19.requirements").read_text()
     assert "python-ldap==1.2.3" in requirements
