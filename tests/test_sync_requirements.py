@@ -1,5 +1,7 @@
 import importlib.util
 import runpy
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +45,13 @@ def test_render_requirements_pins_apt_packages_and_keeps_pip_ones() -> None:
     def get_version(_: str, package: str) -> str:
         return versions.get(package, "1.0-1")
 
-    rendered = sync_requirements.render_requirements("Docker17", "jammy", config, get_version)
+    debs: list[str] = []
+
+    def get_deb_version(url: str) -> str:
+        debs.append(url)
+        return "8.12.57-5+odoo9.0.43"
+
+    rendered = sync_requirements.render_requirements("Docker17", "jammy", config, get_version, get_deb_version)
 
     lines = [line for line in rendered.splitlines() if not line.startswith("#")]
     assert "pyusb==1.2.1 # python3-usb" in [" ".join(line.split()) for line in lines]
@@ -53,16 +61,69 @@ def test_render_requirements_pins_apt_packages_and_keeps_pip_ones() -> None:
     # The comments are aligned.
     assert len({line.index("#") for line in lines if "#" in line}) == 1
     assert lines[-1] == "cn2an"
+    # Runbot installs Odoo's phonenumbers over Ubuntu's.
+    assert "phonenumbers==8.12.57 # python3-phonenumbers" in [" ".join(line.split()) for line in lines]
+    assert debs
     # Docker19's own section doesn't apply to Docker17.
-    assert sync_requirements.render_requirements("Docker19", "noble", config, get_version).count("qrcode") == 0
+    rendered = sync_requirements.render_requirements("Docker19", "noble", config, get_version, get_deb_version)
+    assert rendered.count("qrcode") == 0
 
 
-def test_runbot_packages_leave_out_build_tools_and_urls() -> None:
-    packages, phonenumbers = sync_requirements.get_runbot_packages("DockerMaster")
+RUNBOT_DOCKERFILE = """\
+RUN set -x ; \\
+    apt-get update \\
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-dev python3-pip \\
+        python3-websocket python3-phonenumbers python3-venv \\
+    && rm -rf /var/lib/apt/lists/*
 
-    assert "python3-websocket" in packages
-    assert not {"python3-dev", "python3-pip", "python3-venv"} & set(packages)
-    assert phonenumbers == "8.12.57"
+# Install Odoo Phonenumbers noble with values {"phonenumbers_version": "noble_latest"}
+ADD https://packages.odoo.com/pub/python3-phonenumbers_noble_latest.deb /phonenumbers.deb
+RUN apt-get install -y --no-install-recommends /phonenumbers.deb
+"""
+
+
+def test_runbot_packages_leave_out_build_tools_and_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "Docker19.Dockerfile").write_text(RUNBOT_DOCKERFILE)
+    monkeypatch.setattr(sync_requirements, "RUNBOT_DOCKERFILES_DIR", tmp_path)
+
+    packages, phonenumbers = sync_requirements.get_runbot_packages("Docker19")
+
+    assert packages == ["python3-phonenumbers", "python3-websocket"]
+    assert phonenumbers == "https://packages.odoo.com/pub/python3-phonenumbers_noble_latest.deb"
+
+
+def test_runbot_packages_without_odoo_phonenumbers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "Docker19.Dockerfile").write_text(RUNBOT_DOCKERFILE.split("# Install Odoo", maxsplit=1)[0])
+    monkeypatch.setattr(sync_requirements, "RUNBOT_DOCKERFILES_DIR", tmp_path)
+
+    assert sync_requirements.get_runbot_packages("Docker19")[1] is None
+
+
+@pytest.mark.skipif(not shutil.which("dpkg-deb"), reason="Needs dpkg-deb.")
+def test_get_deb_version_reads_the_control_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    package = tmp_path / "package"
+    (package / "DEBIAN").mkdir(parents=True)
+    # `dpkg-deb` refuses a control folder anyone can write to, which a umask of 0 gives.
+    package.chmod(0o755)
+    (package / "DEBIAN").chmod(0o755)
+    (package / "DEBIAN" / "control").write_text(
+        "Package: python3-phonenumbers\nVersion: 8.12.57-5+odoo9.0.43\nArchitecture: all\n"
+        "Maintainer: Odoo <odoo@example.com>\nDescription: phonenumbers\n"
+    )
+    deb = tmp_path / "package.deb"
+    subprocess.run(["dpkg-deb", "--build", str(package), str(deb)], capture_output=True, check=True)
+    urls: list[str] = []
+
+    def fake_get(url: str, **_: object) -> Response:
+        urls.append(url)
+        return Response("", deb.read_bytes())
+
+    sync_requirements.get_deb_version.cache_clear()
+    monkeypatch.setattr(sync_requirements.requests, "get", fake_get)
+
+    url = "https://packages.odoo.com/pub/python3-phonenumbers_noble_latest.deb"
+    assert sync_requirements.get_deb_version(url) == "8.12.57-5+odoo9.0.43"
+    assert urls == [url]
 
 
 @pytest.mark.parametrize("image", sorted({version.image for version in get_versions().values()}))
@@ -77,8 +138,9 @@ def test_every_image_has_pinned_requirements(image: str) -> None:
 
 
 class Response:
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, content: bytes = b"") -> None:
         self.text = text
+        self.content = content
 
     def raise_for_status(self) -> None:
         return None
@@ -134,9 +196,17 @@ def test_running_the_script_writes_the_requirements(tmp_path: Path, monkeypatch:
     monkeypatch.setattr(mv_configure, "IMAGE_REQUIREMENTS_DIR", tmp_path / "requirements")
     monkeypatch.setattr(requests, "get", fake_get)
 
+    # The version of Odoo's phonenumbers package, without `dpkg-deb`, which macOS doesn't have.
+    def fake_run(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        assert args[0] == "dpkg-deb"
+        return subprocess.CompletedProcess(args, 0, "8.12.57-5+odoo9.0.43\n", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
     with pytest.raises(SystemExit) as exit_info:
         runpy.run_path(str(SCRIPT), run_name="__main__")
 
     assert exit_info.value.code == 0
     requirements = (tmp_path / "requirements" / "Docker19.requirements").read_text()
     assert "python-ldap==1.2.3" in requirements
+    assert "phonenumbers==8.12.57" in requirements
