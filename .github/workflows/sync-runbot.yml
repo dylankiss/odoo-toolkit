@@ -22,7 +22,7 @@ jobs:
       # Pull requests opened by this workflow don't run the CI, so check that the images still render from what it wrote.
       # The other tests don't depend on Runbot, and the CI runs them on every change of the code.
       - run: uv run pytest -q -m synced
-      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           branch: sync-runbot
           commit-message: "chore(versions): sync with Runbot"
