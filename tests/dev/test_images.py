@@ -22,6 +22,7 @@ def chrome_not_built_for_arm64(_: str) -> str:
     return "155.0.8059.39-1"
 
 
+@pytest.mark.synced
 @pytest.mark.parametrize("image", get_images())
 def test_split_instructions_round_trips(image: str) -> None:
     dockerfile = (RUNBOT_DOCKERFILES_DIR / f"{image}.Dockerfile").read_text()
@@ -39,6 +40,7 @@ def test_split_instructions_keeps_continued_instructions_together() -> None:
     ]
 
 
+@pytest.mark.synced
 @pytest.mark.parametrize("image", get_images())
 def test_render_amd64_only_adds_to_runbot(image: str) -> None:
     dockerfile = render_dockerfile(image, "amd64")
@@ -54,6 +56,7 @@ def test_render_amd64_only_adds_to_runbot(image: str) -> None:
     assert "watchdog" in dockerfile
 
 
+@pytest.mark.synced
 @pytest.mark.parametrize("image", get_images())
 def test_render_arm64_downloads_no_amd64_packages(image: str) -> None:
     dockerfile = render_dockerfile(image, "arm64", get_chrome_version=chrome_not_built_for_arm64)
@@ -66,12 +69,14 @@ def test_render_arm64_downloads_no_amd64_packages(image: str) -> None:
     assert "RUN sed -i '/^libsass/d' /tmp/requirements.txt && python3 -m pip install" in dockerfile
 
 
+@pytest.mark.synced
 def test_render_arm64_keeps_pinned_chrome_when_built_for_arm64() -> None:
     dockerfile = render_dockerfile("Docker19", "arm64", get_chrome_version=lambda pinned: pinned)
     assert "isn't built for arm64" not in dockerfile
     assert re.search(r"google-chrome-stable_[\d.]+-\d+_arm64\.deb", dockerfile)
 
 
+@pytest.mark.synced
 def test_image_tags_cover_every_version() -> None:
     tags = [tag for image in get_images() for tag in get_image_tags(image)]
     assert sorted(tags) == sorted(f"dylankiss/odoo-dev:{version}" for version in get_versions())
@@ -107,6 +112,7 @@ def test_get_changed_images() -> None:
     assert get_changed_images([], previous) == [get_versions()[new_version].image]
 
 
+@pytest.mark.synced
 @pytest.mark.parametrize("image", get_images())
 def test_render_installs_extra_packages_before_the_debugger(image: str) -> None:
     dockerfile = render_dockerfile(image, "amd64")
