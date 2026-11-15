@@ -119,7 +119,7 @@ def test_get_deb_version_reads_the_control_file(tmp_path: Path, monkeypatch: pyt
         return Response("", deb.read_bytes())
 
     sync_requirements.get_deb_version.cache_clear()
-    monkeypatch.setattr(sync_requirements.requests, "get", fake_get)
+    monkeypatch.setattr(sync_requirements.SESSION, "get", fake_get)
 
     url = "https://packages.odoo.com/pub/python3-phonenumbers_noble_latest.deb"
     assert sync_requirements.get_deb_version(url) == "8.12.57-5+odoo9.0.43"
@@ -154,7 +154,7 @@ def test_get_ubuntu_version_reads_the_version_of_the_package_page(monkeypatch: p
         return Response("<h1>Package: python3-ldap (3.4.4-1build2)</h1>")
 
     sync_requirements.get_ubuntu_version.cache_clear()
-    monkeypatch.setattr(sync_requirements.requests, "get", fake_get)
+    monkeypatch.setattr(sync_requirements.SESSION, "get", fake_get)
 
     assert sync_requirements.get_ubuntu_version("noble", "python3-ldap") == "3.4.4-1build2"
     assert urls == ["https://packages.ubuntu.com/noble/python3-ldap"]
@@ -166,7 +166,7 @@ def test_get_ubuntu_version_refuses_a_package_the_release_does_not_have(monkeypa
     def fake_get(_: str, **__: object) -> Response:
         return Response("<h1>Error</h1>")
 
-    monkeypatch.setattr(sync_requirements.requests, "get", fake_get)
+    monkeypatch.setattr(sync_requirements.SESSION, "get", fake_get)
 
     with pytest.raises(ValueError, match="no package python3-nothing"):
         sync_requirements.get_ubuntu_version("noble", "python3-nothing")
@@ -188,13 +188,13 @@ def test_main_writes_the_requirements_of_every_image(tmp_path: Path, monkeypatch
 
 
 def test_running_the_script_writes_the_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_get(url: str, **_: object) -> Response:
+    def fake_get(_: requests.Session, url: str, **__: object) -> Response:
         package = url.rsplit("/", 1)[1]
         return Response(f"<h1>Package: {package} (1.2.3-1)</h1>")
 
     # The script runs as it does from the command line, in a folder that isn't the one of the toolkit.
     monkeypatch.setattr(mv_configure, "IMAGE_REQUIREMENTS_DIR", tmp_path / "requirements")
-    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(requests.Session, "get", fake_get)
 
     # The version of Odoo's phonenumbers package, without `dpkg-deb`, which macOS doesn't have.
     def fake_run(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
