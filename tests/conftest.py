@@ -3,6 +3,13 @@ from pathlib import Path
 import pytest
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the marker of the tests the Runbot sync runs."""
+    config.addinivalue_line(
+        "markers", "synced: checks the files the Runbot sync writes, so the sync can run only these on what it wrote"
+    )
+
+
 @pytest.fixture(autouse=True)
 def no_update_check(monkeypatch: pytest.MonkeyPatch) -> None:
     """Don't ask PyPI for a new version of the toolkit."""

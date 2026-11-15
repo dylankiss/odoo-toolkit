@@ -137,6 +137,7 @@ def test_get_deb_version_reads_the_control_file(tmp_path: Path, monkeypatch: pyt
     assert urls == [url]
 
 
+@pytest.mark.synced
 @pytest.mark.parametrize("image", sorted({version.image for version in get_versions().values()}))
 def test_every_image_has_pinned_requirements(image: str) -> None:
     requirements = parse_requirements([IMAGE_REQUIREMENTS_DIR / f"{image}.requirements"])

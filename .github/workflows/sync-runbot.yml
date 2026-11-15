@@ -19,8 +19,9 @@ jobs:
       - run: uv run scripts/sync_runbot.py
       # The Python requirements of the images, pinned to the versions of their Ubuntu releases.
       - run: uv run scripts/sync_requirements.py
-      # Pull requests opened by this workflow don't run the CI, so check the rendered images here.
-      - run: uv run pytest -q tests/dev tests/test_versions.py tests/test_sync_requirements.py
+      # Pull requests opened by this workflow don't run the CI, so check that the images still render from what it wrote.
+      # The other tests don't depend on Runbot, and the CI runs them on every change of the code.
+      - run: uv run pytest -q -m synced
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           branch: sync-runbot

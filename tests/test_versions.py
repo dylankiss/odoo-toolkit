@@ -18,6 +18,7 @@ def test_version_sort_key_orders_saas_and_master() -> None:
     assert sorted(versions, key=version_sort_key) == ["18.0", "19.0", "saas-19.2", "saas-19.10", "20.0", "master"]
 
 
+@pytest.mark.synced
 def test_registry_is_sorted_and_complete() -> None:
     versions = get_versions()
     assert list(versions) == sorted(versions, key=version_sort_key)
