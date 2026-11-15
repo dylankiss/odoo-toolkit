@@ -40,7 +40,7 @@ APT_PYTHON_PATTERN = re.compile(r"(?<![\w/-])python3-[a-z0-9-]+")
 NOT_LIBRARIES = {"python3-dev", "python3-pip", "python3-setuptools", "python3-venv", "python3-wheel"}
 # Odoo's Debian package of phonenumbers, which Runbot installs over Ubuntu's. Its name doesn't always have its version,
 # like `python3-phonenumbers_noble_latest.deb`.
-PHONENUMBERS_DEB_PATTERN = re.compile(r"https://packages\.odoo\.com/\S+/python3-phonenumbers_\S+\.deb")
+PHONENUMBERS_DEB_PATTERN = re.compile(r"\S*phonenumbers\S*\.deb")
 TIMEOUT = 30
 # packages.ubuntu.com is slow at times, and one failed request out of the hundreds fails the whole sync, so retry the
 # requests that time out or fail, waiting longer each time.
@@ -108,6 +108,7 @@ def get_runbot_packages(image: str) -> tuple[list[str], str | None]:
     """Get the Python packages Runbot's Dockerfile of an image installs with apt.
 
     :param image: The Runbot image name, like `Docker19`.
+    :raises ValueError: If the Dockerfile installs Odoo's phonenumbers package, but not from one URL.
     :return: The apt packages, and the URL of Odoo's phonenumbers package Runbot installs over Ubuntu's, if any.
     """
     dockerfile = (RUNBOT_DOCKERFILES_DIR / f"{image}.Dockerfile").read_text(encoding="utf-8")
@@ -117,8 +118,13 @@ def get_runbot_packages(image: str) -> tuple[list[str], str | None]:
         for package in APT_PYTHON_PATTERN.findall(install)
         if package not in NOT_LIBRARIES
     }
-    phonenumbers = PHONENUMBERS_DEB_PATTERN.search(dockerfile)
-    return sorted(packages), phonenumbers.group() if phonenumbers else None
+    debs = set(PHONENUMBERS_DEB_PATTERN.findall(dockerfile))
+    urls = {deb for deb in debs if deb.startswith(("https://", "http://"))}
+    # Falling back to Ubuntu's version would pin the wrong one, so stop if Runbot changed how it installs Odoo's.
+    if debs and len(urls) != 1:
+        msg = f"Can't find the URL of Odoo's phonenumbers package in {image}.Dockerfile, only {sorted(debs)}."
+        raise ValueError(msg)
+    return sorted(packages), next(iter(urls), None)
 
 
 def get_pypi_name(package: str, names: dict[str, str]) -> str:
