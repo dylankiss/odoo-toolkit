@@ -16,7 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from typer import Context
-from typer.core import TyperGroup
+from typer.core import TyperArgument, TyperGroup
 from typer.main import get_command
 
 from odoo_toolkit.main import app
@@ -52,9 +52,9 @@ def get_argument_name(name: str, nargs: int, *, required: bool) -> str:
 def render_usage(command_path: str, ctx: Context) -> str:
     """Render the usage line of a command, like `$ otk po export [OPTIONS] MODULES...`."""
     arguments = [
-        get_argument_name(param.human_readable_name, param.nargs, required=param.required)
+        get_argument_name(param.display_name_raw, param.nargs, required=param.required)
         for param in ctx.command.get_params(ctx)
-        if param.param_type_name == "argument"
+        if isinstance(param, TyperArgument)
     ]
     # Like `otk dev run`, which passes what comes after `--` to Odoo.
     extra = ["[-- ODOO OPTIONS]"] if ctx.allow_extra_args else []
@@ -71,8 +71,8 @@ def render_lists(ctx: Context) -> tuple[list[str], dict[str | None, list[str]]]:
     for param in ctx.command.get_params(ctx):
         if not (record := param.get_help_record(ctx)):
             continue
-        if param.param_type_name == "argument":
-            name = get_argument_name(param.human_readable_name, param.nargs, required=param.required)
+        if isinstance(param, TyperArgument):
+            name = get_argument_name(param.display_name_raw, param.nargs, required=param.required)
             arguments.append(format_entry(name, record[1]))
         else:
             panel: str | None = getattr(param, "rich_help_panel", None)
