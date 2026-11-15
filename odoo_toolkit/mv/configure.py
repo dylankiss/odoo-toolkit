@@ -667,16 +667,32 @@ def _get_devcontainer_instructions(version_dir: Path, *, odoo_args: list[str]) -
 
 
 def _get_protected_git_paths(multiverse_dir: Path) -> list[Path]:
-    """Get the Git data of every repository in the multiverse, which the dev containers only get to read.
+    """Get the Git files of every repository in the multiverse, which the dev containers only get to read.
 
-    Nothing in a dev container can commit, change a branch or fetch: it can look at the history and the changes. Every
-    dev container sees all the repositories, since the worktrees of all versions share the bare ones, and a hook, an
-    alias or a setting like `core.fsmonitor` in one would run the next time you use Git on your machine. A bare
-    repository holds the Git data of its worktrees too, and the other repositories, like the pinned ones, have a `.git`
-    folder in their version directory.
+    A dev container can stage, commit and switch branches, but not change what Git runs, or where it finds what it
+    runs, since that would run the next time you use Git on your machine: the config, with its aliases and settings
+    like `core.fsmonitor`, and the hooks of every repository, and the files that lead Git to them. Every dev container
+    sees all the repositories, since the worktrees of all versions share the bare ones, and the other repositories,
+    like the pinned ones, have a `.git` folder in their version directory.
+
+    A bind mount needs something to mount, and a missing one could be created in the container, so the missing ones
+    are created empty.
     """
-    paths = sorted((multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare"))
-    paths += sorted(path for path in multiverse_dir.glob("*/*/.git") if path.is_dir() and not path.is_symlink())
+    git_dirs = sorted((multiverse_dir / WORKTREE_SOURCE_DIR).glob("*/.bare"))
+    git_dirs += sorted(path for path in multiverse_dir.glob("*/*/.git") if path.is_dir() and not path.is_symlink())
+    paths: list[Path] = []
+    for git_dir in git_dirs:
+        (git_dir / "hooks").mkdir(exist_ok=True)
+        paths += [git_dir / "config", git_dir / "hooks"]
+        # A worktree finds the shared Git data through `commondir`, and has a config of its own once
+        # `extensions.worktreeConfig` is on, which `git sparse-checkout` turns on.
+        for worktree_dir in sorted(path for path in git_dir.glob("worktrees/*") if path.is_dir()):
+            paths += [worktree_dir / "commondir", worktree_dir / "config.worktree"]
+    # The `.git` file of a worktree says where its Git data is.
+    paths += sorted(path for path in multiverse_dir.glob("*/*/.git") if path.is_file() and not path.is_symlink())
+    for path in paths:
+        if not path.exists():
+            path.touch()
     return paths
 
 

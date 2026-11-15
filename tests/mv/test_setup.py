@@ -313,12 +313,6 @@ def test_write_devcontainer_config(tmp_path: Path) -> None:
     multiverse_dir = tmp_path / "mv"
     version_dir = make_version_dir(multiverse_dir)
     (version_dir / ".vscode").mkdir()
-    bare_dir = multiverse_dir / ".worktree-source" / "odoo" / ".bare"
-    bare_dir.mkdir(parents=True)
-    # A pinned repository is a regular clone in its version directory, and a worktree only has a `.git` file.
-    (version_dir / "odoofin" / ".git").mkdir(parents=True)
-    (version_dir / "odoo").mkdir(exist_ok=True)
-    (version_dir / "odoo" / ".git").write_text("gitdir: ../../.worktree-source/odoo/.bare/worktrees/odoo\n")
 
     result = mv_configure.write_devcontainer_config(version_dir, reset=False)
 
@@ -335,9 +329,10 @@ def test_write_devcontainer_config(tmp_path: Path) -> None:
         f"source={version_dir / name},target={version_dir / name},type=bind,readonly"
         for name in (".devcontainer", ".vscode")
     ]
-    # The Git data of every repository can only be read, so nothing commits and nothing runs on your machine later.
+    # And the `.git` files of the worktrees, which say where their Git data is (see the test below for the rest).
     assert read_only[2:4] == [
-        f"source={path},target={path},type=bind,readonly" for path in (bare_dir, version_dir / "odoofin" / ".git")
+        f"source={path},target={path},type=bind,readonly"
+        for path in (version_dir / "enterprise" / ".git", version_dir / "odoo" / ".git")
     ]
     # Claude Code finds the instructions of the container where it reads its own, and they can't be changed from inside.
     instructions_file = version_dir / ".devcontainer" / "CLAUDE.md"
@@ -378,6 +373,46 @@ def test_write_devcontainer_config(tmp_path: Path) -> None:
     assert mv_configure.write_devcontainer_config(version_dir, reset=False).outcome == Outcome.SKIPPED
     assert config_file.read_text() == "{}"
     assert mv_configure.write_devcontainer_config(version_dir, reset=True).outcome == Outcome.UPDATED
+
+
+def test_write_devcontainer_config_protects_what_git_runs(tmp_path: Path) -> None:
+    multiverse_dir = tmp_path / "mv"
+    version_dir = make_version_dir(multiverse_dir)
+    bare_dir = multiverse_dir / ".worktree-source" / "odoo" / ".bare"
+    (bare_dir / "worktrees" / "odoo").mkdir(parents=True)
+    (bare_dir / "config").write_text("[core]\n\tbare = true\n")
+    (bare_dir / "worktrees" / "odoo" / "commondir").write_text("../..\n")
+    # A pinned repository is a regular clone in its version directory, and a worktree only has a `.git` file.
+    (version_dir / "odoofin" / ".git").mkdir(parents=True)
+    (version_dir / "odoo").mkdir(exist_ok=True)
+    (version_dir / "odoo" / ".git").write_text("gitdir: ../../.worktree-source/odoo/.bare/worktrees/odoo\n")
+
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+
+    config = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())
+    # The container can commit, but not change what Git runs on your machine later, or where Git finds it.
+    worktree_dir = bare_dir / "worktrees" / "odoo"
+    pinned_dir = version_dir / "odoofin" / ".git"
+    protected = [
+        bare_dir / "config",
+        bare_dir / "hooks",
+        worktree_dir / "commondir",
+        worktree_dir / "config.worktree",
+        pinned_dir / "config",
+        pinned_dir / "hooks",
+        version_dir / "enterprise" / ".git",
+        version_dir / "odoo" / ".git",
+    ]
+    read_only = [mount for mount in config["mounts"] if mount.endswith("readonly")]
+    assert read_only[1:9] == [f"source={path},target={path},type=bind,readonly" for path in protected]
+    # The rest of the Git data can be written, so staging, committing and switching branches work.
+    assert f"source={bare_dir},target={bare_dir},type=bind,readonly" not in config["mounts"]
+    assert f"source={pinned_dir},target={pinned_dir},type=bind,readonly" not in config["mounts"]
+    # What is missing is created empty, since a bind mount needs something to mount, and what's there is left alone.
+    assert (bare_dir / "config").read_text() == "[core]\n\tbare = true\n"
+    assert (worktree_dir / "config.worktree").read_text() == ""
+    assert (pinned_dir / "config").read_text() == ""
+    assert (pinned_dir / "hooks").is_dir()
 
 
 def test_write_devcontainer_config_hides_the_venv_of_your_machine(tmp_path: Path) -> None:
