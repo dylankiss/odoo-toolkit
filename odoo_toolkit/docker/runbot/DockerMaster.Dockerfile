@@ -65,9 +65,9 @@ RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-s
     && apt-get -y install --no-install-recommends /tmp/chrome.deb \
     && rm /tmp/chrome.deb
 
-# Install Odoo Phonenumbers noble with values {"phonenumbers_version": "8.12.57-5+odoo2_all"}
+# Install Odoo Phonenumbers noble with values {"phonenumbers_version": "resolute_latest"}
 # CACHE 86400
-ADD https://packages.odoo.com/pub/python3-phonenumbers_8.12.57-5+odoo2_all.deb /phonenumbers.deb
+ADD https://packages.odoo.com/pub/python3-phonenumbers_resolute_latest.deb /phonenumbers.deb
 RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /phonenumbers.deb \
@@ -89,7 +89,7 @@ RUN python3 -m venv /venv/main --system-site-packages
 ENV PATH="/venv/main/bin:$PATH"
 
 # Install pip packages
-RUN python3 -m pip install --no-cache-dir pdf417gen==0.7.1 pylint==4.0.3 unidiff==0.7.3 semgrep==1.116.0 ruff==0.16.1 coverage==7.4.4 && if [ -d /venv/main ]; then chmod -R a+rX /venv/main; fi
+RUN python3 -m pip install --no-cache-dir pdf417gen==0.7.1 pylint==4.0.3 unidiff==0.7.3 semgrep==1.116.0 ruff==0.16.1 coverage==7.4.4 && if [ -d /venv/main ]; then chmod -R a+rwX /venv/main; fi
 
 # Install branch requirements no user with values {"odoo_branch": "master"}
 # CACHE 60
@@ -120,7 +120,7 @@ RUN set -x ; \
     && rm -rf /tmp/libfaketime-3062fb20041552727bdb810456d2f1b4001b341f
 
 # CACHE 600
-ADD https://github.com/odoo/paper-muncher/releases/download/v0.9.0/paper-muncher_v0.9.0_resolute_amd64.deb /tmp/paper.deb
+ADD https://github.com/odoo/paper-muncher/releases/download/v0.10.0/paper-muncher_v0.10.0_resolute_amd64.deb /tmp/paper.deb
 RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/paper.deb \

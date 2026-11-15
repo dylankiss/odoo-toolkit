@@ -89,7 +89,7 @@ RUN python3 -m venv /venv/main --system-site-packages
 ENV PATH="/venv/main/bin:$PATH"
 
 # Install pip packages
-RUN python3 -m pip install --no-cache-dir ebaysdk==2.1.5 pdf417gen==0.7.1 pylint==4.0.3 unidiff==0.7.3 markdown2==2.4.11 semgrep==1.116.0 ruff==0.16.1 coverage==7.4.4 && if [ -d /venv/main ]; then chmod -R a+rX /venv/main; fi
+RUN python3 -m pip install --no-cache-dir ebaysdk==2.1.5 pdf417gen==0.7.1 pylint==4.0.3 unidiff==0.7.3 markdown2==2.4.11 semgrep==1.116.0 ruff==0.16.1 coverage==7.4.4 && if [ -d /venv/main ]; then chmod -R a+rwX /venv/main; fi
 
 # Install branch requirements no user with values {"odoo_branch": "saas-19.4"}
 # CACHE 60
@@ -120,7 +120,7 @@ RUN set -x ; \
     && rm -rf /tmp/libfaketime-3062fb20041552727bdb810456d2f1b4001b341f
 
 # CACHE 600
-ADD https://github.com/odoo/paper-muncher/releases/download/v0.9.0/paper-muncher_v0.9.0_resolute_amd64.deb /tmp/paper.deb
+ADD https://github.com/odoo/paper-muncher/releases/download/v0.10.0/paper-muncher_v0.10.0_resolute_amd64.deb /tmp/paper.deb
 RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/paper.deb \

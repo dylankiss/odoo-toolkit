@@ -65,9 +65,9 @@ RUN curl -sSL https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-s
     && apt-get -y install --no-install-recommends /tmp/chrome.deb \
     && rm /tmp/chrome.deb
 
-# Install Odoo Phonenumbers noble with values {"phonenumbers_version": "8.12.57-4+odoo2_all"}
+# Install Odoo Phonenumbers noble with values {"phonenumbers_version": "noble_latest"}
 # CACHE 86400
-ADD https://packages.odoo.com/pub/python3-phonenumbers_8.12.57-4+odoo2_all.deb /phonenumbers.deb
+ADD https://packages.odoo.com/pub/python3-phonenumbers_noble_latest.deb /phonenumbers.deb
 RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /phonenumbers.deb \
@@ -89,7 +89,7 @@ RUN python3 -m venv /venv/main --system-site-packages
 ENV PATH="/venv/main/bin:$PATH"
 
 # Install pip packages
-RUN python3 -m pip install --no-cache-dir ebaysdk==2.1.5 pdf417gen==0.7.1 astroid==3.3.9 pylint==3.3.6 && if [ -d /venv/main ]; then chmod -R a+rX /venv/main; fi
+RUN python3 -m pip install --no-cache-dir ebaysdk==2.1.5 pdf417gen==0.7.1 astroid==3.3.9 pylint==3.3.6 && if [ -d /venv/main ]; then chmod -R a+rwX /venv/main; fi
 
 # Install branch requirements no user with values {"odoo_branch": "18.0"}
 # CACHE 60
