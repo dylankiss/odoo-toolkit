@@ -130,8 +130,8 @@ $ otk po export --local --db-username odoo "account_*" mrp sale
 
 ### Options
 
-* `-x, --exclude <str>`: Exclude these modules from being installed and exported, or `default` for localizations, themes, hardware and tests.
-* `-f, --path-filter <path>`: Only include modules within these paths.
+* `-x, --exclude <list[str]>`: Exclude these modules from being installed and exported, or `default` for localizations, themes, hardware and tests.
+* `-f, --path-filter <list[Path]>`: Only include modules within these paths.
 * `--help`: Show this message and exit.
 
 **Odoo Server Options**:
@@ -144,7 +144,7 @@ $ otk po export --local --db-username odoo "account_*" mrp sale
 * `--build`: Build the Docker image on your machine instead of pulling it.
 * `-c, --com-path <path>`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path <path>`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path <path>`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `-a, --addons-path <list[Path]>`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `-u, --username <str>`: Specify the username to log in to Odoo, on your own server or before Odoo saas-18.4.  [default: `admin`]
 * `--password <str>`: Specify the password to log in to Odoo, on your own server or before Odoo saas-18.4.  [default: `admin`]
 * `--host <str>`: Specify the hostname of your Odoo server.  [default: `localhost`]
@@ -187,12 +187,12 @@ $ otk po create -l nl -l fr -l de l10n_be l10n_be_reports
 
 ### Options
 
-* `-l, --language <str>`: Create `.po` files for these language codes, or `all` available languages in Odoo.  **[required]**
-* `-x, --exclude <str>`: Exclude these modules from being created, or `default` for localizations, themes, hardware and tests.
-* `-f, --path-filter <path>`: Only include modules within these paths.
+* `-l, --language <list[str]>`: Create `.po` files for these language codes, or `all` available languages in Odoo.  **[required]**
+* `-x, --exclude <list[str]>`: Exclude these modules from being created, or `default` for localizations, themes, hardware and tests.
+* `-f, --path-filter <list[Path]>`: Only include modules within these paths.
 * `-c, --com-path <path>`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path <path>`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path <path>`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `-a, --addons-path <list[Path]>`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -224,13 +224,13 @@ $ otk po update -l nl -l fr account account_accountant
 
 ### Options
 
-* `-l, --language <str>`: Update `.po` files for these language codes, or `all`.  [default: `all`]
+* `-l, --language <list[str]>`: Update `.po` files for these language codes, or `all`.  [default: `all`]
 * `-t, --only-translated`: Only keep translated terms in the updated `.po` files, removing all untranslated terms.
-* `-x, --exclude <str>`: Exclude these modules from being updated, or `default` for localizations, themes, hardware and tests.
-* `-f, --path-filter <path>`: Only include modules within these paths.
+* `-x, --exclude <list[str]>`: Exclude these modules from being updated, or `default` for localizations, themes, hardware and tests.
+* `-f, --path-filter <list[Path]>`: Only include modules within these paths.
 * `-c, --com-path <path>`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `-e, --ent-path <path>`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `-a, --addons-path <path>`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `-a, --addons-path <list[Path]>`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -295,9 +295,9 @@ $ otk dev run -v ~/etc-odoo:/etc/odoo:ro -e KEY=value -- -d mydb
 * `--debug-port <int>`: The port of the debugger, on your machine.  [default: `5678`]
 * `--upgrade`: Add the upgrade scripts of `upgrade` and `upgrade-util` to the upgrade path.
 * `--community`: Only load the modules of Odoo Community (`odoo/addons`).
-* `-x, --exclude <str>`: Leave these repositories out of the addons path, like `enterprise` or `odoofin,design-themes`.
-* `-v, --volume <str>`: Mount a file or folder of your machine in the container, like `~/etc-odoo:/etc/odoo:ro`. Can be used several times. A path starting with `~` or `.` is made absolute, and the path must exist.
-* `-e, --env <str>`: Set an environment variable in the container, like `REQUESTS_CA_BUNDLE=/etc/ca.pem`. Can be used several times.
+* `-x, --exclude <list[str]>`: Leave these repositories out of the addons path, like `enterprise` or `odoofin,design-themes`.
+* `-v, --volume <list[str]>`: Mount a file or folder of your machine in the container, like `~/etc-odoo:/etc/odoo:ro`. Can be used several times. A path starting with `~` or `.` is made absolute, and the path must exist.
+* `-e, --env <list[str]>`: Set an environment variable in the container, like `REQUESTS_CA_BUNDLE=/etc/ca.pem`. Can be used several times.
 * `--build`: Build the image on your machine instead of pulling it.
 * `--pull`: Pull the latest image, even if you have one already.
 * `--db-port <int>`: The port to reach PostgreSQL on, on your machine. Defaults to the one it runs on, or `5432`. Changing it interrupts the connections to PostgreSQL for a moment.
@@ -486,13 +486,13 @@ $ otk wl config l10n_be -p odoo-18-l10n -l nl,fr,de
 ### Options
 
 * `-p, --project <str>`: Specify the Weblate project slug.  **[required]**
-* `-x, --exclude <str>`: Exclude these modules from being added or updated.
-* `--path-filter <path>`: Only add or update modules within these paths.
-* `-l, --language <str>`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate. If you want the specific PO file languages added as a filter, use `filter`.
+* `-x, --exclude <list[str]>`: Exclude these modules from being added or updated.
+* `--path-filter <list[Path]>`: Only add or update modules within these paths.
+* `-l, --language <list[str]>`: Define specific language codes for this component. Mostly used for localizations. If none are given, it follows the default languages on Weblate. If you want the specific PO file languages added as a filter, use `filter`.
 * `--reset`: Reset the config file for the given project and only add the given modules.
 * `--com-path <path>`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `--ent-path <path>`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `--addons-path <path>`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `--addons-path <list[Path]>`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -521,7 +521,7 @@ $ otk wl config-odoo -v saas-18.2
 * `-v, --odoo-version <str>`: The Odoo branch/version to configure, like `18.0`, `18`, `saas-18.2`, `18.2`, `s18-2`, or `master`. If omitted, it is detected from the Community path (or one of its parent folders).
 * `--com-path <path>`: Specify the path to your Odoo Community repository.  [default: `odoo`]
 * `--ent-path <path>`: Specify the path to your Odoo Enterprise repository.  [default: `enterprise`]
-* `--addons-path <path>`: Specify extra addons paths if your modules are not in Community or Enterprise.
+* `--addons-path <list[Path]>`: Specify extra addons paths if your modules are not in Community or Enterprise.
 * `--help`: Show this message and exit.
 
 
@@ -551,10 +551,10 @@ $ otk wl copy -p odoo-18 -P odoo-19 -c l10n_be -l nl,fr,de
 ### Options
 
 * `-p, --src-project <str>`: The Weblate project to copy translations from.  **[required]**
-* `-l, --src-language <str>`: The language codes to copy translations from.  **[required]**
-* `-P, --dest-project <str>`: The Weblate projects to copy translations to.
+* `-l, --src-language <list[str]>`: The language codes to copy translations from.  **[required]**
+* `-P, --dest-project <list[str]>`: The Weblate projects to copy translations to.
 * `-L, --dest-language <str>`: The language code to copy translations to.
-* `-c, --src-component <str>`: The Weblate components to copy translations from.
+* `-c, --src-component <list[str]>`: The Weblate components to copy translations from.
 * `-C, --dest-component <str>`: The Weblate component to copy translations to.
 * `-q, --query <str>`: Specify which strings need to be copied over by using a Weblate search string. Copies all translated strings if not specified.
 * `-a, --author <str>`: The author of the uploaded translations: the short name of a translator in your configuration file (see `otk wl authors`), or a full name. If not set, the user of the API token is the author.
@@ -584,9 +584,9 @@ $ otk wl download -p odoo-19 -l fr -q "state:<translated"
 ### Options
 
 * `-p, --project <str>`: The Weblate project to download translations from.  **[required]**
-* `-l, --language <str>`: The languages to download translations for. At least one language must be specified.  **[required]**
-* `-c, --component <str>`: The Weblate components to download translations from. You can use glob patterns. Downloads all components if none are specified.
-* `-i, --ignore-component <str>`: The Weblate components to ignore when downloading translations. You can use glob patterns.
+* `-l, --language <list[str]>`: The languages to download translations for. At least one language must be specified.  **[required]**
+* `-c, --component <list[str]>`: The Weblate components to download translations from. You can use glob patterns. Downloads all components if none are specified.
+* `-i, --ignore-component <list[str]>`: The Weblate components to ignore when downloading translations. You can use glob patterns.
 * `-q, --query <str>`: A Weblate query to filter strings. Files without any matching string aren't saved.
 * `--help`: Show this message and exit.
 
@@ -618,9 +618,9 @@ $ otk wl update-teams "Translators:*" -p -odoo-16,+odoo-19 -r "+Add suggestion"
 
 ### Options
 
-* `-l, --language <str>`: The language codes to add or remove from the teams, or `all`. To add a language, prefix the code with `+`. To remove a language, prefix the code with `-`.
-* `-p, --project <str>`: The project slugs to add or remove from the teams, or `all`, `public`, or `protected`. Only existing Weblate projects can be used. To add a project, prefix it with `+`. To remove a project, prefix it with `-`.
-* `-r, --role <str>`: The roles to add or remove from the teams. The names need to match exactly with Weblate. To add a role, prefix it with `+`. To remove a role, prefix it with `-`.
+* `-l, --language <list[str]>`: The language codes to add or remove from the teams, or `all`. To add a language, prefix the code with `+`. To remove a language, prefix the code with `-`.
+* `-p, --project <list[str]>`: The project slugs to add or remove from the teams, or `all`, `public`, or `protected`. Only existing Weblate projects can be used. To add a project, prefix it with `+`. To remove a project, prefix it with `-`.
+* `-r, --role <list[str]>`: The roles to add or remove from the teams. The names need to match exactly with Weblate. To add a role, prefix it with `+`. To remove a role, prefix it with `-`.
 * `--help`: Show this message and exit.
 
 
@@ -644,8 +644,8 @@ $ otk wl upload -p odoo-19 -l fr -m suggest
 ### Options
 
 * `-p, --project <str>`: The Weblate project to upload translations to.  **[required]**
-* `-l, --language <str>`: The languages to upload translations for. At least one language must be specified.  **[required]**
-* `-c, --component <str>`: The Weblate components to upload translations to. You can use glob patterns. Uploads all matching files if none are specified.
+* `-l, --language <list[str]>`: The languages to upload translations for. At least one language must be specified.  **[required]**
+* `-c, --component <list[str]>`: The Weblate components to upload translations to. You can use glob patterns. Uploads all matching files if none are specified.
 * `-a, --author <str>`: The author of the uploaded translations: the short name of a translator in your configuration file (see `otk wl authors`), or a full name. If not set, the user of the API token is the author.
 * `-e, --email <str>`: The author's email, for an author that isn't in your configuration file. Weblate finds the author's account by it.
 * `-m, --method <translate|approve|suggest>`: Upload the translations as reviewed strings (`approve`), non-reviewed strings (`translate`), or suggestions (`suggest`).  [default: `translate`]
@@ -822,8 +822,8 @@ $ otk mv setup -b 18.0 -b 19.0 -b master -r odoo -r enterprise -r upgrade -r upg
 
 ### Options
 
-* `-b, --branches <str>`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Defaults to the ones already set up, or every supported version for a new multiverse.
-* `-r, --repositories <str>`: The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. Defaults to the ones already set up, or `odoo`, `enterprise`, `design-themes`, `upgrade` and `upgrade-util` for a new multiverse, plus the ones in `multiverse.toml`. A repository the toolkit doesn't know, like the one above, is only set up again later if it has a `[repos.<name>]` table there.
+* `-b, --branches <list[str]>`: The Odoo versions to set up, like `19.0` or `saas-19.2`. Defaults to the ones already set up, or every supported version for a new multiverse.
+* `-r, --repositories <list[str]>`: The repositories to set up, like `odoo`, or `odoo-ps/psbe-internal` for another GitHub owner. Defaults to the ones already set up, or `odoo`, `enterprise`, `design-themes`, `upgrade` and `upgrade-util` for a new multiverse, plus the ones in `multiverse.toml`. A repository the toolkit doesn't know, like the one above, is only set up again later if it has a `[repos.<name>]` table there.
 * `-d, --multiverse-dir <path>`: The directory to set up the multiverse in. Defaults to this directory.
 * `--update-config`: Overwrite the configuration files of every version, like the Visual Studio Code and dev container ones, to get the latest from the toolkit. The Python virtual environments are kept.
 * `--reset-config`: Recreate the Python virtual environments as well as overwriting the configuration files of every version.
