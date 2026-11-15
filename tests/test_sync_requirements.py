@@ -99,6 +99,17 @@ def test_runbot_packages_without_odoo_phonenumbers(tmp_path: Path, monkeypatch: 
     assert sync_requirements.get_runbot_packages("Docker19")[1] is None
 
 
+def test_runbot_packages_refuse_odoo_phonenumbers_without_a_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dockerfile = RUNBOT_DOCKERFILE.replace("https://packages.odoo.com/pub/python3-phonenumbers_noble_latest.deb", "x")
+    (tmp_path / "Docker19.Dockerfile").write_text(dockerfile)
+    monkeypatch.setattr(sync_requirements, "RUNBOT_DOCKERFILES_DIR", tmp_path)
+
+    with pytest.raises(ValueError, match=r"phonenumbers package in Docker19\.Dockerfile"):
+        sync_requirements.get_runbot_packages("Docker19")
+
+
 @pytest.mark.skipif(not shutil.which("dpkg-deb"), reason="Needs dpkg-deb.")
 def test_get_deb_version_reads_the_control_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     package = tmp_path / "package"
