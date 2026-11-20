@@ -10,6 +10,12 @@ from odoo_toolkit.versions import get_versions
 TAG = "dylankiss/odoo-dev:19.0"
 
 
+@pytest.fixture(autouse=True)
+def no_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave the roles of PostgreSQL alone: `test_postgres` covers them."""
+    monkeypatch.setattr(dev_common, "ensure_roles", lambda: None)
+
+
 class FakeDocker:
     """Stand in for the Docker commands `ensure_image` runs."""
 

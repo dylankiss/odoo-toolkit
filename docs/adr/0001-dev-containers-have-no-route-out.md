@@ -18,7 +18,7 @@ rule for a single process isn't possible without extra capabilities, since Claud
 - Odoo started in the dev container has no internet. Use `otk dev run` for that.
 - Code an agent wrote still runs with internet when the user starts it in an Odoo container, and the shared PostgreSQL
   stays readable by agents: review what they wrote first, and keep data you can't share out of the databases.
-- PostgreSQL has no route out either, since it runs as a superuser and anything that connects can make it run programs
-  (`COPY ... TO PROGRAM`) that reach the internet. It is only on networks without a route out, and a small forwarder
+- PostgreSQL has no route out either, since anything that connects can do so as its superuser (`postgres`; Odoo itself
+  connects as `odoo`, a regular role) and make it run programs (`COPY ... TO PROGRAM`) that reach the internet. It is only on networks without a route out, and a small forwarder
   publishes it on the user's machine and on the open network, as `otk-postgres` there.
 - The Anthropic connection carries what Claude Code reads. It is the one accepted channel.

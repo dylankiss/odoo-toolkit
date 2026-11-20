@@ -9,9 +9,20 @@ services:
   postgres:
     image: pgvector/pgvector:pg18
     container_name: otk-postgres
+    # Mark `vector` as trusted, like `pg_trgm` and `unaccent`, so `odoo`, which isn't a superuser, can create it in its
+    # own databases for Odoo's AI modules. It only defines types, functions and operators of its own library.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        control="$$(pg_config --sharedir)/extension/vector.control"
+        if [ -f "$$control" ]; then sed -i '/^trusted/d' "$$control" && echo 'trusted = true' >> "$$control"; fi
+        exec docker-entrypoint.sh postgres
     environment:
-      POSTGRES_USER: odoo
-      POSTGRES_PASSWORD: odoo
+      # The superuser. Odoo refuses to connect as one, so it connects as `odoo`, a regular role that `otk dev db` and
+      # `otk dev run` create.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
       # Accept connections without a password, like a local PostgreSQL, so an Odoo running directly on your machine
       # connects without extra options. The port is only published to your machine. This only applies to new volumes.
@@ -24,7 +35,7 @@ services:
     # machine.
     networks: [db, dev]
     healthcheck:
-      test: ["CMD", "pg_isready", "--username", "odoo"]
+      test: ["CMD", "pg_isready", "--username", "postgres"]
       interval: 2s
       timeout: 5s
       retries: 30
