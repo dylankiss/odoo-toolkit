@@ -27,6 +27,7 @@ from .images import (
     get_native_arch,
     get_remote_image_layout,
 )
+from .postgres import ensure_roles
 from .proxy import get_proxy_logs, reload_proxy, write_allowed_domains
 from .runtime import COMPOSE_FILE, DB_FORWARD_HOST, ROLE_LABEL, RUN_LABEL, Role, get_image_tag, get_user_ids
 
@@ -121,6 +122,7 @@ def start_services(*, db_port: int | None = None, pgadmin: bool = False, pull: b
             hint += f"\nThe proxy of the dev containers logged:\n{proxy_logs}\n"
         print_error(f"Starting the services failed.{hint}", result.stderr.strip())
         raise Exit(1)
+    ensure_roles()
     # A proxy that was already running reads the domains you allow now.
     reload_proxy(restart=domains_removed)
     # The services were recreated from the new builds, so the earlier ones aren't used anymore.
