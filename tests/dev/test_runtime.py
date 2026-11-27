@@ -86,8 +86,10 @@ def test_build_run_command(version_dir: Path) -> None:
         ssh_agent=None,
     )
 
-    # The ports are only reachable from your machine.
-    assert "127.0.0.1:8070:8069" in command
+    # The ports are only reachable from your machine. Odoo listens on the same port in the container, since it reaches
+    # itself on the URL you open it on, like wkhtmltopdf for the assets of a PDF report.
+    assert "127.0.0.1:8070:8070" in command
+    assert "--http-port=8070" in command
     assert "127.0.0.1:5679:5678" in command
     # The multiverse is mounted at the same path, and Odoo runs from the version directory.
     assert f"{version_dir.parent}:{version_dir.parent}" in command
@@ -241,7 +243,7 @@ def test_cli_run(version_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 0, result.output
     assert "There is no enterprize" in result.output
     assert "addons path: design-themes, odoofin, odoo/addons" in result.output
-    assert "127.0.0.1:8075:8069" in executed[0]
+    assert "127.0.0.1:8075:8075" in executed[0]
     assert executed[0][-4:] == ["-d", "mydb", "-i", "sale"]
 
 

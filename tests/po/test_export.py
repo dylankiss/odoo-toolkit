@@ -418,12 +418,15 @@ def test_a_server_in_docker_exports_after_installing(tmp_path: Path) -> None:
     )
 
     export._run_in_container(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-        server, container, port=8069, arch="arm64", keep_db=True, git_identity={}, ssh_agent=None
+        server, container, port=8071, arch="arm64", keep_db=True, git_identity={}, ssh_agent=None
     )
+
+    assert "127.0.0.1:8071:8071" in server.odoo_cmd
 
     *_, shell, option, script = server.odoo_cmd
     assert [shell, option] == ["sh", "-c"]
     # The connection to the shared PostgreSQL goes with the install, which saves it for the export.
     install, export_cmd = script.split(" && ")
     assert "--db_host=" in install
+    assert "--http-port=8071" in install
     assert export_cmd == f"python3 odoo-bin i18n export --config {export.CONTAINER_CONFIG_FILE} sale"
