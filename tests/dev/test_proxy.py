@@ -193,6 +193,17 @@ def test_compose_keeps_postgres_off_the_open_network() -> None:
     assert "name: otk-db\n    internal: true" in compose
 
 
+def test_compose_names_the_volumes_of_the_proxy() -> None:
+    compose = (proxy.Path(proxy.__file__).parent.parent / "docker" / "compose.yaml").read_text()
+    egress = compose.split("  egress:\n")[1].split("\n  pgadmin:\n")[0]
+
+    # The image declares these as volumes, which would otherwise be new anonymous ones every time.
+    assert f"otk-egress-logs:{proxy.ACCESS_LOG.rsplit('/', 1)[0]}" in egress
+    assert "otk-egress-spool:/var/spool/squid" in egress
+    assert "name: otk-egress-logs" in compose
+    assert "name: otk-egress-spool" in compose
+
+
 def test_write_allowed_domains_says_when_a_domain_is_gone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     config_file = tmp_path / "xdg-config" / "odoo-toolkit" / "config.toml"

@@ -83,6 +83,10 @@ services:
     volumes:
       - ./egress/squid.conf:/etc/squid/squid.conf:ro
       - ${OTK_EGRESS_DIR:-./egress}:/etc/squid/otk:ro
+      # The image declares these as volumes, so name them instead of getting new anonymous ones every time the container
+      # is created. `otk dev egress` reads the refused domains from the access log.
+      - otk-egress-logs:/var/log/squid
+      - otk-egress-spool:/var/spool/squid
     networks: [default, dev]
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/3128'"]
@@ -117,6 +121,10 @@ volumes:
     name: otk-mailpit-data
   otk-pgadmin-data:
     name: otk-pgadmin-data
+  otk-egress-logs:
+    name: otk-egress-logs
+  otk-egress-spool:
+    name: otk-egress-spool
 
 networks:
   default:
