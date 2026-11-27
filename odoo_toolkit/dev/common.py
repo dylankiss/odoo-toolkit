@@ -242,8 +242,8 @@ def get_image_id(image: str) -> str | None:
 def remove_replaced_image(image: str, previous_id: str | None) -> None:
     """Remove the build an image pointed to before a pull, which now only takes space.
 
-    A build that a container still uses, like a dev container created from it, stays: `otk dev clean` removes it once
-    that container is gone.
+    A build that a container still uses stays. Opening a stopped dev container created from it removes both, and
+    `otk dev clean` removes the rest once their containers are gone.
 
     :param image: The image, like `dylankiss/odoo-dev:19.0`.
     :param previous_id: Its ID before the pull, or None if it wasn't there.

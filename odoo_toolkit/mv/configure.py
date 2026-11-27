@@ -533,7 +533,7 @@ def write_devcontainer_config(version_dir: Path, *, reset: bool) -> RepoResult:
         "workspaceFolder": str(version_dir),
         # Runs on your machine. The network only exists once the shared services are running, which `otk dev db` starts.
         # Checking that they already run takes a fraction of a second, where starting them again takes seconds.
-        "initializeCommand": _get_initialize_command(container_name),
+        "initializeCommand": _get_initialize_command(container_name, f"{DOCKER_REPOSITORY}:{version_dir.name}"),
         "runArgs": [
             f"--name={container_name}",
             f"--network={DEV_NETWORK}",
@@ -596,10 +596,14 @@ def _get_claude_config(multiverse_dir: Path, devcontainer_dir: Path) -> tuple[li
     return mounts, env
 
 
-def _get_initialize_command(container_name: str) -> str:
+def _get_initialize_command(container_name: str, image: str) -> str:
     """Get the command that runs on your machine before a dev container starts.
 
-    It makes sure the shared services run, and removes the container if it's stopped on a network that was replaced.
+    It makes sure the shared services run, and removes the container if it's stopped on a network that was replaced, or
+    created from an earlier build of its image. That build is removed too, since only the container kept it.
+
+    :param container_name: The name of the dev container, like `otk-19.0-dev`.
+    :param image: Its image, like `dylankiss/odoo-dev:19.0`.
     """
     return (
         f"[ \"$(docker inspect -f '{{{{.State.Health.Status}}}}' {DB_HOST} 2>/dev/null)\" = healthy ] "
@@ -614,7 +618,14 @@ def _get_initialize_command(container_name: str) -> str:
         f"current=$(docker inspect -f '{{{{range .NetworkSettings.Networks}}}}{{{{.NetworkID}}}} {{{{end}}}}' "
         f"{container_name} 2>/dev/null); "
         '[ -n "$network" ] && [ -n "$current" ] && [ "${current#*$network}" = "$current" ] '
-        f"&& docker rm {container_name} > /dev/null 2>&1; true"
+        f"&& docker rm {container_name} > /dev/null 2>&1; "
+        # A stopped container keeps the build of its image it was created from, even after a newer one was pulled: it
+        # wouldn't get the update, and that build, gigabytes of it, couldn't be removed. Its own changes go with it, like
+        # the caches it wrote, which only grow. A running one is left alone, and so is a build another container uses.
+        f"image=$(docker image inspect -f '{{{{.Id}}}}' {image} 2>/dev/null); "
+        f"used=$(docker inspect -f '{{{{.Image}}}}' {container_name} 2>/dev/null); "
+        '[ -n "$image" ] && [ -n "$used" ] && [ "$image" != "$used" ] '
+        f'&& docker rm {container_name} > /dev/null 2>&1 && docker image rm "$used" > /dev/null 2>&1; true'
     )
 
 
