@@ -704,6 +704,60 @@ def test_write_devcontainer_config_sends_the_network_through_the_proxy(tmp_path:
         assert env[name].split(",")[:2] == ["otk-postgres", "otk-mailpit"]
 
 
+# Answers like Docker would, for a dev container created from build `old`, stopped unless `RUNNING` is set.
+FAKE_DOCKER = """#!/bin/sh
+echo "$*" >> "$DOCKER_LOG"
+case "$*" in
+    *State.Health.Status*) echo healthy ;;
+    *State.Running*) echo true ;;
+    "network inspect"*) echo net ;;
+    *NetworkSettings*) echo "net " ;;
+    "image inspect"*) [ -n "$IMAGE_ID" ] && echo "$IMAGE_ID" || exit 1 ;;
+    *.Image*) echo old ;;
+    "rm "*) [ -z "$RUNNING" ] ;;
+esac
+"""
+
+
+@pytest.mark.parametrize(
+    ("image_id", "running", "removed"),
+    [
+        ("new", "", ["rm otk-19.0-dev", "image rm old"]),
+        ("old", "", []),
+        ("new", "1", []),
+        ("", "", []),
+    ],
+    ids=["outdated", "current", "running", "image-missing"],
+)
+def test_opening_a_dev_container_replaces_a_stopped_one_of_an_earlier_build(
+    tmp_path: Path, image_id: str, running: str, removed: list[str]
+) -> None:
+    version_dir = make_version_dir(tmp_path / "mv")
+    mv_configure.write_devcontainer_config(version_dir, reset=False)
+    command = json.loads((version_dir / ".devcontainer" / "devcontainer.json").read_text())["initializeCommand"]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(FAKE_DOCKER)
+    (bin_dir / "docker").chmod(0o755)
+    log = tmp_path / "docker.log"
+
+    subprocess.run(
+        ["sh", "-c", command],
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "DOCKER_LOG": str(log), "IMAGE_ID": image_id, "RUNNING": running},
+        check=True,
+    )
+
+    calls = log.read_text().splitlines()
+    assert "image inspect -f {{.Id}} dylankiss/odoo-dev:19.0" in calls
+    # A running container is never forced out, and only the build the removed container used goes with it.
+    assert [call for call in calls if call.startswith("image rm")] == [call for call in removed if "image" in call]
+    assert all("-f" not in call.split() for call in calls if call.startswith(("rm", "image rm")))
+    if removed:
+        assert "rm otk-19.0-dev" in calls
+    else:
+        assert "image rm old" not in calls
+
+
 def test_get_allowed_domains_defaults_to_what_claude_code_and_vscode_need() -> None:
     domains = allowed_domains.get_allowed_domains()
 
