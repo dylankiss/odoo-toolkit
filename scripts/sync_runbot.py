@@ -98,22 +98,35 @@ def fetch(url: str, params: dict[str, str | int] | None = None) -> str:
     return response.text
 
 
-def build_registry(versions: list[RunbotVersion], dockerfiles: dict[str, str]) -> dict[str, dict[str, str]]:
+def build_registry(
+    versions: list[RunbotVersion],
+    dockerfiles: dict[str, str],
+    previous: dict[str, dict[str, str]] | None = None,
+) -> dict[str, dict[str, str]]:
     """Build the version registry, sorted from oldest to newest version.
 
     :param versions: The versions listed on runbot.
     :param dockerfiles: The Dockerfiles per runbot image.
+    :param previous: The registry so far, for the Python version of a version runbot lists without one.
     :return: The registry, mapping each version to its image, Ubuntu release and Python version.
     """
     registry: dict[str, dict[str, str]] = {}
     for version in sorted(versions, key=lambda v: version_sort_key(v.name)):
-        if not version.python:
-            print(f"Skipping {version.name}: runbot lists no Python version.", file=sys.stderr)
-            continue
+        python = version.python
+        if not python:
+            # Runbot sometimes lists a version without the details of its build, like 17.0 at times.
+            python = (previous or {}).get(version.name, {}).get("python", "")
+            if not python:
+                print(f"Skipping {version.name}: runbot lists no Python version.", file=sys.stderr)
+                continue
+            print(
+                f"Runbot lists no Python version for {version.name}: keeping Python {python} from before.",
+                file=sys.stderr,
+            )
         registry[version.name] = {
             "image": version.image,
             "ubuntu": parse_ubuntu_release(dockerfiles[version.image]),
-            "python": version.python,
+            "python": python,
         }
     return registry
 
@@ -146,8 +159,9 @@ def main() -> int:
         if version.image not in dockerfiles:
             dockerfiles[version.image] = fetch(DOCKERFILE_URL, params={"id": version.dockerfile_id})
 
-    registry = build_registry(versions, dockerfiles)
-    if removed := sorted(set(json.loads(VERSIONS_FILE.read_text(encoding="utf-8"))) - set(registry)):
+    previous: dict[str, dict[str, str]] = json.loads(VERSIONS_FILE.read_text(encoding="utf-8"))
+    registry = build_registry(versions, dockerfiles, previous)
+    if removed := sorted(set(previous) - set(registry)):
         print(f"No longer on runbot: {', '.join(removed)}. Check that this is expected.", file=sys.stderr)
     write_dockerfiles(dockerfiles, {info["image"] for info in registry.values()})
     VERSIONS_FILE.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
