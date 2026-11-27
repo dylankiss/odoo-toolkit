@@ -14,11 +14,6 @@
     "ubuntu": "noble",
     "python": "3.12"
   },
-  "saas-19.1": {
-    "image": "Docker191",
-    "ubuntu": "noble",
-    "python": "3.12"
-  },
   "saas-19.2": {
     "image": "Docker191",
     "ubuntu": "noble",

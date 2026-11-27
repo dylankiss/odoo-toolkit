@@ -36,22 +36,22 @@ RUN curl -s https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor
 # RUN npm install
 RUN npm install --force -g rtlcss@3.4.0 es-check@6.0.0 eslint@8.1.0 prettier@2.7.1 eslint-config-prettier@8.5.0 eslint-plugin-prettier@4.2.1
 
-# Install branch debian/control with latest postgresql-client with values {"odoo_branch": "17.0", "os_release_name": "`lsb_release -s -c`"}
-# This layer updates the repository list to get the latest postgresql-client, mainly needed if the host postgresql version is higher than the default version of the docker os
+# Install branch debian/control with latest postgresql-client with values {"odoo_branch": "17.0"}
+
 # CACHE 60
 ADD https://raw.githubusercontent.com/odoo/odoo/17.0/debian/control /tmp/control.txt
-RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/trusted.gpg.d/psql_client.asc \
-    && echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -s -c`-pgdg main" > /etc/apt/sources.list.d/pgclient.list \
-    && apt-get update \
+RUN apt-get update \
     && sed -n '/^Depends:/,/^[A-Z]/p' /tmp/control.txt \
         | awk '/^ [a-z]/ { gsub(/,/,"") ; gsub(" ", "") ; print $NF }' | sort -u \
         | DEBIAN_FRONTEND=noninteractive xargs apt-get install -y -qq --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Setup postgresql server
+# Setup postgresql server with values {"os_release_name": "`lsb_release -s -c`"}
 
 ENV PG_VERSION=${PG_VERSION}
+RUN curl -sSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/trusted.gpg.d/pgdg.asc \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -s -c`-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 RUN set -x ; \
     apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql-${PG_VERSION} postgresql-${PG_VERSION}-pgvector locales\
