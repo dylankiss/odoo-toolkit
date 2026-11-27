@@ -66,3 +66,28 @@ def test_parse_ubuntu_release() -> None:
     assert sync_runbot.parse_ubuntu_release("# FROM ubuntu:noble\nFROM ubuntu:noble\n\nENV LANG C.UTF-8\n") == "noble"
     with pytest.raises(ValueError, match="not based on an Ubuntu image"):
         sync_runbot.parse_ubuntu_release("FROM debian:bookworm\n")
+
+
+def test_build_registry_keeps_the_python_version_runbot_leaves_out(capsys: pytest.CaptureFixture[str]) -> None:
+    versions = [
+        sync_runbot.RunbotVersion(name="18.0", dockerfile_id=70, image="Docker18", python="3.12"),
+        sync_runbot.RunbotVersion(name="17.0", dockerfile_id=43, image="Docker17", python=""),
+        sync_runbot.RunbotVersion(name="16.0", dockerfile_id=31, image="Docker16", python=""),
+    ]
+    dockerfiles = {
+        "Docker18": "FROM ubuntu:noble\n",
+        "Docker17": "FROM ubuntu:jammy\n",
+        "Docker16": "FROM ubuntu:jammy\n",
+    }
+    previous = {"17.0": {"image": "Docker17", "ubuntu": "jammy", "python": "3.10"}}
+
+    registry = sync_runbot.build_registry(versions, dockerfiles, previous)
+
+    assert registry == {
+        "17.0": {"image": "Docker17", "ubuntu": "jammy", "python": "3.10"},
+        "18.0": {"image": "Docker18", "ubuntu": "noble", "python": "3.12"},
+    }
+    errors = capsys.readouterr().err
+    assert "keeping Python 3.10 from before" in errors
+    # Without a Python version from before either, the version is left out.
+    assert "Skipping 16.0" in errors
