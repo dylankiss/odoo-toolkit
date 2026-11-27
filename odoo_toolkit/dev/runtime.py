@@ -41,7 +41,7 @@ RUN_LABEL = "io.github.dylankiss.odoo-toolkit.version"
 ROLE_LABEL = "io.github.dylankiss.odoo-toolkit.role"
 # What a container is for: running Odoo, a shell, or exporting terms with `otk po export`.
 Role = Literal["run", "shell", "export"]
-# The ports Odoo and the debugger listen on inside the container.
+# The port Odoo listens on when it isn't published, like in a dev container, and the one of the debugger in the container.
 ODOO_PORT = 8069
 DEBUG_PORT = 5678
 # Printed when Odoo waits for the debugger, which Visual Studio Code waits for before attaching.
@@ -143,6 +143,7 @@ def get_odoo_args(
     exclude: Collection[str] = (),
     community: bool = False,
     upgrade: bool = False,
+    port: int = ODOO_PORT,
 ) -> list[str]:
     """Get the Odoo options that load the modules of a version and connect Odoo to the shared services.
 
@@ -150,12 +151,13 @@ def get_odoo_args(
     :param exclude: The repositories to leave out of the addons path, like `enterprise`.
     :param community: Whether to only load Odoo Community's modules.
     :param upgrade: Whether to add the upgrade scripts, if their repositories are linked into the version.
+    :param port: The port Odoo listens on.
     :return: The options, without the path of `odoo-bin`.
     """
     addons_paths = get_addons_paths(version_dir, exclude=exclude, community=community)
     args = [
         f"--addons-path={','.join(str(path) for path in addons_paths)}",
-        *get_container_args(),
+        *get_container_args(port),
         f"--smtp={SMTP_HOST}",
         "--smtp-port=1025",
         f"--data-dir={VOLUMES['otk-filestore']}",
@@ -168,15 +170,19 @@ def get_odoo_args(
     return args
 
 
-def get_container_args() -> list[str]:
-    """Get the Odoo options that connect Odoo in a container to the shared PostgreSQL, and let Docker publish it."""
+def get_container_args(port: int = ODOO_PORT) -> list[str]:
+    """Get the Odoo options that connect Odoo in a container to the shared PostgreSQL, and let Docker publish it.
+
+    :param port: The port Odoo listens on. A published Odoo listens on the same port as on your machine, since it reaches
+        itself on the URL you open it on, like wkhtmltopdf for the assets of a PDF report.
+    """
     return [
         f"--db_host={DB_HOST}",
         "--db_user=odoo",
         "--db_password=odoo",
         # Since saas-19.1, Odoo only listens on the container's localhost by default, which Docker can't publish.
         "--http-interface=0.0.0.0",
-        f"--http-port={ODOO_PORT}",
+        f"--http-port={port}",
     ]
 
 
@@ -185,7 +191,13 @@ def build_odoo_command(options: RunOptions) -> list[str]:
     version_dir = options.version_dir
     command = [
         str(version_dir / "odoo" / "odoo-bin"),
-        *get_odoo_args(version_dir, exclude=options.exclude, community=options.community, upgrade=options.upgrade),
+        *get_odoo_args(
+            version_dir,
+            exclude=options.exclude,
+            community=options.community,
+            upgrade=options.upgrade,
+            port=options.port or ODOO_PORT,
+        ),
         *options.odoo_args,
     ]
     if options.debug_port:
@@ -235,7 +247,7 @@ def build_run_command(
     run += ["--platform", f"linux/{options.arch}", "--network", NETWORK, "--workdir", str(options.version_dir)]
     run += ["--interactive", "--tty"] if tty else ["--interactive"]
     if options.port:
-        run += ["--publish", f"127.0.0.1:{options.port}:{ODOO_PORT}"]
+        run += ["--publish", f"127.0.0.1:{options.port}:{options.port}"]
     if options.debug_port:
         run += ["--publish", f"127.0.0.1:{options.debug_port}:{DEBUG_PORT}"]
     run += ["--volume", f"{multiverse_dir}:{multiverse_dir}"]

@@ -607,8 +607,7 @@ def _run_in_container(
         version_dir=container.version_dir,
         version=container.version,
         port=port,
-        # Odoo listens on its usual port in the container, published on the free port we found.
-        command=_chain_export([*server.odoo_cmd, *get_container_args()], server.export_cmd),
+        command=_chain_export([*server.odoo_cmd, *get_container_args(port)], server.export_cmd),
         arch=arch,
         role="export",
     )
