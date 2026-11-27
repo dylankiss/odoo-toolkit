@@ -61,6 +61,7 @@ $ otk [OPTIONS] COMMAND [ARGS]...
 | [`otk dev stop`](#otk-dev-stop)   | Stop the Odoo containers started with `otk dev run`.                                 |
 | [`otk dev db`](#otk-dev-db)       | Start PostgreSQL and Mailpit, the services Odoo uses, without starting Odoo.        |
 | [`otk dev egress`](#otk-dev-egress) | Apply the allowed domains of the dev containers, and show what they were refused.  |
+| [`otk dev pull`](#otk-dev-pull)   | Pull the newer builds of the Docker images of this toolkit you have.                 |
 | [`otk dev clean`](#otk-dev-clean) | Remove the Docker containers and images of this toolkit that only take space.       |
 
 ### [Odoo Weblate (`otk wl`)](#odoo-weblate-otk-wl-1)
@@ -360,7 +361,7 @@ $ otk dev stop [OPTIONS]
 > Odoo leaves the connection settings you don't pass to PostgreSQL's client library, which reads these variables. If you also run another PostgreSQL on your machine, the tools then connect to this one by default.
 
 > [!NOTE]
-> Images are pulled once and then kept, so a rebuilt image goes unnoticed. At most once a day per image, `otk dev run`, `otk dev shell` and `otk dev db` compare your Odoo image and the images of these services with Docker Hub, and tell you when there is a newer build, with the command to get it (`--pull`). A dev container keeps using the image it was created from, so rebuild it after pulling. Images you built yourself are skipped, and nothing is checked in scripts, in CI, or with `OTK_NO_UPDATE_CHECK` set.
+> Images are pulled once and then kept, so a rebuilt image goes unnoticed. At most once a day per image, `otk dev run`, `otk dev shell` and `otk dev db` compare your Odoo image and the images of these services with Docker Hub, and tell you when there is a newer build, with the command to get it (`--pull`). [`otk dev pull`](#otk-dev-pull) gets the newer builds of all your images at once. A dev container keeps using the image it was created from, so rebuild it after pulling. Images you built yourself are skipped, and nothing is checked in scripts, in CI, or with `OTK_NO_UPDATE_CHECK` set.
 
 ### Usage
 
@@ -395,13 +396,31 @@ $ otk dev egress [OPTIONS]
 * `--help`: Show this message and exit.
 
 
+## `otk dev pull`
+
+**Pull the newer builds of the Docker images of this toolkit you have.**
+
+That's the Odoo image of every version you used, and the images of the shared services. The services that are running are recreated from their new image, which keeps their data. The earlier builds are removed, unless a container still uses them. Images you built yourself (with `--build`) stay as they are.
+
+Odoo servers that are running and dev containers keep the image they started from: restart them, and rebuild the dev containers, to use the new one.
+
+### Usage
+
+```console
+$ otk dev pull [OPTIONS]
+```
+
+### Options
+
+* `--help`: Show this message and exit.
+
 ## `otk dev clean`
 
 **Remove the Docker containers and images of this toolkit that only take space.**
 
 That's the stopped dev containers, which Visual Studio Code creates again when you open their version, and the earlier builds of the Odoo images that nothing uses anymore. Running containers, the current images, and your databases, filestores and logins, which are in volumes, stay. It shows what it found and its size, and asks before removing anything.
 
-Pulling a newer image with `--pull` already removes the earlier build, unless a container still uses it, like the dev container of that version. Run this command now and then to remove what's left.
+Pulling a newer image with `--pull` or `otk dev pull` already removes the earlier build, unless a container still uses it, like the dev container of that version. Run this command now and then to remove what's left.
 
 ### Usage
 
